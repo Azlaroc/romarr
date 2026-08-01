@@ -1,10 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
 )
@@ -173,6 +177,62 @@ func TestLibraryListAndDelete(t *testing.T) {
 }
 
 // ── Downloads (jobs) ───────────────────────────────────────────────────────────
+
+func TestDownloadNZBRoutesToNZBGet(t *testing.T) {
+	t.Run("not configured", func(t *testing.T) {
+		env := newTestEnv(t, nil)
+		rr := env.do("POST", "/api/download", `{
+			"download_protocol":"nzb",
+			"download_url":"https://indexer.example/game.nzb",
+			"title":"Game"
+		}`)
+		wantStatus(t, rr, http.StatusBadRequest)
+		if !strings.Contains(rr.Body.String(), "not configured") {
+			t.Errorf("body=%s", rr.Body.String())
+		}
+	})
+
+	t.Run("configured", func(t *testing.T) {
+		var gotMethod string
+		mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				Method string `json:"method"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			gotMethod = req.Method
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"error":   map[string]interface{}{"code": -1, "message": "test stop"},
+			})
+		}))
+		defer mock.Close()
+
+		env := newTestEnv(t, func(c *config.Config) {
+			c.NZBGetURL = mock.URL
+			c.NZBGetCategory = "games"
+		})
+		rr := env.do("POST", "/api/download", `{
+			"download_protocol":"nzb",
+			"download_url":"https://indexer.example/game.nzb",
+			"title":"Game"
+		}`)
+		wantStatus(t, rr, http.StatusOK)
+		response := decodeMap(t, rr)
+		if response["success"] != true || response["job_id"] == "" {
+			t.Fatalf("response=%v", response)
+		}
+		if gotMethod != "append" {
+			t.Errorf("NZBGet method=%q, want append", gotMethod)
+		}
+		job, ok := env.jobs.Get(response["job_id"].(string))
+		if !ok || job["status"] != "error" || job["source_client"] != "nzbget" {
+			t.Errorf("job=%v", job)
+		}
+	})
+}
 
 func TestDownloadsListClearAndDelete(t *testing.T) {
 	env := newTestEnv(t, nil)

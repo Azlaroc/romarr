@@ -189,6 +189,20 @@ func (s *Server) handleTestSABnzbd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"success": true})
 }
 
+func (s *Server) handleTestNZBGet(w http.ResponseWriter, r *http.Request) {
+	client := s.mgr.NZBGet()
+	if client == nil {
+		writeJSON(w, 200, map[string]interface{}{"success": false, "error": "Not configured"})
+		return
+	}
+	version, err := client.TestConnection()
+	if err != nil {
+		writeJSON(w, 200, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"success": true, "version": version})
+}
+
 // ── Source Health ─────────────────────────────────────────────────────────────
 
 func (s *Server) handleSourcesHealth(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +235,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"sabnzbd": map[string]interface{}{
 			"configured": s.cfg.HasSABnzbd(),
 			"url":        s.cfg.SABnzbdURL,
+		},
+		"nzbget": map[string]interface{}{
+			"configured": s.cfg.HasNZBGet(),
+			"url":        s.cfg.NZBGetURL,
 		},
 		"transmission": map[string]interface{}{
 			"configured": s.cfg.HasTransmission(),

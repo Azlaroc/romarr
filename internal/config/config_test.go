@@ -9,7 +9,8 @@ func TestLoad_Defaults(t *testing.T) {
 	// Clear relevant env vars
 	for _, k := range []string{"PROWLARR_URL", "PROWLARR_API_KEY", "QB_URL", "QB_USER", "QB_PASS",
 		"QB_CONTAINER_NAME", "GAMARR_PORT", "MAX_RETRIES", "METRICS_ENABLED", "PROWLARR_GAME_INDEXERS",
-		"AI_MONITOR_ENABLED", "EXTRACT_ARCHIVES", "SABNZBD_URL", "SABNZBD_API_KEY"} {
+		"AI_MONITOR_ENABLED", "EXTRACT_ARCHIVES", "SABNZBD_URL", "SABNZBD_API_KEY",
+		"NZBGET_URL", "NZBGET_USER", "NZBGET_PASS", "NZBGET_CATEGORY"} {
 		os.Unsetenv(k)
 	}
 
@@ -61,6 +62,10 @@ func TestLoad_FromEnv(t *testing.T) {
 	os.Setenv("PROWLARR_GAME_INDEXERS", "1,2,3")
 	os.Setenv("AI_MONITOR_ENABLED", "true")
 	os.Setenv("EXTRACT_ARCHIVES", "1")
+	os.Setenv("NZBGET_URL", "http://nzbget:6789")
+	os.Setenv("NZBGET_USER", "gamarr")
+	os.Setenv("NZBGET_PASS", "secret")
+	os.Setenv("NZBGET_CATEGORY", "roms")
 	defer func() {
 		os.Unsetenv("GAMARR_PORT")
 		os.Unsetenv("PROWLARR_API_KEY")
@@ -70,6 +75,10 @@ func TestLoad_FromEnv(t *testing.T) {
 		os.Unsetenv("PROWLARR_GAME_INDEXERS")
 		os.Unsetenv("AI_MONITOR_ENABLED")
 		os.Unsetenv("EXTRACT_ARCHIVES")
+		os.Unsetenv("NZBGET_URL")
+		os.Unsetenv("NZBGET_USER")
+		os.Unsetenv("NZBGET_PASS")
+		os.Unsetenv("NZBGET_CATEGORY")
 	}()
 
 	cfg := Load()
@@ -97,6 +106,9 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 	if !cfg.ExtractArchives {
 		t.Error("ExtractArchives should be true from env '1'")
+	}
+	if cfg.NZBGetURL != "http://nzbget:6789" || cfg.NZBGetUser != "gamarr" || cfg.NZBGetPass != "secret" || cfg.NZBGetCategory != "roms" {
+		t.Errorf("unexpected NZBGet config: url=%q user=%q pass=%q category=%q", cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass, cfg.NZBGetCategory)
 	}
 }
 
@@ -153,6 +165,17 @@ func TestHasSABnzbd(t *testing.T) {
 				t.Errorf("HasSABnzbd()=%v, want %v", cfg.HasSABnzbd(), tt.expect)
 			}
 		})
+	}
+}
+
+func TestHasNZBGet(t *testing.T) {
+	cfg := &Config{NZBGetURL: "http://nzbget:6789"}
+	if !cfg.HasNZBGet() {
+		t.Error("expected true when URL is set")
+	}
+	cfg.NZBGetURL = ""
+	if cfg.HasNZBGet() {
+		t.Error("expected false when URL is empty")
 	}
 }
 

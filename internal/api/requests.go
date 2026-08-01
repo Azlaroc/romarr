@@ -319,7 +319,7 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 		}
 		jobID = s.mgr.DownloadDDL(body.DownloadURL, body.VimmID, body.Title,
 			body.Platform, body.PlatformSlug, body.IsPC)
-	} else if body.DownloadProtocol == "nzb" && s.sab != nil {
+	} else if body.DownloadProtocol == "nzb" {
 		if body.DownloadURL == "" {
 			writeError(w, http.StatusBadRequest, "No NZB URL")
 			return

@@ -33,7 +33,7 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 
 ### Downloads
 
-- **4 download clients** -- qBittorrent, Transmission, Deluge (torrents), SABnzbd (Usenet/NZB)
+- **5 download clients** -- qBittorrent, Transmission, Deluge (torrents), SABnzbd and NZBGet (Usenet/NZB)
 - **Download monitoring** -- real-time progress tracking with auto-organize on completion
 - **Retry and recovery** -- configurable retry attempts with backoff, orphan torrent recovery on startup
 - **Archive extraction** -- auto-extract 7z, zip, and rar archives after download
@@ -208,6 +208,12 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 | `SABNZBD_URL` | | SABnzbd URL |
 | `SABNZBD_API_KEY` | | SABnzbd API key |
 | `SABNZBD_CATEGORY` | `games` | NZB download category |
+| `NZBGET_URL` | | NZBGet URL (for example `http://nzbget:6789`) |
+| `NZBGET_USER` | | NZBGet control username |
+| `NZBGET_PASS` | | NZBGet control password |
+| `NZBGET_CATEGORY` | `games` | NZB download category |
+
+Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SABnzbd is used first to preserve existing deployments.
 
 ### Library and Organization
 
@@ -266,8 +272,9 @@ internal/
   api/                           HTTP handlers + chi router + auth + rate limiting
   search/                        Source drivers (Torznab, DDL archive, web-scrape)
   sources/                       Runtime sources registry (embedded defaults + loader)
-  download/                      Download manager (qBit, Transmission, Deluge, DDL)
+  download/                      Download manager (qBit, Transmission, Deluge, Usenet, DDL)
   sabnzbd/                       SABnzbd client
+  nzbget/                        NZBGet JSON-RPC client
   safety/                        Safety scoring engine
   scheduler/                     Scheduled wishlist searches
   monitor/                       AI-powered download monitoring

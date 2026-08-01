@@ -57,6 +57,12 @@ type Config struct {
 	SABnzbdAPIKey   string
 	SABnzbdCategory string
 
+	// NZBGet (Usenet)
+	NZBGetURL      string
+	NZBGetUser     string
+	NZBGetPass     string
+	NZBGetCategory string
+
 	// Deluge
 	DelugeURL  string
 	DelugePass string
@@ -173,6 +179,11 @@ func Load() *Config {
 		SABnzbdAPIKey:   envStr("SABNZBD_API_KEY", ""),
 		SABnzbdCategory: envStr("SABNZBD_CATEGORY", "games"),
 
+		NZBGetURL:      envStr("NZBGET_URL", ""),
+		NZBGetUser:     envStr("NZBGET_USER", ""),
+		NZBGetPass:     envStr("NZBGET_PASS", ""),
+		NZBGetCategory: envStr("NZBGET_CATEGORY", "games"),
+
 		DelugeURL:  envStr("DELUGE_URL", ""),
 		DelugePass: envStr("DELUGE_PASS", ""),
 
@@ -247,6 +258,10 @@ func (c *Config) HasQBittorrent() bool {
 
 func (c *Config) HasSABnzbd() bool {
 	return c.SABnzbdURL != "" && c.SABnzbdAPIKey != ""
+}
+
+func (c *Config) HasNZBGet() bool {
+	return c.NZBGetURL != ""
 }
 
 func (c *Config) HasTransmission() bool {

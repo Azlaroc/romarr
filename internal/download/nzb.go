@@ -5,17 +5,26 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"gamarr/internal/nzbget"
 	"gamarr/internal/sabnzbd"
 )
 
-// DownloadNZB starts a Usenet/NZB download via SABnzbd.
+// DownloadNZB starts a Usenet/NZB download. SABnzbd is preferred when both
+// clients are configured to preserve the existing behavior.
 func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
-	if sab == nil {
-		return "", fmt.Errorf("SABnzbd not configured")
+	if sab != nil {
+		return m.downloadSABnzbd(sab, nzbURL, title, platf, platSlug, isPC)
 	}
+	if m.nzbget != nil {
+		return m.downloadNZBGet(m.nzbget, nzbURL, title, platf, platSlug, isPC)
+	}
+	return "", fmt.Errorf("usenet download client not configured")
+}
 
+func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
 	jobID := newJobID()
 	m.jobs.Set(jobID, map[string]interface{}{
 		"status":        "downloading",
@@ -26,6 +35,7 @@ func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlu
 		"error":         nil,
 		"detail":        "Sending to SABnzbd...",
 		"source_type":   "nzb",
+		"source_client": "sabnzbd",
 	})
 	m.jobs.LogActivity("download_started", title, "NZB via SABnzbd", jobID, nil)
 
@@ -40,6 +50,35 @@ func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlu
 	m.jobs.Update(jobID, "detail", "Downloading via Usenet...")
 
 	go m.watchSABnzbdDownload(sab, jobID, nzoID, title, platf, platSlug, isPC)
+	return jobID, nil
+}
+
+func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
+	jobID := newJobID()
+	m.jobs.Set(jobID, map[string]interface{}{
+		"status":        "downloading",
+		"title":         title,
+		"platform":      platf,
+		"platform_slug": platSlug,
+		"is_pc":         isPC,
+		"error":         nil,
+		"detail":        "Sending to NZBGet...",
+		"source_type":   "nzb",
+		"source_client": "nzbget",
+	})
+	m.jobs.LogActivity("download_started", title, "NZB via NZBGet", jobID, nil)
+
+	nzbID, err := client.AddNZBByURL(nzbURL, title, m.cfg.NZBGetCategory)
+	if err != nil {
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+		return jobID, nil
+	}
+	m.jobs.Update(jobID, "detail", "Downloading via NZBGet...")
+
+	go m.watchNZBGetDownload(client, jobID, nzbID, title, platf, platSlug, isPC)
 	return jobID, nil
 }
 
@@ -75,7 +114,7 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 							"status": "organizing",
 							"detail": "NZB download complete. Organizing...",
 						})
-						m.organizeNZBDownload(jobID, slot.Storage, title, platf, platSlug, isPC)
+						m.organizeNZBDownloadWithClient(jobID, slot.Storage, title, platf, platSlug, isPC, "sabnzbd")
 						return
 					} else if slot.Status == "Failed" {
 						m.jobs.UpdateMulti(jobID, map[string]interface{}{
@@ -96,11 +135,73 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 	})
 }
 
+func (m *Manager) watchNZBGetDownload(client *nzbget.Client, jobID string, nzbID int64, title, platf, platSlug string, isPC bool) {
+	slog.Info("watching NZBGet download", "title", title, "nzb_id", nzbID)
+	maxWait := 7 * 24 * time.Hour
+	start := time.Now()
+
+	for time.Since(start) < maxWait {
+		queue, err := client.GetQueue()
+		if err == nil {
+			for _, item := range queue {
+				if item.NZBID != nzbID {
+					continue
+				}
+				if item.FileSizeMB > 0 {
+					pct := (float64(item.FileSizeMB-item.RemainingSizeMB) / float64(item.FileSizeMB)) * 100
+					pct = max(0, min(100, pct))
+					m.jobs.Update(jobID, "detail", fmt.Sprintf("Downloading via NZBGet... %.1f%%", pct))
+				} else if item.Status != "" {
+					m.jobs.Update(jobID, "detail", fmt.Sprintf("NZBGet: %s", strings.ToLower(item.Status)))
+				}
+				break
+			}
+		}
+
+		history, err := client.GetHistory()
+		if err == nil {
+			for _, item := range history {
+				if item.NZBID != nzbID {
+					continue
+				}
+				status := strings.ToUpper(item.Status)
+				switch {
+				case strings.HasPrefix(status, "SUCCESS/"):
+					storagePath := item.StoragePath()
+					slog.Info("NZBGet download completed", "title", title, "path", storagePath)
+					m.jobs.UpdateMulti(jobID, map[string]interface{}{
+						"status": "organizing",
+						"detail": "NZB download complete. Organizing...",
+					})
+					m.organizeNZBDownloadWithClient(jobID, storagePath, title, platf, platSlug, isPC, "nzbget")
+					return
+				case strings.HasPrefix(status, "FAILURE/"), strings.HasPrefix(status, "DELETED/"), strings.HasPrefix(status, "WARNING/"):
+					m.jobs.UpdateMulti(jobID, map[string]interface{}{
+						"status": "error",
+						"error":  fmt.Sprintf("NZBGet download failed (%s)", item.Status),
+					})
+					return
+				}
+			}
+		}
+
+		time.Sleep(10 * time.Second)
+	}
+	m.jobs.UpdateMulti(jobID, map[string]interface{}{
+		"status": "error",
+		"error":  "Timed out waiting for NZBGet download",
+	})
+}
+
 func (m *Manager) organizeNZBDownload(jobID, storagePath, title, platf, platSlug string, isPC bool) {
+	m.organizeNZBDownloadWithClient(jobID, storagePath, title, platf, platSlug, isPC, "sabnzbd")
+}
+
+func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf, platSlug string, isPC bool, sourceClient string) {
 	if storagePath == "" || !pathExists(storagePath) {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "error",
-			"error":  "SABnzbd storage path not found",
+			"error":  "Usenet storage path not found",
 		})
 		return
 	}
@@ -137,7 +238,7 @@ func (m *Manager) organizeNZBDownload(jobID, storagePath, title, platf, platSlug
 		"detail": fmt.Sprintf("Moved to %s", label),
 	})
 	writeMetadataSidecar(dest, title, platf, platSlug, isPC, "nzb")
-	m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "nzb", "sabnzbd", "nzb:"+dest)
+	m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "nzb", sourceClient, "nzb:"+dest)
 	m.jobs.LogActivity("download_completed", title, fmt.Sprintf("NZB to %s", label), jobID, nil)
 
 	// Also extract archives for ROMs if enabled

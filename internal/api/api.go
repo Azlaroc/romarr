@@ -142,6 +142,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Post("/api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
 	r.Post("/api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
 	r.Post("/api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))
+	r.Post("/api/test/nzbget", requireAdmin(s.handleTestNZBGet))
 
 	// Source health
 	r.Get("/api/sources/health", s.handleSourcesHealth)
@@ -595,7 +596,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// NZB / Usenet route
-	if req.DownloadProtocol == "nzb" && s.sab != nil {
+	if req.DownloadProtocol == "nzb" {
 		nzbURL := req.DownloadURL
 		if nzbURL == "" {
 			writeError(w, 400, "No NZB URL")

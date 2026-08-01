@@ -31,7 +31,7 @@ func TestConfigEndpointReportsConfiguredServices(t *testing.T) {
 	wantStatus(t, rr, 200)
 	m := decodeMap(t, rr)
 
-	for _, svc := range []string{"prowlarr", "qbittorrent", "sabnzbd", "transmission", "deluge", "rawg"} {
+	for _, svc := range []string{"prowlarr", "qbittorrent", "sabnzbd", "nzbget", "transmission", "deluge", "rawg"} {
 		section, ok := m[svc].(map[string]interface{})
 		if !ok {
 			t.Fatalf("config missing %q section: %v", svc, m)
