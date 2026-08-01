@@ -67,7 +67,8 @@ function renderResults() {
     const safetyClass = score >= 70 ? 'text-emerald-400 bg-emerald-400/10' : score >= 40 ? 'text-yellow-400 bg-yellow-400/10' : 'text-red-400 bg-red-400/10';
     const safetyLabel = score >= 70 ? 'Safe' : score >= 40 ? 'Caution' : 'Risky';
     const isDDL = r.source_type === 'ddl';
-    const srcBadge = isDDL ? '<span class="px-1.5 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400">DDL</span>' : '<span class="px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-400">Torrent</span>';
+    const isNZB = r.download_protocol === 'nzb';
+    const srcBadge = isDDL ? '<span class="px-1.5 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400">DDL</span>' : isNZB ? '<span class="px-1.5 py-0.5 text-xs rounded bg-orange-500/20 text-orange-400">NZB</span>' : '<span class="px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-400">Torrent</span>';
     const platColor = r.is_pc ? 'bg-orange-500/20 text-orange-400' : 'bg-emerald-500/20 text-emerald-400';
     const warnings = (r.safety_warnings||[]).map(esc).join(' &middot; ');
     return `<div class="game-card bg-slate-900 border border-slate-800 rounded-xl p-4 ${score < 40 ? 'opacity-60' : ''}">

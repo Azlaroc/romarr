@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"time"
 
 	"gamarr/internal/config"
@@ -103,23 +104,29 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 			}
 		}
 
+		downloadProtocol := "torrent"
+		if strings.EqualFold(jsonStr(item, "protocol"), "usenet") {
+			downloadProtocol = "nzb"
+		}
+
 		results = append(results, &models.SearchResult{
-			Title:          jsonStr(item, "title"),
-			Size:           size,
-			SizeHuman:      HumanSize(size),
-			Seeders:        jsonInt(item, "seeders"),
-			Leechers:       jsonInt(item, "leechers"),
-			Indexer:        jsonStr(item, "indexer"),
-			DownloadURL:    jsonStr(item, "downloadUrl"),
-			MagnetURL:      jsonStr(item, "magnetUrl"),
-			InfoHash:       jsonStr(item, "infoHash"),
-			GUID:           jsonStr(item, "guid"),
-			Platform:       detected.Name,
-			PlatformSlug:   detected.Slug,
-			IsPC:           detected.IsPC,
-			Age:            jsonInt(item, "age"),
-			SourceType:     "torrent",
-			SafetyWarnings: []string{},
+			Title:            jsonStr(item, "title"),
+			Size:             size,
+			SizeHuman:        HumanSize(size),
+			Seeders:          jsonInt(item, "seeders"),
+			Leechers:         jsonInt(item, "leechers"),
+			Indexer:          jsonStr(item, "indexer"),
+			DownloadURL:      jsonStr(item, "downloadUrl"),
+			MagnetURL:        jsonStr(item, "magnetUrl"),
+			InfoHash:         jsonStr(item, "infoHash"),
+			GUID:             jsonStr(item, "guid"),
+			Platform:         detected.Name,
+			PlatformSlug:     detected.Slug,
+			IsPC:             detected.IsPC,
+			Age:              jsonInt(item, "age"),
+			SourceType:       "torrent",
+			DownloadProtocol: downloadProtocol,
+			SafetyWarnings:   []string{},
 		})
 	}
 	return results

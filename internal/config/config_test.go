@@ -112,6 +112,17 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_ExplicitEmptyQBURLDisablesQBittorrent(t *testing.T) {
+	t.Setenv("QB_URL", "")
+	cfg := Load()
+	if cfg.QBURL != "" {
+		t.Fatalf("QBURL=%q, want empty", cfg.QBURL)
+	}
+	if cfg.HasQBittorrent() {
+		t.Fatal("qBittorrent should be disabled by an explicitly empty QB_URL")
+	}
+}
+
 func TestHasProwlarr(t *testing.T) {
 	tests := []struct {
 		name   string

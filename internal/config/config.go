@@ -149,7 +149,7 @@ func Load() *Config {
 		ProwlarrURL:    envStr("PROWLARR_URL", "http://prowlarr:9696"),
 		ProwlarrAPIKey: envStr("PROWLARR_API_KEY", ""),
 
-		QBURL:           envStr("QB_URL", "http://qbittorrent:8080"),
+		QBURL:           envStrAllowEmpty("QB_URL", "http://qbittorrent:8080"),
 		QBUser:          envStr("QB_USER", "admin"),
 		QBPass:          envStr("QB_PASS", ""),
 		QBSavePath:      envStr("QB_SAVE_PATH", "/data/incoming/"),
@@ -290,6 +290,16 @@ func (c *Config) HasClamAV() bool {
 
 func envStr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envStrAllowEmpty distinguishes an unset variable from an explicitly empty
+// one. This lets deployments disable integrations which otherwise have a
+// non-empty default (notably QB_URL).
+func envStrAllowEmpty(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return fallback

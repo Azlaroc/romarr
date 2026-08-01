@@ -666,6 +666,7 @@ func TestRecoverOrphanedTorrents(t *testing.T) {
 		{Name: "Zelda Collection wii pack", Hash: "h2", Progress: 1.0},
 		{Name: "Totally Mysterious Thing", Hash: "h3", Progress: 1.0},
 	})
+	cfg.QBURL = qm.srv.URL
 
 	m := New(cfg, jobs, qm.client())
 	m.RecoverOrphanedTorrents()

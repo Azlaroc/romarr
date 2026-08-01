@@ -77,9 +77,58 @@ func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, pl
 		return jobID, nil
 	}
 	m.jobs.Update(jobID, "detail", "Downloading via NZBGet...")
+	m.jobs.Update(jobID, "nzb_id", nzbID)
 
 	go m.watchNZBGetDownload(client, jobID, nzbID, title, platf, platSlug, isPC)
 	return jobID, nil
+}
+
+// RecoverOrphanedNZBDownloads restarts watchers for persisted NZBGet jobs after
+// a Gamarr restart. NZBGet owns the transfer, so reconnecting the watcher is
+// enough to resume progress tracking and final organization.
+func (m *Manager) RecoverOrphanedNZBDownloads() {
+	if m.nzbget == nil {
+		return
+	}
+
+	for _, item := range m.jobs.Items() {
+		status, _ := item.Data["status"].(string)
+		client, _ := item.Data["source_client"].(string)
+		if client != "nzbget" || (status != "downloading" && status != "organizing") {
+			continue
+		}
+
+		nzbID := int64Value(item.Data["nzb_id"])
+		if nzbID <= 0 {
+			m.jobs.UpdateMulti(item.ID, map[string]interface{}{
+				"status": "error",
+				"error":  "Cannot recover NZBGet download: missing NZB ID",
+			})
+			continue
+		}
+
+		title, _ := item.Data["title"].(string)
+		platf, _ := item.Data["platform"].(string)
+		platSlug, _ := item.Data["platform_slug"].(string)
+		isPC, _ := item.Data["is_pc"].(bool)
+		m.jobs.Update(item.ID, "detail", "Recovered NZBGet download; reconnecting watcher...")
+		go m.watchNZBGetDownload(m.nzbget, item.ID, nzbID, title, platf, platSlug, isPC)
+	}
+}
+
+func int64Value(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case float32:
+		return int64(n)
+	default:
+		return 0
+	}
 }
 
 func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title, platf, platSlug string, isPC bool) {

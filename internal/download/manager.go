@@ -788,6 +788,11 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 
 // RecoverOrphanedTorrents checks for existing game torrents and re-links them.
 func (m *Manager) RecoverOrphanedTorrents() {
+	if !m.cfg.HasQBittorrent() {
+		slog.Info("orphan torrent recovery disabled")
+		return
+	}
+
 	// Retry login for up to 60s
 	for attempt := 0; attempt < 12; attempt++ {
 		if m.qb.Login() {
@@ -978,6 +983,9 @@ func moveContent(src, dest string) error {
 		return err
 	}
 	if fi.IsDir() {
+		if err := os.Rename(src, dest); err == nil {
+			return nil
+		}
 		if err := copyDir(src, dest); err != nil {
 			return err
 		}

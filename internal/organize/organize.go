@@ -274,6 +274,9 @@ func moveContent(src, dest string) error {
 		return err
 	}
 	if fi.IsDir() {
+		if err := os.Rename(src, dest); err == nil {
+			return nil
+		}
 		if err := copyDir(src, dest); err != nil {
 			return err
 		}

@@ -7,23 +7,24 @@ import (
 
 func TestSearchResult_JSONSerialization(t *testing.T) {
 	r := &SearchResult{
-		Title:          "Test Game",
-		Size:           5000000000,
-		SizeHuman:      "4.7 GB",
-		Seeders:        100,
-		Leechers:       10,
-		Indexer:        "TestIndexer",
-		DownloadURL:    "http://example.com/download",
-		MagnetURL:      "magnet:?xt=urn:btih:abc",
-		InfoHash:       "abc123",
-		GUID:           "http://example.com/guid",
-		Platform:       "Switch",
-		PlatformSlug:   "switch",
-		IsPC:           false,
-		Age:            5,
-		SourceType:     "torrent",
-		SafetyScore:    85,
-		SafetyWarnings: []string{"warning1"},
+		Title:            "Test Game",
+		Size:             5000000000,
+		SizeHuman:        "4.7 GB",
+		Seeders:          100,
+		Leechers:         10,
+		Indexer:          "TestIndexer",
+		DownloadURL:      "http://example.com/download",
+		MagnetURL:        "magnet:?xt=urn:btih:abc",
+		InfoHash:         "abc123",
+		GUID:             "http://example.com/guid",
+		Platform:         "Switch",
+		PlatformSlug:     "switch",
+		IsPC:             false,
+		Age:              5,
+		SourceType:       "torrent",
+		DownloadProtocol: "nzb",
+		SafetyScore:      85,
+		SafetyWarnings:   []string{"warning1"},
 	}
 
 	data, err := json.Marshal(r)
@@ -47,6 +48,9 @@ func TestSearchResult_JSONSerialization(t *testing.T) {
 	}
 	if decoded.SafetyScore != 85 {
 		t.Errorf("safety_score=%d", decoded.SafetyScore)
+	}
+	if decoded.DownloadProtocol != "nzb" {
+		t.Errorf("download_protocol=%q", decoded.DownloadProtocol)
 	}
 }
 

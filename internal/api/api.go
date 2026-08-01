@@ -23,6 +23,7 @@ import (
 	"gamarr/internal/models"
 	"gamarr/internal/monitor"
 	"gamarr/internal/platform"
+	"gamarr/internal/qbit"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -653,8 +654,12 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 
 	matchedJobIDs := make(map[string]bool)
 
-	// Active torrents from qBit
-	torrents := s.mgr.QB().GetTorrents(s.cfg.QBCategory)
+	// Active torrents from qBit, when configured. Jobs from other download
+	// clients are still returned below.
+	var torrents []qbit.Torrent
+	if s.cfg.HasQBittorrent() {
+		torrents = s.mgr.QB().GetTorrents(s.cfg.QBCategory)
+	}
 	jobs := s.mgr.Jobs()
 
 	for _, t := range torrents {
@@ -752,6 +757,10 @@ func jTitle(data map[string]interface{}) string {
 }
 
 func (s *Server) handleDeleteTorrent(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.HasQBittorrent() {
+		writeError(w, 400, "qBittorrent is not configured")
+		return
+	}
 	hash := chi.URLParam(r, "hash")
 	ok := s.mgr.QB().DeleteTorrent(hash, true)
 	writeJSON(w, 200, map[string]interface{}{"success": ok})
