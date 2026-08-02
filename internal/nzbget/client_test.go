@@ -95,6 +95,27 @@ func TestAddNZBByURLLegacyFallback(t *testing.T) {
 	}
 }
 
+func TestAddNZBByURLNoRetryOnUnrelatedError(t *testing.T) {
+	calls := 0
+	srv := rpcServer(t, func(w http.ResponseWriter, _ *http.Request, _ rpcTestRequest) {
+		calls++
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"error":   map[string]interface{}{"code": -1, "message": "Download parameter storage is full"},
+		})
+	})
+	defer srv.Close()
+
+	_, err := New(srv.URL, "", "").AddNZBByURL("https://example/x.nzb", "Game", "games")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Errorf("append attempts = %d, want 1 (no legacy retry on unrelated errors)", calls)
+	}
+}
+
 func TestQueueHistoryAndVersion(t *testing.T) {
 	srv := rpcServer(t, func(w http.ResponseWriter, _ *http.Request, req rpcTestRequest) {
 		switch req.Method {

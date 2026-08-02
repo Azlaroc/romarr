@@ -334,6 +334,26 @@ func TestOrganizeNZBDownload(t *testing.T) {
 		}
 	})
 
+	// A restart between moveContent and the status update leaves the staging
+	// path gone while the content already sits in the library. Re-entering
+	// organize must finish the job, not report the import as failed.
+	t.Run("already moved content completes", func(t *testing.T) {
+		m, jobID := newFixture(t)
+		storage := filepath.Join(t.TempDir(), "Recovered Game")
+		dest := filepath.Join(m.cfg.GamesRomsPath, "gba", "Recovered Game")
+		writeFileT(t, filepath.Join(dest, "rom.gba"), []byte("rom"))
+
+		m.organizeNZBDownloadWithClient(jobID, storage, "Recovered Game", "GBA", "gba", false, "nzbget")
+
+		job, _ := m.Jobs().Get(jobID)
+		if status, _ := job["status"].(string); status != "completed" {
+			t.Errorf("status = %q, want completed", status)
+		}
+		if !m.Jobs().LibraryHasSourceID("nzb:" + dest) {
+			t.Error("already-moved content was not tracked in the library")
+		}
+	})
+
 	t.Run("pc content to vault", func(t *testing.T) {
 		m, jobID := newFixture(t)
 		storage := filepath.Join(t.TempDir(), "PC Game")

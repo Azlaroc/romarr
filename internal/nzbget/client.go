@@ -204,7 +204,24 @@ func (c *Client) call(method string, params []interface{}, result interface{}) e
 	return nil
 }
 
+// isInvalidParams reports whether an RPC error looks like a rejected `append`
+// signature, which is the signal to retry with the pre-AutoCategory argument
+// list. The message fallback covers servers that do not return the standard
+// JSON-RPC code, but it stays narrow on purpose: matching any message that
+// merely mentions "parameter" would also fire for unrelated failures and cost a
+// pointless second append.
 func isInvalidParams(err *rpcError) bool {
+	if err.Code == -32602 {
+		return true
+	}
 	message := strings.ToLower(err.Message)
-	return err.Code == -32602 || strings.Contains(message, "parameter") || strings.Contains(message, "argument")
+	if !strings.Contains(message, "parameter") && !strings.Contains(message, "argument") {
+		return false
+	}
+	for _, hint := range []string{"invalid", "wrong", "count", "many", "few", "number of"} {
+		if strings.Contains(message, hint) {
+			return true
+		}
+	}
+	return false
 }

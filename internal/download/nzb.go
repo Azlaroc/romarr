@@ -247,27 +247,35 @@ func (m *Manager) organizeNZBDownload(jobID, storagePath, title, platf, platSlug
 }
 
 func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf, platSlug string, isPC bool, sourceClient string) {
-	if storagePath == "" || !pathExists(storagePath) {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  "Usenet storage path not found",
-		})
+	if storagePath == "" {
+		m.failNZBOrganize(jobID)
 		return
 	}
 
-	var dest string
-	if isPC {
-		dest = filepath.Join(m.cfg.GamesVaultPath, filepath.Base(storagePath))
-	} else if platSlug != "" {
-		destDir := filepath.Join(m.cfg.GamesRomsPath, platSlug)
-		os.MkdirAll(destDir, 0755)
-		dest = filepath.Join(destDir, filepath.Base(storagePath))
-	} else {
+	if !pathExists(storagePath) {
+		// Gamarr can restart between moveContent and the job status update, and
+		// the recovered watcher then re-enters organize with the staging path
+		// already gone. When the content is sitting at its destination the
+		// import did succeed, so finish the job instead of reporting a
+		// completed import as a failure.
+		if dest, ok := m.nzbDestPath(storagePath, platSlug, isPC); ok && pathExists(dest) {
+			m.completeNZBOrganize(jobID, dest, title, platf, platSlug, isPC, sourceClient)
+			return
+		}
+		m.failNZBOrganize(jobID)
+		return
+	}
+
+	dest, ok := m.nzbDestPath(storagePath, platSlug, isPC)
+	if !ok {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed",
 			"detail": "Downloaded (unknown platform, left in staging)",
 		})
 		return
+	}
+	if !isPC {
+		os.MkdirAll(filepath.Dir(dest), 0755)
 	}
 
 	if err := moveContent(storagePath, dest); err != nil {
@@ -278,6 +286,35 @@ func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf
 		return
 	}
 
+	m.completeNZBOrganize(jobID, dest, title, platf, platSlug, isPC, sourceClient)
+}
+
+// nzbDestPath returns the library destination for a finished Usenet download.
+// The second return is false when the platform is unknown, in which case the
+// content stays in staging.
+func (m *Manager) nzbDestPath(storagePath, platSlug string, isPC bool) (string, bool) {
+	base := filepath.Base(storagePath)
+	switch {
+	case isPC:
+		return filepath.Join(m.cfg.GamesVaultPath, base), true
+	case platSlug != "":
+		return filepath.Join(m.cfg.GamesRomsPath, platSlug, base), true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) failNZBOrganize(jobID string) {
+	m.jobs.UpdateMulti(jobID, map[string]interface{}{
+		"status": "error",
+		"error":  "Usenet storage path not found",
+	})
+}
+
+// completeNZBOrganize marks the job done and registers the content in the
+// library. TrackInLibrary dedupes on source ID, so re-entering this after a
+// restart is safe.
+func (m *Manager) completeNZBOrganize(jobID, dest, title, platf, platSlug string, isPC bool, sourceClient string) {
 	label := "GameVault"
 	if !isPC {
 		label = fmt.Sprintf("RomM (%s)", platf)
