@@ -57,6 +57,12 @@ type Config struct {
 	SABnzbdAPIKey   string
 	SABnzbdCategory string
 
+	// NZBGet (Usenet)
+	NZBGetURL      string
+	NZBGetUser     string
+	NZBGetPass     string
+	NZBGetCategory string
+
 	// Deluge
 	DelugeURL  string
 	DelugePass string
@@ -143,7 +149,7 @@ func Load() *Config {
 		ProwlarrURL:    envStr("PROWLARR_URL", "http://prowlarr:9696"),
 		ProwlarrAPIKey: envStr("PROWLARR_API_KEY", ""),
 
-		QBURL:           envStr("QB_URL", "http://qbittorrent:8080"),
+		QBURL:           envStrAllowEmpty("QB_URL", "http://qbittorrent:8080"),
 		QBUser:          envStr("QB_USER", "admin"),
 		QBPass:          envStr("QB_PASS", ""),
 		QBSavePath:      envStr("QB_SAVE_PATH", "/data/incoming/"),
@@ -172,6 +178,11 @@ func Load() *Config {
 		SABnzbdURL:      envStr("SABNZBD_URL", ""),
 		SABnzbdAPIKey:   envStr("SABNZBD_API_KEY", ""),
 		SABnzbdCategory: envStr("SABNZBD_CATEGORY", "games"),
+
+		NZBGetURL:      envStr("NZBGET_URL", ""),
+		NZBGetUser:     envStr("NZBGET_USER", ""),
+		NZBGetPass:     envStr("NZBGET_PASS", ""),
+		NZBGetCategory: envStr("NZBGET_CATEGORY", "games"),
 
 		DelugeURL:  envStr("DELUGE_URL", ""),
 		DelugePass: envStr("DELUGE_PASS", ""),
@@ -249,6 +260,10 @@ func (c *Config) HasSABnzbd() bool {
 	return c.SABnzbdURL != "" && c.SABnzbdAPIKey != ""
 }
 
+func (c *Config) HasNZBGet() bool {
+	return c.NZBGetURL != ""
+}
+
 func (c *Config) HasTransmission() bool {
 	return c.TransmissionURL != ""
 }
@@ -275,6 +290,16 @@ func (c *Config) HasClamAV() bool {
 
 func envStr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envStrAllowEmpty distinguishes an unset variable from an explicitly empty
+// one. This lets deployments disable integrations which otherwise have a
+// non-empty default (notably QB_URL).
+func envStrAllowEmpty(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return fallback

@@ -66,15 +66,17 @@ func SafetyScore(r *models.SearchResult) (int, []string) {
 	warnings := make([]string, 0)
 	titleLower := strings.ToLower(r.Title)
 
-	if r.Seeders >= 100 {
-		score += 30
-	} else if r.Seeders >= 20 {
-		score += 15
-	} else if r.Seeders >= 5 {
-		score += 5
-	} else if r.Seeders <= 1 {
-		score -= 20
-		warnings = append(warnings, "Very few seeders")
+	if r.DownloadProtocol != "nzb" {
+		if r.Seeders >= 100 {
+			score += 30
+		} else if r.Seeders >= 20 {
+			score += 15
+		} else if r.Seeders >= 5 {
+			score += 5
+		} else if r.Seeders <= 1 {
+			score -= 20
+			warnings = append(warnings, "Very few seeders")
+		}
 	}
 
 	for group := range trustedGroups {
@@ -102,7 +104,7 @@ func SafetyScore(r *models.SearchResult) (int, []string) {
 		}
 	}
 
-	if r.Age < 1 && r.Seeders < 5 {
+	if r.DownloadProtocol != "nzb" && r.Age < 1 && r.Seeders < 5 {
 		score -= 10
 		warnings = append(warnings, "Brand new upload")
 	}
@@ -164,7 +166,7 @@ func FilterGameResults(results []*models.SearchResult, query string) []*models.S
 		if IsNonEnglish(r.Title) {
 			continue
 		}
-		if r.Seeders < 1 {
+		if r.DownloadProtocol != "nzb" && r.Seeders < 1 {
 			continue
 		}
 		if r.Size > 0 && (r.Size < 1_000_000 || r.Size > 200_000_000_000) {

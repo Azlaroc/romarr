@@ -241,6 +241,7 @@ func TestMultiUserSessionFlow(t *testing.T) {
 			{"POST", "/api/test/prowlarr"},
 			{"POST", "/api/test/qbittorrent"},
 			{"POST", "/api/test/sabnzbd"},
+			{"POST", "/api/test/nzbget"},
 			// Transmission/Deluge connectivity tests are admin-gated the same
 			// as their siblings (RegisterMetadataRoutes wraps them in
 			// requireAdmin).

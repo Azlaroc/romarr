@@ -22,6 +22,53 @@ type sabMock struct {
 	histSlots  []map[string]interface{}
 }
 
+type nzbgetMock struct {
+	srv        *httptest.Server
+	addID      int64
+	addError   string
+	queue      []map[string]interface{}
+	history    []map[string]interface{}
+	lastParams []interface{}
+}
+
+func newNZBGetMock(t *testing.T) *nzbgetMock {
+	t.Helper()
+	mock := &nzbgetMock{addID: 99}
+	mock.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Method string        `json:"method"`
+			Params []interface{} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode NZBGet request: %v", err)
+		}
+		var result interface{}
+		switch req.Method {
+		case "append":
+			mock.lastParams = req.Params
+			if mock.addError != "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"jsonrpc": "2.0", "id": 1,
+					"error": map[string]interface{}{"code": -1, "message": mock.addError},
+				})
+				return
+			}
+			result = mock.addID
+		case "listgroups":
+			result = mock.queue
+		case "history":
+			result = mock.history
+		default:
+			t.Fatalf("unexpected NZBGet method %q", req.Method)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"jsonrpc": "2.0", "id": 1, "result": result,
+		})
+	}))
+	t.Cleanup(mock.srv.Close)
+	return mock
+}
+
 func newSabMock(t *testing.T) *sabMock {
 	t.Helper()
 	s := &sabMock{addStatus: true, nzoID: "SABnzbd_nzo_test1"}
@@ -144,6 +191,123 @@ func TestDownloadNZBFailedFlow(t *testing.T) {
 	}
 }
 
+func TestDownloadNZBGetCompletedFlow(t *testing.T) {
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	storage := filepath.Join(t.TempDir(), "NZBGet Game")
+	writeFileT(t, filepath.Join(storage, "rom.gba"), []byte("rom"))
+
+	mock := newNZBGetMock(t)
+	mock.queue = []map[string]interface{}{{
+		"NZBID": mock.addID, "NZBName": "NZBGet Game", "Status": "DOWNLOADING",
+		"FileSizeMB": 200, "RemainingSizeMB": 50,
+	}}
+	mock.history = []map[string]interface{}{{
+		"NZBID": mock.addID, "Status": "SUCCESS/UNPACK", "DestDir": storage,
+	}}
+	cfg.NZBGetURL = mock.srv.URL
+	cfg.NZBGetCategory = "games"
+
+	m := New(cfg, jobs, nil)
+	jobID, err := m.DownloadNZB(nil, "https://indexer.example/game.nzb", "NZBGet Game", "GBA", "gba", false)
+	if err != nil {
+		t.Fatalf("DownloadNZB: %v", err)
+	}
+
+	dest := filepath.Join(cfg.GamesRomsPath, "gba", "NZBGet Game")
+	waitFor(t, 10*time.Second, "NZBGet library tracking", func() bool {
+		return jobs.LibraryHasSourceID("nzb:" + dest)
+	})
+	job := waitJobStatus(t, jobs, jobID, "completed", 5*time.Second)
+	if client, _ := job["source_client"].(string); client != "nzbget" {
+		t.Errorf("source_client=%q, want nzbget", client)
+	}
+	if !pathExists(filepath.Join(dest, "rom.gba")) {
+		t.Error("NZBGet content not moved to library")
+	}
+	if len(mock.lastParams) != 11 || mock.lastParams[2] != "games" {
+		t.Errorf("append params=%v", mock.lastParams)
+	}
+}
+
+func TestDownloadNZBGetFailures(t *testing.T) {
+	t.Run("append error", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		mock := newNZBGetMock(t)
+		mock.addError = "authentication failed"
+		cfg.NZBGetURL = mock.srv.URL
+
+		m := New(cfg, jobs, nil)
+		jobID, err := m.DownloadNZB(nil, "https://example/game.nzb", "Bad", "PC", "", true)
+		if err != nil {
+			t.Fatalf("DownloadNZB: %v", err)
+		}
+		job, _ := jobs.Get(jobID)
+		if status, _ := job["status"].(string); status != "error" {
+			t.Errorf("status=%q, want error", status)
+		}
+	})
+
+	t.Run("failed history", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		mock := newNZBGetMock(t)
+		mock.history = []map[string]interface{}{{
+			"NZBID": mock.addID, "Status": "FAILURE/UNPACK",
+		}}
+		cfg.NZBGetURL = mock.srv.URL
+
+		m := New(cfg, jobs, nil)
+		jobID, err := m.DownloadNZB(nil, "https://example/game.nzb", "Failed", "PC", "", true)
+		if err != nil {
+			t.Fatalf("DownloadNZB: %v", err)
+		}
+		job := waitJobStatus(t, jobs, jobID, "error", 5*time.Second)
+		if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "FAILURE/UNPACK") {
+			t.Errorf("error=%q", errMsg)
+		}
+	})
+}
+
+func TestRecoverOrphanedNZBDownloads(t *testing.T) {
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	storage := filepath.Join(t.TempDir(), "Recovered NZB")
+	writeFileT(t, filepath.Join(storage, "rom.gba"), []byte("rom"))
+
+	mock := newNZBGetMock(t)
+	mock.history = []map[string]interface{}{
+		{"NZBID": mock.addID, "Status": "SUCCESS/UNPACK", "DestDir": storage},
+	}
+	cfg.NZBGetURL = mock.srv.URL
+	cfg.NZBGetCategory = "games"
+
+	jobID := newJobID()
+	jobs.Set(jobID, map[string]interface{}{
+		"status":        "downloading",
+		"title":         "Recovered NZB",
+		"platform":      "Game Boy Advance",
+		"platform_slug": "gba",
+		"is_pc":         false,
+		"source_type":   "nzb",
+		"source_client": "nzbget",
+		"nzb_id":        float64(mock.addID),
+	})
+
+	m := New(cfg, jobs, nil)
+	m.RecoverOrphanedNZBDownloads()
+
+	dest := filepath.Join(cfg.GamesRomsPath, "gba", "Recovered NZB")
+	waitFor(t, 5*time.Second, "recovered NZBGet watcher", func() bool {
+		job, ok := jobs.Get(jobID)
+		return ok && job["status"] == "completed"
+	})
+	if !pathExists(filepath.Join(dest, "rom.gba")) {
+		t.Fatal("recovered NZBGet content was not organized")
+	}
+}
+
 func TestOrganizeNZBDownload(t *testing.T) {
 	newFixture := func(t *testing.T) (*Manager, string) {
 		m := New(newTestConfig(t), newTestJobs(t), nil)
@@ -167,6 +331,26 @@ func TestOrganizeNZBDownload(t *testing.T) {
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "error" {
 			t.Errorf("status = %q, want error", status)
+		}
+	})
+
+	// A restart between moveContent and the status update leaves the staging
+	// path gone while the content already sits in the library. Re-entering
+	// organize must finish the job, not report the import as failed.
+	t.Run("already moved content completes", func(t *testing.T) {
+		m, jobID := newFixture(t)
+		storage := filepath.Join(t.TempDir(), "Recovered Game")
+		dest := filepath.Join(m.cfg.GamesRomsPath, "gba", "Recovered Game")
+		writeFileT(t, filepath.Join(dest, "rom.gba"), []byte("rom"))
+
+		m.organizeNZBDownloadWithClient(jobID, storage, "Recovered Game", "GBA", "gba", false, "nzbget")
+
+		job, _ := m.Jobs().Get(jobID)
+		if status, _ := job["status"].(string); status != "completed" {
+			t.Errorf("status = %q, want completed", status)
+		}
+		if !m.Jobs().LibraryHasSourceID("nzb:" + dest) {
+			t.Error("already-moved content was not tracked in the library")
 		}
 	})
 

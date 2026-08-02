@@ -65,7 +65,7 @@ func scoreResult(r *models.SearchResult, query, platformFilter string) scoreBrea
 
 	sb.TitleMatch = scoreTitleMatch(r.Title, query)
 	sb.PlatformMatch = scorePlatformMatch(r.PlatformSlug, platformFilter)
-	sb.SeederScore = scoreSeederCount(r.Seeders, r.SourceType)
+	sb.SeederScore = scoreSeederCount(r.Seeders, r.SourceType, r.DownloadProtocol)
 	sb.SizeScore = scoreSizeRange(r.Size, r.PlatformSlug)
 	sb.SafetyScore = scoreSafety(r.SafetyScore)
 
@@ -141,8 +141,8 @@ func scorePlatformMatch(resultSlug, filterSlug string) int {
 }
 
 // scoreSeederCount scores by seeder count (0-15). DDL gets flat 10.
-func scoreSeederCount(seeders int, sourceType string) int {
-	if sourceType == "ddl" {
+func scoreSeederCount(seeders int, sourceType, downloadProtocol string) int {
+	if sourceType == "ddl" || downloadProtocol == "nzb" {
 		return 10
 	}
 	switch {

@@ -30,6 +30,7 @@ func TestSearchProwlarr_ParsesResults(t *testing.T) {
 			"magnetUrl":   "magnet:?xt=urn:btih:abc123",
 			"infoHash":    "abc123",
 			"guid":        "http://example.com/guid",
+			"protocol":    "torrent",
 			"categories":  []interface{}{float64(100082)},
 			"age":         float64(5),
 		},
@@ -64,6 +65,43 @@ func TestSearchProwlarr_ParsesResults(t *testing.T) {
 	}
 	if r.SourceType != "torrent" {
 		t.Errorf("source_type=%q, want torrent", r.SourceType)
+	}
+	if r.DownloadProtocol != "torrent" {
+		t.Errorf("download_protocol=%q, want torrent", r.DownloadProtocol)
+	}
+}
+
+func TestSearchProwlarr_MapsUsenetProtocol(t *testing.T) {
+	items := []map[string]interface{}{
+		{
+			"title":       "Zelda Switch Usenet",
+			"size":        float64(5_000_000_000),
+			"seeders":     float64(0),
+			"indexer":     "UsenetIndexer",
+			"downloadUrl": "http://example.com/game.nzb",
+			"protocol":    "usenet",
+			"categories":  []interface{}{float64(100082)},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(items)
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		ProwlarrURL:          srv.URL,
+		ProwlarrAPIKey:       "key",
+		ProwlarrGameIndexers: []int{1},
+	}
+	results := SearchProwlarr(cfg, "zelda", "")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].DownloadProtocol != "nzb" {
+		t.Errorf("download_protocol=%q, want nzb", results[0].DownloadProtocol)
+	}
+	if results[0].SourceType != "torrent" {
+		t.Errorf("source_type=%q, want torrent", results[0].SourceType)
 	}
 }
 

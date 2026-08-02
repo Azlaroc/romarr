@@ -18,6 +18,7 @@ import (
 
 	"gamarr/internal/config"
 	"gamarr/internal/db"
+	"gamarr/internal/nzbget"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/safety"
@@ -35,6 +36,7 @@ type Manager struct {
 	qb           *qbit.Client
 	transmission *TransmissionClient
 	deluge       *DelugeClient
+	nzbget       *nzbget.Client
 	NotifyFunc   NotifyCallback
 }
 
@@ -51,6 +53,10 @@ func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
 		mgr.deluge = NewDelugeClient(cfg)
 		slog.Info("Deluge client initialized", "url", cfg.DelugeURL)
 	}
+	if cfg.HasNZBGet() {
+		mgr.nzbget = nzbget.New(cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass)
+		slog.Info("NZBGet client initialized", "url", cfg.NZBGetURL)
+	}
 
 	return mgr
 }
@@ -66,6 +72,9 @@ func (m *Manager) Transmission() *TransmissionClient { return m.transmission }
 
 // Deluge returns the Deluge client (may be nil).
 func (m *Manager) Deluge() *DelugeClient { return m.deluge }
+
+// NZBGet returns the NZBGet client (may be nil).
+func (m *Manager) NZBGet() *nzbget.Client { return m.nzbget }
 
 // newJobID generates an 8-char job ID.
 func newJobID() string {
@@ -779,6 +788,11 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 
 // RecoverOrphanedTorrents checks for existing game torrents and re-links them.
 func (m *Manager) RecoverOrphanedTorrents() {
+	if !m.cfg.HasQBittorrent() {
+		slog.Info("orphan torrent recovery disabled")
+		return
+	}
+
 	// Retry login for up to 60s
 	for attempt := 0; attempt < 12; attempt++ {
 		if m.qb.Login() {
@@ -969,6 +983,9 @@ func moveContent(src, dest string) error {
 		return err
 	}
 	if fi.IsDir() {
+		if err := os.Rename(src, dest); err == nil {
+			return nil
+		}
 		if err := copyDir(src, dest); err != nil {
 			return err
 		}

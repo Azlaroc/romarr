@@ -120,6 +120,16 @@ func TestScoreResults_DDLSeederScore(t *testing.T) {
 	}
 }
 
+func TestScoreResults_NZBSeederScore(t *testing.T) {
+	results := []*models.SearchResult{
+		{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "torrent", DownloadProtocol: "nzb"},
+	}
+	scored := ScoreResults(results, "Game", "")
+	if scored[0].ScoreBreakdown.SeederScore != 10 {
+		t.Errorf("NZB SeederScore=%d, want 10", scored[0].ScoreBreakdown.SeederScore)
+	}
+}
+
 func TestScoreResults_SeederTiers(t *testing.T) {
 	tests := []struct {
 		name    string

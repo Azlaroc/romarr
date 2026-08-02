@@ -4,24 +4,25 @@ package models
 
 // SearchResult represents a search result from any source.
 type SearchResult struct {
-	Title          string   `json:"title"`
-	Size           int64    `json:"size"`
-	SizeHuman      string   `json:"size_human"`
-	Seeders        int      `json:"seeders"`
-	Leechers       int      `json:"leechers"`
-	Indexer        string   `json:"indexer"`
-	DownloadURL    string   `json:"download_url"`
-	MagnetURL      string   `json:"magnet_url"`
-	InfoHash       string   `json:"info_hash"`
-	GUID           string   `json:"guid"`
-	Platform       string   `json:"platform"`
-	PlatformSlug   string   `json:"platform_slug"`
-	IsPC           bool     `json:"is_pc"`
-	Age            int      `json:"age"`
-	SourceType     string   `json:"source_type"` // "torrent" or "ddl"
-	SafetyScore    int      `json:"safety_score"`
-	SafetyWarnings []string `json:"safety_warnings"`
-	VimmID         string   `json:"vimm_id,omitempty"`
+	Title            string   `json:"title"`
+	Size             int64    `json:"size"`
+	SizeHuman        string   `json:"size_human"`
+	Seeders          int      `json:"seeders"`
+	Leechers         int      `json:"leechers"`
+	Indexer          string   `json:"indexer"`
+	DownloadURL      string   `json:"download_url"`
+	MagnetURL        string   `json:"magnet_url"`
+	InfoHash         string   `json:"info_hash"`
+	GUID             string   `json:"guid"`
+	Platform         string   `json:"platform"`
+	PlatformSlug     string   `json:"platform_slug"`
+	IsPC             bool     `json:"is_pc"`
+	Age              int      `json:"age"`
+	SourceType       string   `json:"source_type"`                 // "torrent" or "ddl"
+	DownloadProtocol string   `json:"download_protocol,omitempty"` // "torrent" or "nzb"
+	SafetyScore      int      `json:"safety_score"`
+	SafetyWarnings   []string `json:"safety_warnings"`
+	VimmID           string   `json:"vimm_id,omitempty"`
 
 	// Library duplicate detection
 	InLibrary bool `json:"in_library"`

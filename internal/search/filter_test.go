@@ -149,6 +149,21 @@ func TestHumanSize(t *testing.T) {
 }
 
 func TestFilterGameResults(t *testing.T) {
+	t.Run("keeps usenet results without seeders", func(t *testing.T) {
+		results := []*models.SearchResult{
+			{Title: "Game Usenet Release", Seeders: 0, Size: 5_000_000_000, DownloadProtocol: "nzb"},
+		}
+		filtered := FilterGameResults(results, "game")
+		if len(filtered) != 1 {
+			t.Fatalf("expected NZB result to survive seeder filtering, got %d", len(filtered))
+		}
+		for _, warning := range filtered[0].SafetyWarnings {
+			if warning == "Very few seeders" {
+				t.Fatal("NZB result should not receive a torrent seeder warning")
+			}
+		}
+	})
+
 	t.Run("filters suspicious titles", func(t *testing.T) {
 		results := []*models.SearchResult{
 			{Title: "Game password keygen", Seeders: 100, Size: 1_000_000_000},

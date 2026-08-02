@@ -167,8 +167,59 @@ func TestConnectionTestSABnzbd(t *testing.T) {
 	})
 }
 
+func TestConnectionTestNZBGet(t *testing.T) {
+	t.Run("not configured", func(t *testing.T) {
+		env := newTestEnv(t, nil)
+		rr := env.do("POST", "/api/test/nzbget", "")
+		wantStatus(t, rr, 200)
+		m := decodeMap(t, rr)
+		if m["success"] != false || m["error"] != "Not configured" {
+			t.Errorf("got %v, want success=false error=Not configured", m)
+		}
+	})
+
+	t.Run("success with basic auth", func(t *testing.T) {
+		var gotUser, gotPass string
+		mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotUser, gotPass, _ = r.BasicAuth()
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"26.2"}`))
+		}))
+		defer mock.Close()
+
+		env := newTestEnv(t, func(c *config.Config) {
+			c.NZBGetURL = mock.URL
+			c.NZBGetUser = "gamarr"
+			c.NZBGetPass = "secret"
+		})
+		rr := env.do("POST", "/api/test/nzbget", "")
+		wantStatus(t, rr, 200)
+		m := decodeMap(t, rr)
+		if m["success"] != true || m["version"] != "26.2" {
+			t.Errorf("got %v, want success=true version=26.2", m)
+		}
+		if gotUser != "gamarr" || gotPass != "secret" {
+			t.Errorf("basic auth = %q:%q", gotUser, gotPass)
+		}
+	})
+
+	t.Run("upstream error reports failure", func(t *testing.T) {
+		mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer mock.Close()
+
+		env := newTestEnv(t, func(c *config.Config) { c.NZBGetURL = mock.URL })
+		rr := env.do("POST", "/api/test/nzbget", "")
+		wantStatus(t, rr, 200)
+		if m := decodeMap(t, rr); m["success"] != false {
+			t.Errorf("got %v, want success=false", m)
+		}
+	})
+}
+
 // Transmission and Deluge connectivity tests are admin-gated identically to
-// their qBittorrent/Prowlarr/SABnzbd siblings (see the 403 assertions in
+// their qBittorrent/Prowlarr/Usenet siblings (see the 403 assertions in
 // TestMultiUserSessionFlow). Here we cover the pass-through-admin responses.
 func TestConnectionTestTransmissionDeluge(t *testing.T) {
 	t.Run("transmission not configured", func(t *testing.T) {

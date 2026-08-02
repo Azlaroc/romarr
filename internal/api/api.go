@@ -23,6 +23,7 @@ import (
 	"gamarr/internal/models"
 	"gamarr/internal/monitor"
 	"gamarr/internal/platform"
+	"gamarr/internal/qbit"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -142,6 +143,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Post("/api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
 	r.Post("/api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
 	r.Post("/api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))
+	r.Post("/api/test/nzbget", requireAdmin(s.handleTestNZBGet))
 
 	// Source health
 	r.Get("/api/sources/health", s.handleSourcesHealth)
@@ -595,7 +597,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// NZB / Usenet route
-	if req.DownloadProtocol == "nzb" && s.sab != nil {
+	if req.DownloadProtocol == "nzb" {
 		nzbURL := req.DownloadURL
 		if nzbURL == "" {
 			writeError(w, 400, "No NZB URL")
@@ -652,8 +654,12 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 
 	matchedJobIDs := make(map[string]bool)
 
-	// Active torrents from qBit
-	torrents := s.mgr.QB().GetTorrents(s.cfg.QBCategory)
+	// Active torrents from qBit, when configured. Jobs from other download
+	// clients are still returned below.
+	var torrents []qbit.Torrent
+	if s.cfg.HasQBittorrent() {
+		torrents = s.mgr.QB().GetTorrents(s.cfg.QBCategory)
+	}
 	jobs := s.mgr.Jobs()
 
 	for _, t := range torrents {
@@ -751,6 +757,10 @@ func jTitle(data map[string]interface{}) string {
 }
 
 func (s *Server) handleDeleteTorrent(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.HasQBittorrent() {
+		writeError(w, 400, "qBittorrent is not configured")
+		return
+	}
 	hash := chi.URLParam(r, "hash")
 	ok := s.mgr.QB().DeleteTorrent(hash, true)
 	writeJSON(w, 200, map[string]interface{}{"success": ok})

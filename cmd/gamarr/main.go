@@ -104,7 +104,9 @@ func main() {
 			}
 			return result
 		},
-		QBReauth:          func() bool { return qb.Login() },
+		QBReauth: func() bool {
+			return cfg.HasQBittorrent() && qb.Login()
+		},
 		ClearMyrientCache: search.ClearMyrientCache,
 		RunOrphanRecovery: func() { go mgr.RecoverOrphanedTorrents() },
 	})
@@ -188,6 +190,9 @@ func main() {
 			jobID := mgr.DownloadDDL(result.DownloadURL, result.VimmID, result.Title, result.Platform, result.PlatformSlug, result.IsPC)
 			return jobID, nil
 		}
+		if result.DownloadProtocol == "nzb" {
+			return mgr.DownloadNZB(sab, result.DownloadURL, result.Title, result.Platform, result.PlatformSlug, result.IsPC)
+		}
 		url := result.DownloadURL
 		if url == "" {
 			url = result.MagnetURL
@@ -209,7 +214,10 @@ func main() {
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)
 
 	// Recover orphaned torrents and scan library in background
-	go mgr.RecoverOrphanedTorrents()
+	if cfg.HasQBittorrent() {
+		go mgr.RecoverOrphanedTorrents()
+	}
+	go mgr.RecoverOrphanedNZBDownloads()
 	go mgr.ScanLibraryDirs()
 
 	// Start torrent completion watcher
