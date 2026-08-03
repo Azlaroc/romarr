@@ -1,0 +1,21 @@
+name: gitleaks
+
+# Generic secret-scanning backstop. No CET-specific config, no secrets.
+# Free for personal/public repos (a licence is only required for GitHub Organizations).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
