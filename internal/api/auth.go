@@ -191,6 +191,13 @@ func isExempt(path string) bool {
 	if path == "/api" || strings.HasPrefix(path, "/torznab/") {
 		return true
 	}
+	// Any non-API path serves the public SPA shell (login renders client-side,
+	// then calls the auth-gated /api/*). This keeps deep links like /library
+	// and the hashed /assets/* reachable before a session exists. Everything
+	// under /api/* stays gated.
+	if !strings.HasPrefix(path, "/api") {
+		return true
+	}
 	return false
 }
 

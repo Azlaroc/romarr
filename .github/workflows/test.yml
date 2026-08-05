@@ -80,6 +80,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x', cache: false, check-latest: true}
+      # Build the real React UI so the binary embeds it (the e2e journey drives
+      # the actual SPA). The other jobs compile against the web/dist/.gitkeep
+      # placeholder and need no Node.
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: web/frontend/package-lock.json}
+      - name: build frontend
+        run: npm ci && npm run build
+        working-directory: web/frontend
       - name: build binary
         run: go build -o /tmp/gamarr ./cmd/gamarr/
       - uses: actions/setup-python@v5

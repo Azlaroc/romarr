@@ -1,3 +1,14 @@
+# ── frontend build ──────────────────────────────────────────────────────────
+# Builds the React SPA (web/frontend) into web/dist, which the Go binary then
+# embeds. Isolated first stage so the Go image needs no Node toolchain.
+FROM node:22-alpine AS web
+WORKDIR /src/web/frontend
+COPY web/frontend/package.json web/frontend/package-lock.json ./
+RUN npm ci
+COPY web/frontend/ ./
+RUN npm run build
+
+# ── go build ──────────────────────────────────────────────────────────────────
 FROM golang:1.25-alpine AS builder
 
 ARG VERSION=1.0.0
@@ -8,6 +19,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Overwrite the committed web/dist/.gitkeep placeholder with the real UI built
+# above, then compile — //go:embed all:dist picks up the freshly built assets.
+COPY --from=web /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
     -o /gamarr ./cmd/gamarr/

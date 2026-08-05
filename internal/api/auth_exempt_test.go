@@ -32,6 +32,12 @@ func TestIsExempt(t *testing.T) {
 		// Static + UI root.
 		{"/", true},
 		{"/static/main.js", true},
+		// SPA deep links + hashed assets — the shell must render pre-auth so the
+		// client can show a login screen, then call the gated /api/*.
+		{"/library", true},
+		{"/settings/profiles", true},
+		{"/assets/index-abc123.js", true},
+		{"/favicon.svg", true},
 		// Negative cases — these MUST require auth or it's a security bug.
 		{"/api/search", false},
 		{"/api/library", false},

@@ -67,9 +67,14 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Use(func(next http.Handler) http.Handler { return rateLimitMiddleware(rl, next) })
 	r.Use(func(next http.Handler) http.Handler { return authMiddleware(cfg, mgr.Jobs(), sessions, next) })
 
-	// UI
-	r.Get("/", s.handleIndex)
-	r.Handle("/static/*", staticHandler())
+	// UI — the React SPA embedded from web/dist. Content-hashed assets are
+	// cached hard; every other (non-API) path serves the SPA shell so client
+	// side deep links resolve (see handleSPA + the r.NotFound fallback below).
+	assets := http.FileServer(http.FS(mustDistSub()))
+	r.Handle("/assets/*", immutableCache(assets))
+	r.Get("/favicon.svg", serveDistFile("favicon.svg", "image/svg+xml"))
+	r.Get("/", s.handleSPA)
+	r.NotFound(s.handleSPA)
 
 	// Auth routes (exempt from auth middleware).
 	r.Post("/api/login", handleLogin(cfg, mgr.Jobs(), sessions))
@@ -364,25 +369,53 @@ func logMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+// handleSPA serves the React shell (web.IndexHTML) for "/" and every
+// unmatched non-API path, so client-side routes deep-link correctly. The API
+// namespace keeps returning JSON 404s instead of the HTML shell.
+func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/torznab/") {
+		writeError(w, http.StatusNotFound, "Not found")
+		return
+	}
+	if len(web.IndexHTML) == 0 {
+		http.Error(w, "frontend not built — run `npm run build` in web/frontend", http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(web.IndexHTML)
 }
 
-// staticHandler serves the embedded frontend assets under /static/.
-func staticHandler() http.Handler {
-	sub, err := fs.Sub(web.StaticFS, "static")
+// mustDistSub returns the embedded dist/ subtree. Fails loudly at startup if
+// the embed is malformed (impossible with a well-formed build).
+func mustDistSub() fs.FS {
+	sub, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
-		// Impossible with a well-formed embed; fail loudly at startup if not.
-		panic("web static assets missing from binary: " + err.Error())
+		panic("web dist assets missing from binary: " + err.Error())
 	}
-	fileServer := http.StripPrefix("/static/", http.FileServer(http.FS(sub)))
+	return sub
+}
+
+// immutableCache marks content-hashed /assets/* responses cacheable forever.
+func immutableCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Assets aren't content-hashed, so keep the client cache short: an
-		// upgraded binary must be able to push new css/js within the hour.
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		fileServer.ServeHTTP(w, r)
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		next.ServeHTTP(w, r)
 	})
+}
+
+// serveDistFile serves a single file from the embedded dist/ root (e.g. the
+// favicon, which Vite copies from public/).
+func serveDistFile(name, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := fs.ReadFile(web.DistFS, "dist/"+name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(data)
+	}
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

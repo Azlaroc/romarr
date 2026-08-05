@@ -22,3 +22,12 @@ gamarr
 e2e/.venv/
 __pycache__/
 .pytest_cache/
+
+# Frontend (React SPA). node_modules and the Vite build output are never
+# committed; web/dist/.gitkeep is the placeholder that keeps //go:embed all:dist
+# compiling without a Node toolchain. The Docker/CI build overwrites web/dist
+# with the real UI.
+web/frontend/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+*.tsbuildinfo
