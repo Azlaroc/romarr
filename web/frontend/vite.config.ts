@@ -1,6 +1,20 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import { writeFileSync } from 'node:fs'
+
+// emptyOutDir wipes web/dist on each build (including the committed .gitkeep
+// placeholder that keeps `//go:embed all:dist` compiling on Node-free jobs).
+// Rewrite it after the bundle closes so it never silently drops from a commit.
+function keepDistPlaceholder(): Plugin {
+  return {
+    name: 'keep-dist-placeholder',
+    closeBundle() {
+      const p = fileURLToPath(new URL('../dist/.gitkeep', import.meta.url))
+      writeFileSync(p, '# Keeps //go:embed all:dist compiling without a Node build. Do not delete.\n')
+    },
+  }
+}
 
 // The Go binary embeds ../dist and serves it under a strict CSP (script-src
 // 'self'). Two rules keep the production output CSP-clean:
@@ -9,7 +23,7 @@ import { fileURLToPath, URL } from 'node:url'
 //   2. no @vitejs/plugin-legacy — it injects inline SystemJS bootstrap scripts.
 // Everything else ships as external, content-hashed /assets/*.js|css.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), keepDistPlaceholder()],
   base: '/',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

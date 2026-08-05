@@ -78,6 +78,9 @@ export function useLibrary(params: LibraryParams) {
         `/api/library${qs({ page: params.page, q: params.q, platform: params.platform })}`,
       ),
     placeholderData: keepPreviousData,
+    // No realtime backend — refetch so freshly-imported items appear without a
+    // manual reload (page-1 paginated fetch, cheap; only while Library is open).
+    refetchInterval: 5000,
   })
 }
 

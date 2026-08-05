@@ -22,6 +22,7 @@ const GRADIENTS = [
   'from-violet-600 to-fuchsia-600',
 ]
 
+const GRID_CLASS = 'grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
 const inputCls =
   'w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-white placeholder-slate-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500'
 
@@ -54,6 +55,7 @@ export function Library() {
   }
 
   const items = data?.items ?? []
+  const empty = !isLoading && items.length === 0
 
   return (
     <>
@@ -93,39 +95,38 @@ export function Library() {
 
       {isError ? (
         <EmptyState icon={Gamepad2} title="Couldn’t load the library" />
-      ) : isLoading ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <Skeleton key={i} className="h-40" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState icon={Gamepad2} title="No games in library" hint="Add something from the Add New tab." />
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" data-testid="library-grid">
-          {items.map((item, i) => (
-            <button
-              key={item.id}
-              onClick={() => setSelected(item)}
-              className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition-colors hover:border-slate-700"
-            >
-              <div className={`flex h-28 items-center justify-center bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}>
-                <span className="text-3xl font-black text-white/30">
-                  {(item.platform_slug || item.platform || '?').toUpperCase().slice(0, 4)}
-                </span>
-              </div>
-              <div className="p-3">
-                <div className="truncate text-sm font-medium text-white" title={item.title}>
-                  {item.title}
-                </div>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <Badge color={platformBadgeColor(item.is_pc)}>{item.platform}</Badge>
-                  {!!item.file_size && <span className="text-xs text-slate-500">{formatSize(item.file_size)}</span>}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
+        <>
+          {/* library-grid stays mounted (empty or full) so tests + polling can
+              observe items appearing without the container disappearing. */}
+          <div className={GRID_CLASS} data-testid="library-grid">
+            {isLoading
+              ? Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-40" />)
+              : items.map((item, i) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setSelected(item)}
+                    className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition-colors hover:border-slate-700"
+                  >
+                    <div className={`flex h-28 items-center justify-center bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}>
+                      <span className="text-3xl font-black text-white/30">
+                        {(item.platform_slug || item.platform || '?').toUpperCase().slice(0, 4)}
+                      </span>
+                    </div>
+                    <div className="p-3">
+                      <div className="truncate text-sm font-medium text-white" title={item.title}>
+                        {item.title}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <Badge color={platformBadgeColor(item.is_pc)}>{item.platform}</Badge>
+                        {!!item.file_size && <span className="text-xs text-slate-500">{formatSize(item.file_size)}</span>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+          </div>
+          {empty && <EmptyState icon={Gamepad2} title="No games in library" hint="Add something from the Add New tab." />}
+        </>
       )}
 
       {data && <Pagination page={data.page} totalPages={data.total_pages} onChange={setPage} />}

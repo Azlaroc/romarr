@@ -1,3 +1,1 @@
-# Placeholder so `//go:embed all:dist` (web/embed.go) compiles without a Node
-# toolchain. The real UI is built by Docker/CI (web/frontend -> vite -> web/dist)
-# and is gitignored. Vite emptyOutDir wipes this during a local build; harmless.
+# Keeps //go:embed all:dist compiling without a Node build. Do not delete.

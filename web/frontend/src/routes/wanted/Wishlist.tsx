@@ -51,11 +51,9 @@ export function Wishlist() {
         </form>
       </Card>
 
-      {items.length === 0 ? (
-        <EmptyState icon={Heart} title="Wishlist is empty" hint="Add a title above; the scheduler will auto-search for it." />
-      ) : (
-        <div className="space-y-2" data-testid="wishlist">
-          {items.map((w) => (
+      {/* Container stays mounted when empty so the list can be observed shrinking to zero. */}
+      <div className="space-y-2" data-testid="wishlist">
+        {items.map((w) => (
             <div key={w.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-white">{w.title}</div>
@@ -73,6 +71,8 @@ export function Wishlist() {
             </div>
           ))}
         </div>
+      {items.length === 0 && (
+        <EmptyState icon={Heart} title="Wishlist is empty" hint="Add a title above; the scheduler will auto-search for it." />
       )}
     </>
   )

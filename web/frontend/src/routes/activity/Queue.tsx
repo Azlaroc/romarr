@@ -68,9 +68,8 @@ export function Queue() {
         <div className="py-16">
           <Spinner label="Loading queue…" className="justify-center" />
         </div>
-      ) : list.length === 0 ? (
-        <EmptyState icon={Inbox} title="No active downloads" />
       ) : (
+        <>
         <div className="space-y-3" data-testid="downloads">
           {list.map((d, i) => {
             const hasProg = d.progress != null
@@ -121,6 +120,8 @@ export function Queue() {
             )
           })}
         </div>
+        {list.length === 0 && <EmptyState icon={Inbox} title="No active downloads" />}
+        </>
       )}
 
       <Modal open={!!organizeTarget} onClose={() => setOrganizeTarget(null)} title="Organize download">
