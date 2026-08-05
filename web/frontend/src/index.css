@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* RomArr accent — violet. Swap these three RGB triples to re-brand. */
+:root {
+  --accent: 124 58 237; /* violet-600 #7c3aed */
+  --accent-hover: 139 92 246; /* violet-500 #8b5cf6 */
+  --accent-fg: 167 139 250; /* violet-400 #a78bfa */
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-slate-950 font-sans text-slate-200 antialiased;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.700') transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-700;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+}
+
+@layer components {
+  /* Skeleton shimmer used by loading states. */
+  .skeleton {
+    @apply relative overflow-hidden bg-slate-800/60;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      theme('colors.slate.700 / 40%'),
+      transparent
+    );
+    animation: shimmer 1.4s infinite;
+  }
+}

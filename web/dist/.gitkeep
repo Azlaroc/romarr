@@ -1,0 +1,1 @@
+# Keeps //go:embed all:dist compiling without a Node build. Do not delete.
