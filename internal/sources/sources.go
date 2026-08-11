@@ -23,9 +23,20 @@ var defaultsJSON []byte
 
 // Registry is the in-memory representation of the source-driver registry.
 type Registry struct {
-	Version int         `json:"version"`
-	Myrient MyrientSpec `json:"myrient"`
-	Vimm    VimmSpec    `json:"vimm"`
+	Version    int            `json:"version"`
+	Myrient    MyrientSpec    `json:"myrient"`
+	Vimm       VimmSpec       `json:"vimm"`
+	ArchiveOrg ArchiveOrgSpec `json:"archiveorg"`
+}
+
+// ArchiveOrgSpec carries the configurable bits of the native Internet Archive
+// driver: the API base and a platform-slug -> collection-item map. Items is
+// intentionally empty in the embedded defaults so the driver is inert until an
+// operator opts a platform in (via GAMARR_SOURCES_PATH/URL). See
+// internal/sources/archiveorg and docs/source-plane.md for proven items.
+type ArchiveOrgSpec struct {
+	BaseURL string            `json:"base_url"`
+	Items   map[string]string `json:"items"`
 }
 
 // MyrientSpec carries the configurable bits of the Myrient direct-download driver.

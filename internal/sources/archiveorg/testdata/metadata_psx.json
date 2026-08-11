@@ -1,0 +1,81 @@
+{
+  "server": "ia800701.us.archive.org",
+  "dir": "/25/items/2024-sony-playstation-usa-hearto-1g1r-collection",
+  "workable_servers": [
+    "ia800701.us.archive.org",
+    "ia600701.us.archive.org"
+  ],
+  "metadata": {
+    "identifier": "2024-sony-playstation-usa-hearto-1g1r-collection",
+    "title": "[2024 Redump clean set] Hearto's Sony PlayStation USA 1G1R archive",
+    "mediatype": "software"
+  },
+  "files": [
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Castlevania - Symphony of the Night (USA).zip",
+      "source": "original",
+      "format": "ZIP",
+      "mtime": "1727792260",
+      "size": "392826195",
+      "md5": "6452e9da539aed682573794c8a794c83",
+      "sha1": "e9825e2f76b006def5d442403a2c06db818d7927"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Crash Bandicoot (USA).zip",
+      "source": "original",
+      "format": "ZIP",
+      "mtime": "1727792870",
+      "size": "475240684",
+      "md5": "571c6ff76119c72811b5e107fa3b804e",
+      "sha1": "e893fe25ec28c4104a91c4b87365f2456dfee244"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Final Fantasy VII (USA) (Disc 1).zip",
+      "source": "original",
+      "format": "ZIP",
+      "mtime": "1727793600",
+      "size": "496143835",
+      "md5": "30206a8797665f5c4010abd49c103c0a",
+      "sha1": "4eaf3de1bcb2b44a861714f785d04db9568c03d2"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Final Fantasy VII (USA) (Disc 2).zip",
+      "source": "original",
+      "format": "ZIP",
+      "mtime": "1727787659",
+      "size": "488250484",
+      "md5": "21831ea4b1b38ff70537430336e4da79",
+      "sha1": "19c3264e51d9695d6d5186010aeaadc51cfe5cfc"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Final Fantasy VII (USA) (Disc 3).zip",
+      "source": "original",
+      "format": "ZIP",
+      "mtime": "1727791441",
+      "size": "432114985",
+      "md5": "3e37e71957ca11ddbcdec56747cd3101",
+      "sha1": "b736d696a7b33741e9267d16f50f9d7098c7252b"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/psx.dat",
+      "source": "original",
+      "format": "Text",
+      "size": "12345",
+      "md5": "deadbeef00000000000000000000dead"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/2024-sony-playstation-usa-hearto-1g1r-collection_meta.sqlite",
+      "source": "original",
+      "format": "Metadata",
+      "size": "9999"
+    },
+    {
+      "name": "2024-sony-playstation-usa-hearto-1g1r-collection/Sony - Playstation - USA/Gran Turismo (Japan).zip",
+      "source": "original",
+      "format": "ZIP",
+      "size": "111",
+      "md5": "aaaa0000000000000000000000000aaa",
+      "sha1": "1111111111111111111111111111111111111111"
+    }
+  ]
+}

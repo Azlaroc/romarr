@@ -1,0 +1,238 @@
+package archiveorg
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"gamarr/internal/sources/driver"
+)
+
+const psxItem = "2024-sony-playstation-usa-hearto-1g1r-collection"
+
+// metadataServer serves the trimmed real metadata fixture at /metadata/<item>.
+func metadataServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "metadata_psx.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metadata/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(fixture)
+	})
+	return httptest.NewServer(mux)
+}
+
+func newDriver(t *testing.T, base string) *Driver {
+	return New(map[string]string{"psx": psxItem}, WithBaseURL(base))
+}
+
+func TestSearch_BuriedTitle(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	rel, err := d.Search(context.Background(), driver.Query{Text: "castlevania symphony of the night", PlatformSlug: "psx"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(rel) != 1 {
+		t.Fatalf("want 1 buried result, got %d: %+v", len(rel), rel)
+	}
+	got := rel[0]
+	if got.Title != "Castlevania - Symphony of the Night (USA).zip" {
+		t.Errorf("title = %q", got.Title)
+	}
+	if got.Size != 392826195 {
+		t.Errorf("size = %d, want 392826195", got.Size)
+	}
+	if got.MD5 != "6452e9da539aed682573794c8a794c83" {
+		t.Errorf("md5 = %q", got.MD5)
+	}
+	if got.SourceType != "ddl" || got.Source != "archiveorg" || got.PlatformSlug != "psx" {
+		t.Errorf("meta = %+v", got)
+	}
+	// Download URL: doubled item id, %20 spaces, %28/%29 parens (url.PathEscape
+	// form — verified live to serve HTTP 206).
+	wantURL := srv.URL + "/download/" + psxItem + "/" + psxItem +
+		"/Sony%20-%20Playstation%20-%20USA/Castlevania%20-%20Symphony%20of%20the%20Night%20%28USA%29.zip"
+	if got.DownloadURL != wantURL {
+		t.Errorf("download url:\n got  %s\n want %s", got.DownloadURL, wantURL)
+	}
+	if got.GUID != got.DownloadURL {
+		t.Errorf("guid should equal download url")
+	}
+}
+
+func TestSearch_MultiDiscAllTermsMatch(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	rel, err := d.Search(context.Background(), driver.Query{Text: "final fantasy vii", PlatformSlug: "psx"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// All three FF7 discs match; nothing else. (An FFVIII decoy would fail the
+	// all-terms rule because "vii" != "viii".)
+	if len(rel) != 3 {
+		t.Fatalf("want 3 disc results, got %d: %+v", len(rel), titles(rel))
+	}
+	for _, r := range rel {
+		if !strings.Contains(r.Title, "Final Fantasy VII (USA)") {
+			t.Errorf("unexpected match: %s", r.Title)
+		}
+		if r.MD5 == "" || r.Size == 0 {
+			t.Errorf("disc release missing hash/size: %+v", r)
+		}
+	}
+}
+
+func TestSearch_RegionFilter(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	// The only Gran Turismo in the fixture is a (Japan) dump with no English
+	// tag -> filtered out.
+	rel, err := d.Search(context.Background(), driver.Query{Text: "gran turismo", PlatformSlug: "psx"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(rel) != 0 {
+		t.Fatalf("expected Japan-only title filtered, got %v", titles(rel))
+	}
+}
+
+func TestSearch_NonRomFilesIgnored(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	// "psx" would tokenize-match the psx.dat basename, but .dat is not a rom
+	// extension so it must never surface.
+	rel, err := d.Search(context.Background(), driver.Query{Text: "psx", PlatformSlug: "psx"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, r := range rel {
+		if strings.HasSuffix(strings.ToLower(r.Title), ".dat") ||
+			strings.HasSuffix(strings.ToLower(r.Title), ".sqlite") {
+			t.Fatalf("non-rom file leaked: %s", r.Title)
+		}
+	}
+}
+
+func TestSearch_UnmappedOrEmptySlug(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	for _, slug := range []string{"", "n64"} {
+		rel, err := d.Search(context.Background(), driver.Query{Text: "mario", PlatformSlug: slug})
+		if err != nil {
+			t.Fatalf("slug %q: %v", slug, err)
+		}
+		if rel != nil {
+			t.Errorf("slug %q: want nil, got %v", slug, titles(rel))
+		}
+	}
+}
+
+func TestSearch_MetadataError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	_, err := d.Search(context.Background(), driver.Query{Text: "mario", PlatformSlug: "psx"})
+	if err == nil {
+		t.Fatal("expected error on HTTP 500 metadata")
+	}
+}
+
+// fileServer serves fixed content with Range support (via http.ServeContent) so
+// the resume path is exercised.
+func fileServer(t *testing.T, name string, content []byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, name, time.Time{}, strings.NewReader(string(content)))
+	}))
+}
+
+func TestFetch_Fresh(t *testing.T) {
+	content := []byte("PK\x03\x04 pretend this is a rom zip payload")
+	srv := fileServer(t, "game.zip", content)
+	defer srv.Close()
+	d := New(nil, WithBaseURL(srv.URL))
+	dest := t.TempDir()
+
+	r := driver.Release{Title: "game.zip", Size: int64(len(content)), DownloadURL: srv.URL + "/game.zip"}
+	path, err := d.Fetch(context.Background(), r, dest)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if path != filepath.Join(dest, "game.zip") {
+		t.Errorf("path = %s", path)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(content) {
+		t.Errorf("content mismatch: %q", got)
+	}
+	if _, err := os.Stat(path + ".part"); !os.IsNotExist(err) {
+		t.Errorf(".part should be gone after rename")
+	}
+}
+
+func TestFetch_ResumesFromPartial(t *testing.T) {
+	content := []byte("0123456789ABCDEFGHIJ0123456789ABCDEFGHIJ")
+	srv := fileServer(t, "game.zip", content)
+	defer srv.Close()
+	d := New(nil, WithBaseURL(srv.URL))
+	dest := t.TempDir()
+
+	// Pre-seed a partial download of the first 12 bytes.
+	part := filepath.Join(dest, "game.zip.part")
+	if err := os.WriteFile(part, content[:12], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := driver.Release{Title: "game.zip", Size: int64(len(content)), DownloadURL: srv.URL + "/game.zip"}
+	path, err := d.Fetch(context.Background(), r, dest)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(content) {
+		t.Fatalf("resumed content mismatch:\n got  %q\n want %q", got, content)
+	}
+}
+
+func TestFetch_SizeMismatch(t *testing.T) {
+	content := []byte("short")
+	srv := fileServer(t, "game.zip", content)
+	defer srv.Close()
+	d := New(nil, WithBaseURL(srv.URL))
+	dest := t.TempDir()
+
+	r := driver.Release{Title: "game.zip", Size: 9999, DownloadURL: srv.URL + "/game.zip"}
+	if _, err := d.Fetch(context.Background(), r, dest); err == nil {
+		t.Fatal("expected size-mismatch error")
+	}
+}
+
+func titles(rs []driver.Release) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.Title
+	}
+	return out
+}

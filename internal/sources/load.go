@@ -94,5 +94,8 @@ func (r *Registry) ApplyEnvOverrides(getenv func(string) string) *Registry {
 	if v := getenv("VIMM_URL"); v != "" {
 		r.Vimm.BaseURL = v
 	}
+	if v := getenv("ARCHIVEORG_URL"); v != "" {
+		r.ArchiveOrg.BaseURL = v
+	}
 	return r
 }
