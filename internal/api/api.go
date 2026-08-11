@@ -432,7 +432,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 
 	// Search all sources concurrently
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		slug := platformFilter
@@ -462,6 +462,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			slug = ""
 		}
 		results := search.SearchVimm(s.cfg.Sources, query, slug)
+		mu.Lock()
+		allResults = append(allResults, results...)
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		slug := platformFilter
+		if slug == "all" {
+			slug = ""
+		}
+		results := search.SearchArchiveOrg(s.cfg.Sources, query, slug)
 		mu.Lock()
 		allResults = append(allResults, results...)
 		mu.Unlock()

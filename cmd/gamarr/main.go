@@ -142,7 +142,7 @@ func main() {
 		if slug == "all" {
 			slug = ""
 		}
-		wg.Add(3)
+		wg.Add(4)
 		go func() {
 			defer wg.Done()
 			results := search.SearchProwlarr(cfg, query, slug)
@@ -160,6 +160,13 @@ func main() {
 		go func() {
 			defer wg.Done()
 			results := search.SearchVimm(cfg.Sources, query, slug)
+			mu.Lock()
+			allResults = append(allResults, results...)
+			mu.Unlock()
+		}()
+		go func() {
+			defer wg.Done()
+			results := search.SearchArchiveOrg(cfg.Sources, query, slug)
 			mu.Lock()
 			allResults = append(allResults, results...)
 			mu.Unlock()

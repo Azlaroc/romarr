@@ -24,6 +24,12 @@ type SearchResult struct {
 	SafetyWarnings   []string `json:"safety_warnings"`
 	VimmID           string   `json:"vimm_id,omitempty"`
 
+	// Per-file content hashes, populated by native drivers that expose them
+	// (archive.org). These carry verifiable file identity downstream to the
+	// normalize/convert hand-off (F5) so it can validate before converting.
+	MD5  string `json:"md5,omitempty"`
+	SHA1 string `json:"sha1,omitempty"`
+
 	// Library duplicate detection
 	InLibrary bool `json:"in_library"`
 
