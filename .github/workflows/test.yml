@@ -23,6 +23,18 @@ jobs:
           fi
       - name: go build
         run: go build -o gamarr ./cmd/gamarr/
+      - name: install rom-converto (pinned)
+        # Same asset + sha256 the image bakes, so the internal/converto smoke
+        # conversion actually runs here instead of skipping. Static-musl → runs
+        # on the glibc runner.
+        run: |
+          set -euo pipefail
+          url=https://github.com/DevYukine/rom-converto/releases/download/v0.17.0/rom-converto-cli-linux-x64-musl
+          sha=24fc93e8403121aa9f39483e22ffe9f330f6a8a65db865b464ab1770600aac54
+          curl -fSL "$url" -o /tmp/rom-converto
+          echo "$sha  /tmp/rom-converto" | sha256sum -c -
+          sudo install -m 0755 /tmp/rom-converto /usr/local/bin/rom-converto
+          rom-converto --version
       - name: go test (race)
         run: go test ./... -v -count=1 -race
       - name: go vet

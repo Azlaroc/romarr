@@ -13,6 +13,7 @@ import (
 
 	"gamarr/internal/api"
 	"gamarr/internal/config"
+	"gamarr/internal/converto"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
@@ -64,6 +65,19 @@ func main() {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			slog.Warn("could not create directory (downloads/organizing to it will fail)", "dir", dir, "error", err)
 		}
+	}
+
+	// Probe the baked-in rom-converto engine at boot so a missing or broken
+	// binary is visible immediately, not only when a conversion is first
+	// attempted. Non-fatal: conversion features degrade gracefully without it.
+	if cv := converto.New(cfg); cv.Available() {
+		if v, err := cv.Version(context.Background()); err == nil {
+			slog.Info("rom-converto ready", "version", v)
+		} else {
+			slog.Warn("rom-converto present but not runnable", "error", err)
+		}
+	} else {
+		slog.Warn("rom-converto not found; ROM conversion unavailable", "bin", cfg.ConvertoBin)
 	}
 
 	// Initialize database
