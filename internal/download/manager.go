@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -501,6 +502,13 @@ func (m *Manager) downloadDDL(dlURL, destPath, jobID string) (string, error) {
 	} else {
 		parts := strings.Split(strings.Split(dlURL, "?")[0], "/")
 		filename = parts[len(parts)-1]
+		// URL path segments are percent-encoded (archive.org, Myrient, …).
+		// Decode so the on-disk name is the real title ("Game (USA).zip") and
+		// not "Game%20%28USA%29.zip", which would otherwise leak into the
+		// library file_path and the extracted-folder name.
+		if decoded, err := url.PathUnescape(filename); err == nil {
+			filename = decoded
+		}
 	}
 	// The filename comes from the remote server (Content-Disposition or URL);
 	// never let it name a path outside the staging dir.
@@ -771,14 +779,33 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 			})
 			return
 		}
+
+		// If extraction is enabled and this is an archive, unpack it into a
+		// clean game-named directory (not a "<name>.zip.extracted" wrapper),
+		// remove the consumed archive, and point the library at the extracted
+		// content so file_path/file_size reflect the real ROM rather than the
+		// archive that no longer exists. Extraction failure is non-fatal: keep
+		// the archive and track that instead.
+		finalPath := dest
+		detail := fmt.Sprintf("Moved to RomM (%s)", platf)
+		if m.LoadSettings().ExtractArchives && isExtractableArchive(dest) {
+			if outDir, err := extractToGameDir(dest); err == nil {
+				os.Remove(dest)
+				finalPath = outDir
+				detail = fmt.Sprintf("Moved to RomM (%s) (extracted)", platf)
+			} else {
+				slog.Warn("archive extraction failed; keeping archive",
+					"archive", sanitizeLog(filename), "error", err)
+			}
+		}
+
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": fmt.Sprintf("Moved to RomM (%s)", platf),
+			"status": "completed", "detail": detail,
 		})
-		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "ddl")
-		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "ddl", "ddl", "ddl:"+dest)
+		writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "ddl")
+		m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, contentSize(finalPath), "ddl", "ddl", "ddl:"+finalPath)
 		m.jobs.LogActivity("download_completed", title, fmt.Sprintf("DDL to %s", platf), jobID, nil)
-		slog.Info("DDL ROM organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
-		m.maybeExtractArchives(jobID, dest)
+		slog.Info("DDL ROM organized", "file", sanitizeLog(filename), "dest", sanitizeLog(finalPath))
 	} else {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed", "detail": "Downloaded (unknown platform, left in staging)",
@@ -940,6 +967,65 @@ func extractArchives(directory string) []string {
 		}
 	}
 	return extracted
+}
+
+// isExtractableArchive reports whether path has an archive extension the
+// organize step knows how to unpack.
+func isExtractableArchive(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".zip", ".7z", ".rar":
+		return true
+	}
+	return false
+}
+
+// gameDirForArchive returns the clean game directory an archive extracts into:
+// the archive path with its extension stripped and basename sanitized, so
+// "…/Game (USA).zip" -> "…/Game (USA)". No ".extracted" suffix — a directory
+// holding the disc's files is what RomM and the library scanner expect.
+func gameDirForArchive(archive string) string {
+	base := filepath.Base(archive)
+	name := sanitizeFilename(strings.TrimSuffix(base, filepath.Ext(base)))
+	return filepath.Join(filepath.Dir(archive), name)
+}
+
+// extractToGameDir unpacks archive into gameDirForArchive(archive) and returns
+// that directory. It refuses to overwrite an existing destination and cleans up
+// a partial directory on failure, so a failed extraction never leaves a
+// half-populated game folder behind.
+func extractToGameDir(archive string) (string, error) {
+	outDir := gameDirForArchive(archive)
+	if pathExists(outDir) {
+		return "", fmt.Errorf("destination %q already exists", outDir)
+	}
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return "", err
+	}
+	var cmd *exec.Cmd
+	if strings.ToLower(filepath.Ext(archive)) == ".rar" {
+		cmd = exec.Command("unrar", "x", "-o+", "-y", archive, outDir+"/")
+	} else {
+		cmd = exec.Command("7z", "x", fmt.Sprintf("-o%s", outDir), "-y", archive)
+	}
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(outDir)
+		return "", err
+	}
+	return outDir, nil
+}
+
+// contentSize returns the byte size of a file, or the recursive size of a
+// directory tree, so library entries carry a real size whether they point at a
+// single ROM file or an extracted game folder.
+func contentSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	if info.IsDir() {
+		return dirSize(path)
+	}
+	return info.Size()
 }
 
 func writeMetadataSidecar(destPath, title, platf, platSlug string, isPC bool, sourceType string) {
