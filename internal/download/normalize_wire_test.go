@@ -21,7 +21,7 @@ func TestOrganizeDDLFileNormalizeNonBlockingWhenBinaryAbsent(t *testing.T) {
 
 	jobID := newJobID()
 	jobs.Set(jobID, map[string]interface{}{"status": "organizing", "error": nil})
-	m.organizeDDLFile(jobID, src, "Some Game (USA)", "Game Boy Advance", "gba", false)
+	m.organizeDDLFile(jobID, src, "Some Game (USA)", "Game Boy Advance", "gba", false, "", "")
 
 	dest := filepath.Join(cfg.GamesRomsPath, "gba", "Some Game (USA).gba")
 	if !pathExists(dest) {

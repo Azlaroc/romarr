@@ -208,7 +208,7 @@ func main() {
 
 	downloadFn := func(result *models.SearchResult) (string, error) {
 		if result.SourceType == "ddl" {
-			jobID := mgr.DownloadDDL(result.DownloadURL, result.VimmID, result.Title, result.Platform, result.PlatformSlug, result.IsPC)
+			jobID := mgr.DownloadDDL(result.DownloadURL, result.VimmID, result.Title, result.Platform, result.PlatformSlug, result.IsPC, result.MD5, result.SHA1)
 			return jobID, nil
 		}
 		if result.DownloadProtocol == "nzb" {
