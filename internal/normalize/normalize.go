@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gamarr/internal/config"
@@ -38,11 +39,12 @@ func New(cfg *config.Config) *Normalizer {
 	return &Normalizer{cv: converto.New(cfg)}
 }
 
-// Result records what Normalize did, for logging and job detail. The zero value
-// means nothing happened (disabled, no binary, or no Playmatch match).
+// Result records what Normalize/Convert did, for logging and job detail. The
+// zero value means nothing happened (disabled, no binary, or no match).
 type Result struct {
-	Renamed  bool // a DAT rename ran without error
-	Playlist bool // a multi-disc .m3u pass ran without error
+	Renamed   bool // a DAT rename ran without error
+	Playlist  bool // a multi-disc .m3u pass ran without error
+	Converted int  // number of disc images compressed to CHD (and verified)
 }
 
 // Normalize canonicalizes artifactPath in place and returns the path to track
@@ -160,4 +162,137 @@ func soleNewEntry(dir string, before map[string]struct{}) (string, bool) {
 func sanitizeLog(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.ReplaceAll(s, "\r", " ")
+}
+
+// chdPlatforms are the disc-based platform slugs whose default target format is
+// CHD. Cart systems are left as-is.
+var chdPlatforms = map[string]bool{"psx": true, "psp": true, "dc": true, "ps2": true}
+
+// FormatPolicy returns the default target conversion format for a platform slug:
+// "chd" for disc systems (psx/psp/dc/ps2), "" (leave as-is) otherwise. This is
+// the FormatProfile seam — F4/F6 quality/format profiles will drive it later; for
+// now it is the hardcoded default.
+func FormatPolicy(platformSlug string) string {
+	if chdPlatforms[platformSlug] {
+		return "chd"
+	}
+	return ""
+}
+
+// Convert applies the default format policy to an organized artifact: disc
+// systems are compressed to CHD with sole-copy safety — a source disc image is
+// deleted only after its CHD passes `chd verify`. It returns the path to track.
+//
+// artifactPath is a game directory (the .cue+.bin case) or a bare disc image.
+// hashStatus is the before-convert authenticity result from the download stage:
+// "mismatch" skips convert entirely; "ok"/"skipped"/"" proceed (the after-verify
+// still guards fidelity).
+//
+// Non-blocking by contract: a missing binary, a non-disc platform, a hash
+// mismatch, or any per-disc error leaves that source untouched and returns the
+// input path unchanged. It never fails an import.
+func (n *Normalizer) Convert(ctx context.Context, artifactPath, platformSlug, hashStatus string) (string, Result, error) {
+	var res Result
+	if n == nil || n.cv == nil || !n.cv.Available() {
+		return artifactPath, res, nil
+	}
+	if FormatPolicy(platformSlug) != "chd" {
+		return artifactPath, res, nil
+	}
+	if hashStatus == "mismatch" {
+		slog.Warn("convert: skipped — downloaded artifact failed hash verify", "path", sanitizeLog(artifactPath))
+		return artifactPath, res, nil
+	}
+	fi, err := os.Stat(artifactPath)
+	if err != nil {
+		return artifactPath, res, nil
+	}
+
+	// Collect disc images: the images at the top of a game dir, or a bare file.
+	var discs []string
+	if fi.IsDir() {
+		entries, _ := os.ReadDir(artifactPath)
+		for _, e := range entries {
+			if !e.IsDir() && isDiscImage(e.Name()) {
+				discs = append(discs, filepath.Join(artifactPath, e.Name()))
+			}
+		}
+	} else if isDiscImage(artifactPath) {
+		discs = append(discs, artifactPath)
+	}
+	if len(discs) == 0 {
+		return artifactPath, res, nil
+	}
+
+	finalPath := artifactPath
+	for _, disc := range discs {
+		chdPath, err := n.cv.CompressCHD(ctx, disc, converto.Options{OnConflict: "skip", Quiet: true})
+		if err != nil {
+			slog.Warn("convert: chd compress failed (source kept)", "disc", sanitizeLog(disc), "error", err)
+			continue
+		}
+		// Sole-copy gate: verify the CHD before removing anything. On failure,
+		// delete the unverified CHD and KEEP the source untouched.
+		if err := n.cv.VerifyCHD(ctx, chdPath); err != nil {
+			slog.Warn("convert: chd verify failed — removing bad CHD, keeping source", "disc", sanitizeLog(disc), "error", err)
+			_ = os.Remove(chdPath)
+			continue
+		}
+		removeSourceDisc(disc)
+		res.Converted++
+		if !fi.IsDir() {
+			finalPath = chdPath // a bare-file input is now tracked as the CHD
+		}
+	}
+	if res.Converted == 0 {
+		return artifactPath, res, nil
+	}
+
+	// Multi-disc: regenerate the .m3u so it lists the new .chd files (the #260
+	// pass wrote one over the now-deleted .cue names). Single-disc writes none.
+	if fi.IsDir() {
+		for _, m := range globM3U(artifactPath) {
+			_ = os.Remove(m)
+		}
+		_ = n.cv.Playlist(ctx, artifactPath, converto.Options{PlaylistMode: "multiple", Quiet: true})
+	}
+
+	slog.Info("converted to CHD", "platform", platformSlug, "count", res.Converted, "path", sanitizeLog(finalPath))
+	return finalPath, res, nil
+}
+
+// isDiscImage reports whether name is a disc image rom-converto can compress to
+// CHD (already-compressed .chd is excluded).
+func isDiscImage(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".cue", ".iso", ".gdi":
+		return true
+	}
+	return false
+}
+
+var cueFileRe = regexp.MustCompile(`(?im)^\s*FILE\s+"([^"]+)"`)
+
+// removeSourceDisc deletes a converted disc image and the track files it
+// references (a .cue/.gdi points at sibling .bin/track files), so no orphan
+// tracks are left beside the new CHD.
+func removeSourceDisc(disc string) {
+	dir := filepath.Dir(disc)
+	switch strings.ToLower(filepath.Ext(disc)) {
+	case ".cue", ".gdi":
+		data, err := os.ReadFile(disc)
+		if err == nil {
+			for _, m := range cueFileRe.FindAllStringSubmatch(string(data), -1) {
+				ref := filepath.Base(m[1]) // keep tracks inside the disc dir
+				_ = os.Remove(filepath.Join(dir, ref))
+			}
+		}
+	}
+	_ = os.Remove(disc)
+}
+
+// globM3U returns the .m3u files at the top of dir.
+func globM3U(dir string) []string {
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.m3u"))
+	return matches
 }

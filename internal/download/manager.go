@@ -4,7 +4,10 @@ package download
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha1"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -789,6 +792,17 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 		m.jobs.LogActivity("download_completed", title, "DDL to GameVault", jobID, nil)
 		slog.Info("DDL PC game organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
+		// Authenticate the download before any destructive convert: fp still
+		// matches the source hash here — before it is moved/extracted/renamed —
+		// and we only pay the hash when a convert is actually eligible.
+		convertHashStatus := ""
+		if m.LoadSettings().ConvertROMs && normalize.FormatPolicy(platSlug) == "chd" {
+			convertHashStatus = verifyDownloadHash(fp, md5, sha1)
+			if convertHashStatus == "mismatch" {
+				slog.Warn("download hash mismatch; convert will be skipped",
+					"title", sanitizeLog(title), "platform", platSlug)
+			}
+		}
 		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platSlug))
 		os.MkdirAll(destDir, 0755)
 		dest := filepath.Join(destDir, filename)
@@ -824,6 +838,9 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 		// F5 normalize (DAT 1G1R rename + multi-disc .m3u) on the clean, extracted
 		// path. No-op unless enabled; never blocks import.
 		finalPath = m.MaybeNormalize(jobID, finalPath, platSlug)
+		// F5 convert (disc systems → CHD, verify before replacing the source).
+		// No-op unless enabled; never blocks import.
+		finalPath = m.MaybeConvert(jobID, finalPath, platSlug, convertHashStatus)
 		writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "ddl")
 		m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, contentSize(finalPath), "ddl", "ddl", "ddl:"+finalPath)
 		m.jobs.LogActivity("download_completed", title, fmt.Sprintf("DDL to %s", platf), jobID, nil)
@@ -967,6 +984,53 @@ func (m *Manager) MaybeNormalize(jobID, path, platSlug string) string {
 		}
 	}
 	return finalPath
+}
+
+// MaybeConvert runs the F5 convert step (disc systems → CHD, with verify before
+// the source is deleted) when the ConvertROMs setting is on, and returns the path
+// to track — unchanged when disabled, the binary is unavailable, the platform is
+// not a disc system, or hashStatus is "mismatch". Non-blocking: any per-disc
+// error keeps that source untouched. jobID may be empty (no job detail update).
+func (m *Manager) MaybeConvert(jobID, path, platSlug, hashStatus string) string {
+	if !m.LoadSettings().ConvertROMs {
+		return path
+	}
+	finalPath, res, _ := m.norm.Convert(context.Background(), path, platSlug, hashStatus)
+	if jobID != "" && res.Converted > 0 {
+		if job, ok := m.jobs.Get(jobID); ok {
+			detail, _ := job["detail"].(string)
+			m.jobs.Update(jobID, "detail", fmt.Sprintf("%s (converted %d→CHD)", detail, res.Converted))
+		}
+	}
+	return finalPath
+}
+
+// verifyDownloadHash streams fp once and compares its md5/sha1 to the expected
+// values carried from the source (#259). Returns "ok" (match), "mismatch"
+// (differs), or "skipped" (no expected hash, or fp unreadable). Called only when
+// a convert is eligible, to authenticate the download before the destructive
+// convert deletes the source.
+func verifyDownloadHash(fp, expectedMD5, expectedSHA1 string) string {
+	if expectedMD5 == "" && expectedSHA1 == "" {
+		return "skipped"
+	}
+	f, err := os.Open(fp)
+	if err != nil {
+		return "skipped"
+	}
+	defer f.Close()
+	md5h := md5.New()
+	sha1h := sha1.New()
+	if _, err := io.Copy(io.MultiWriter(md5h, sha1h), f); err != nil {
+		return "skipped"
+	}
+	if expectedMD5 != "" && !strings.EqualFold(hex.EncodeToString(md5h.Sum(nil)), expectedMD5) {
+		return "mismatch"
+	}
+	if expectedSHA1 != "" && !strings.EqualFold(hex.EncodeToString(sha1h.Sum(nil)), expectedSHA1) {
+		return "mismatch"
+	}
+	return "ok"
 }
 
 func extractArchives(directory string) []string {
@@ -1168,11 +1232,11 @@ func (m *Manager) LoadSettings() *Settings {
 	settingsFile := filepath.Join(m.cfg.DataDir, "settings.json")
 	data, err := os.ReadFile(settingsFile)
 	if err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs}
+		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs, ConvertROMs: m.cfg.ConvertROMs}
 	}
 	var s Settings
 	if err := json.Unmarshal(data, &s); err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs}
+		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs, ConvertROMs: m.cfg.ConvertROMs}
 	}
 	return &s
 }
@@ -1190,6 +1254,9 @@ type Settings struct {
 	// NormalizeROMs gates the F5 normalize step (DAT 1G1R rename + multi-disc
 	// .m3u) on import. Ships off; flip it in the UI to enable.
 	NormalizeROMs bool `json:"normalize_roms"`
+	// ConvertROMs gates the F5 convert step (disc systems → CHD, verify before
+	// replacing the source). Ships off; flip it in the UI to enable.
+	ConvertROMs bool `json:"convert_roms"`
 }
 
 // DDL source management
