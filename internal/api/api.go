@@ -910,6 +910,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if v, ok := req["normalize_roms"].(bool); ok {
 		settings.NormalizeROMs = v
 	}
+	if v, ok := req["convert_roms"].(bool); ok {
+		settings.ConvertROMs = v
+	}
 	s.mgr.SaveSettings(settings)
 	writeJSON(w, 200, settings)
 }

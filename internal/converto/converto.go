@@ -98,6 +98,18 @@ func (c *Client) CompressCHD(ctx context.Context, input string, o Options) (stri
 	return c.chdOutputPath(input, o), nil
 }
 
+// VerifyCHD structurally verifies a CHD: rom-converto/chdman recompute the
+// decompressed data's SHA1 and check it against the hash stored in the CHD
+// header at creation, so a non-error return means the CHD faithfully reproduces
+// the source it was made from. Used as the sole-copy safety gate before a source
+// disc image is deleted. Returns nil on pass, an error on any failure.
+func (c *Client) VerifyCHD(ctx context.Context, input string) error {
+	args := c.baseArgs(Options{Quiet: true})
+	args = append(args, "chd", "verify", input)
+	_, err := c.run(ctx, "chd verify", args...)
+	return err
+}
+
 // DatRename renames ROMs to their canonical Playmatch names (hash-verified,
 // in place). Online: consults the Playmatch API (public instance unless
 // CONVERTO_API_BASE points elsewhere).

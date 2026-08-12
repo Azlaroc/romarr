@@ -106,6 +106,35 @@ func TestDatRename(t *testing.T) {
 	}
 }
 
+// TestVerifyCHD compresses the fixture and confirms VerifyCHD passes on the
+// produced CHD and fails on a non-CHD file. Gated on the binary.
+func TestVerifyCHD(t *testing.T) {
+	requireBinary(t)
+
+	dir := t.TempDir()
+	for _, name := range []string{"game.cue", "track.bin"} {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatalf("write fixture %s: %v", name, err)
+		}
+	}
+
+	c := testClient(t)
+	out, err := c.CompressCHD(context.Background(), filepath.Join(dir, "game.cue"), Options{Quiet: true, OnConflict: "overwrite"})
+	if err != nil {
+		t.Fatalf("CompressCHD: %v", err)
+	}
+	if err := c.VerifyCHD(context.Background(), out); err != nil {
+		t.Fatalf("VerifyCHD on a freshly-made CHD: %v", err)
+	}
+	if err := c.VerifyCHD(context.Background(), filepath.Join(dir, "game.cue")); err == nil {
+		t.Error("VerifyCHD on a non-CHD file should return an error")
+	}
+}
+
 // TestChdOutputPath pins the output-path derivation without needing the binary,
 // so it runs everywhere.
 func TestChdOutputPath(t *testing.T) {
