@@ -50,6 +50,11 @@ type Config struct {
 	ConvertoAPIBase    string
 	ConvertoTimeoutSec int
 
+	// NormalizeROMs gates the F5 normalize step (DAT 1G1R rename + multi-disc
+	// .m3u) on import. Default off — the settings toggle is the runtime switch;
+	// this is only the initial value LoadSettings falls back to.
+	NormalizeROMs bool
+
 	// AI Monitor
 	AIMonitorEnabled  bool
 	AIProvider        string
@@ -177,6 +182,8 @@ func Load() *Config {
 		ConvertoBin:        envStr("CONVERTO_BIN", "rom-converto"),
 		ConvertoAPIBase:    envStr("CONVERTO_API_BASE", ""),
 		ConvertoTimeoutSec: envInt("CONVERTO_TIMEOUT_SEC", 3600),
+
+		NormalizeROMs: envBool("NORMALIZE_ROMS", false),
 
 		AIMonitorEnabled:  envBool("AI_MONITOR_ENABLED", false),
 		AIProvider:        envStr("AI_PROVIDER", "ollama"),

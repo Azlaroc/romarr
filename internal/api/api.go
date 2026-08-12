@@ -907,6 +907,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if v, ok := req["extract_archives"].(bool); ok {
 		settings.ExtractArchives = v
 	}
+	if v, ok := req["normalize_roms"].(bool); ok {
+		settings.NormalizeROMs = v
+	}
 	s.mgr.SaveSettings(settings)
 	writeJSON(w, 200, settings)
 }
