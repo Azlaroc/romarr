@@ -112,7 +112,7 @@ func TestOrganizeDDLFileExtractsToCleanGameDir(t *testing.T) {
 
 	jobID := newJobID()
 	jobs.Set(jobID, map[string]interface{}{"status": "organizing", "error": nil})
-	m.organizeDDLFile(jobID, src, "American Pool (USA)", "PS1", "psx", false)
+	m.organizeDDLFile(jobID, src, "American Pool (USA)", "PS1", "psx", false, "", "")
 
 	psxDir := filepath.Join(cfg.GamesRomsPath, "psx")
 	gameDir := filepath.Join(psxDir, "American Pool (USA)")

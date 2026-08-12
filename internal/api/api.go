@@ -631,7 +631,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "No download URL")
 			return
 		}
-		jobID := s.mgr.DownloadDDL(req.DownloadURL, req.VimmID, req.Title, req.Platform, req.PlatformSlug, req.IsPC)
+		jobID := s.mgr.DownloadDDL(req.DownloadURL, req.VimmID, req.Title, req.Platform, req.PlatformSlug, req.IsPC, req.MD5, req.SHA1)
 		resp := map[string]interface{}{"success": true, "job_id": jobID}
 		if duplicateWarning != "" {
 			resp["warning"] = duplicateWarning

@@ -161,8 +161,11 @@ func (m *Manager) DownloadTorrent(url, title, platf, platSlug string, isPC bool)
 	return jobID, nil
 }
 
-// DownloadDDL starts a direct download.
-func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC bool) string {
+// DownloadDDL starts a direct download. md5/sha1 are the expected content
+// hashes from the chosen SearchResult (archive.org exposes them); they are
+// stored on the job and threaded to organize-time so the convert stage (#261)
+// can verify before a destructive convert. Empty when the source has no hash.
+func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC bool, md5, sha1 string) string {
 	jobID := newJobID()
 	m.jobs.Set(jobID, map[string]interface{}{
 		"status":        "downloading",
@@ -172,8 +175,10 @@ func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC b
 		"is_pc":         isPC,
 		"error":         nil,
 		"detail":        "Starting direct download...",
+		"md5":           md5,
+		"sha1":          sha1,
 	})
-	go m.ddlDownloadWorker(jobID, url, vimmID, title, platf, platSlug, isPC)
+	go m.ddlDownloadWorker(jobID, url, vimmID, title, platf, platSlug, isPC, md5, sha1)
 	return jobID
 }
 
@@ -423,7 +428,7 @@ func (m *Manager) organizeWithScan(jobID string, torrent *qbit.Torrent, platf, p
 	m.organizeGame(jobID, torrent, platf, platSlug, isPC)
 }
 
-func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug string, isPC bool) {
+func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug string, isPC bool, md5, sha1 string) {
 	staging := m.cfg.QBSavePath
 	if err := os.MkdirAll(staging, 0755); err != nil {
 		slog.Error("cannot create staging dir", "path", staging, "error", err)
@@ -482,7 +487,7 @@ func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
 		"status": "organizing", "detail": "Moving to library...",
 	})
-	m.organizeDDLFile(jobID, filepath_, title, platf, platSlug, isPC)
+	m.organizeDDLFile(jobID, filepath_, title, platf, platSlug, isPC, md5, sha1)
 }
 
 func (m *Manager) downloadDDL(dlURL, destPath, jobID string) (string, error) {
@@ -760,7 +765,13 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	return fp
 }
 
-func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC bool) {
+func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC bool, md5, sha1 string) {
+	// md5/sha1 are the expected content hashes from the source. They are carried
+	// to organize-time for the #261 verify-before-convert gate; empty when the
+	// source exposes no hash (torrent/Vimm), in which case verify is skipped.
+	if md5 != "" || sha1 != "" {
+		slog.Debug("organize: expected content hashes available", "md5", md5, "sha1", sha1)
+	}
 	filename := sanitizeFilename(filepath.Base(fp))
 	if isPC {
 		dest := filepath.Join(m.cfg.GamesVaultPath, filename)

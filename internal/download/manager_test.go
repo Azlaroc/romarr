@@ -443,7 +443,7 @@ func TestDownloadDDL(t *testing.T) {
 		defer srv.Close()
 
 		m := New(cfg, jobs, nil)
-		jobID := m.DownloadDDL(srv.URL+"/dl", "", "Mario World", "SNES", "snes", false)
+		jobID := m.DownloadDDL(srv.URL+"/dl", "", "Mario World", "SNES", "snes", false, "", "")
 
 		waitFor(t, 10*time.Second, "library tracking", func() bool {
 			return jobs.LibraryHasSourceID("ddl:" + filepath.Join(cfg.GamesRomsPath, "snes", "Mario World.sfc"))
@@ -471,7 +471,7 @@ func TestDownloadDDL(t *testing.T) {
 		defer srv.Close()
 
 		m := New(cfg, jobs, nil)
-		jobID := m.DownloadDDL(srv.URL+"/gone", "", "Missing Game", "PC", "", true)
+		jobID := m.DownloadDDL(srv.URL+"/gone", "", "Missing Game", "PC", "", true, "", "")
 		job := waitJobStatus(t, jobs, jobID, "error", 5*time.Second)
 		errMsg, _ := job["error"].(string)
 		if !strings.Contains(errMsg, "Download failed") {
@@ -497,7 +497,7 @@ func TestDownloadDDL(t *testing.T) {
 		defer srv.Close()
 
 		m := New(cfg, jobs, nil)
-		jobID := m.DownloadDDL(srv.URL+"/dl", "", "Blocked Game", "PC", "", true)
+		jobID := m.DownloadDDL(srv.URL+"/dl", "", "Blocked Game", "PC", "", true, "", "")
 		job := waitJobStatus(t, jobs, jobID, "error", 5*time.Second)
 		errMsg, _ := job["error"].(string)
 		if !strings.Contains(errMsg, "cannot create staging dir") {
@@ -512,7 +512,7 @@ func TestDownloadDDL(t *testing.T) {
 		cfg := newTestConfig(t)
 		jobs := newTestJobs(t)
 		m := New(cfg, jobs, nil)
-		jobID := m.DownloadDDL("", "", "Nothing", "PC", "", true)
+		jobID := m.DownloadDDL("", "", "Nothing", "PC", "", true, "", "")
 		waitJobStatus(t, jobs, jobID, "error", 5*time.Second)
 	})
 }
@@ -612,7 +612,7 @@ func TestOrganizeDDLFile(t *testing.T) {
 
 	t.Run("pc file goes to vault", func(t *testing.T) {
 		m, jobID, src := newFixture(t)
-		m.organizeDDLFile(jobID, src, "Great Game", "PC", "", true)
+		m.organizeDDLFile(jobID, src, "Great Game", "PC", "", true, "", "")
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "completed" {
 			t.Fatalf("status = %q, want completed", status)
@@ -627,7 +627,7 @@ func TestOrganizeDDLFile(t *testing.T) {
 
 	t.Run("rom goes to platform dir", func(t *testing.T) {
 		m, jobID, src := newFixture(t)
-		m.organizeDDLFile(jobID, src, "Great Game", "PSP", "psp", false)
+		m.organizeDDLFile(jobID, src, "Great Game", "PSP", "psp", false, "", "")
 		if !pathExists(filepath.Join(m.cfg.GamesRomsPath, "psp", "game-file.bin")) {
 			t.Error("file not moved to psp dir")
 		}
@@ -635,7 +635,7 @@ func TestOrganizeDDLFile(t *testing.T) {
 
 	t.Run("unknown platform left in staging", func(t *testing.T) {
 		m, jobID, src := newFixture(t)
-		m.organizeDDLFile(jobID, src, "Great Game", "", "", false)
+		m.organizeDDLFile(jobID, src, "Great Game", "", "", false, "", "")
 		job, _ := m.Jobs().Get(jobID)
 		if detail, _ := job["detail"].(string); !strings.Contains(detail, "unknown platform") {
 			t.Errorf("detail = %q, want unknown platform", detail)
@@ -648,7 +648,7 @@ func TestOrganizeDDLFile(t *testing.T) {
 	t.Run("move failure sets error", func(t *testing.T) {
 		m, jobID, src := newFixture(t)
 		os.RemoveAll(m.cfg.GamesVaultPath) // vault dir gone: os.Create fails
-		m.organizeDDLFile(jobID, src, "Great Game", "PC", "", true)
+		m.organizeDDLFile(jobID, src, "Great Game", "PC", "", true, "", "")
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "error" {
 			t.Errorf("status = %q, want error", status)

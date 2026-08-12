@@ -89,6 +89,13 @@ type DownloadRequest struct {
 	SourceType       string `json:"source_type"`
 	VimmID           string `json:"vimm_id"`
 	DownloadProtocol string `json:"download_protocol"` // "torrent" or "nzb"
+
+	// Per-file content hashes carried from the chosen SearchResult (archive.org
+	// exposes them; see SearchResult.MD5/SHA1) so the normalize/convert stage can
+	// verify the downloaded artifact before a destructive convert. Empty for
+	// sources that expose no hash (torrent/Vimm).
+	MD5  string `json:"md5,omitempty"`
+	SHA1 string `json:"sha1,omitempty"`
 }
 
 // DDLSource represents a custom direct-download source.
