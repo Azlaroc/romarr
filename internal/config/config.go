@@ -43,6 +43,13 @@ type Config struct {
 	// Experimental
 	ExtractArchives bool
 
+	// ROM conversion (rom-converto). The binary is baked into the image;
+	// ConvertoBin lets a deployment override the path. ConvertoAPIBase points
+	// the dat/Playmatch verbs at a self-hosted instance (empty = public).
+	ConvertoBin        string
+	ConvertoAPIBase    string
+	ConvertoTimeoutSec int
+
 	// AI Monitor
 	AIMonitorEnabled  bool
 	AIProvider        string
@@ -166,6 +173,10 @@ func Load() *Config {
 		DockerSocket:    envStr("DOCKER_SOCKET", "/var/run/docker.sock"),
 
 		ExtractArchives: envBool("EXTRACT_ARCHIVES", false),
+
+		ConvertoBin:        envStr("CONVERTO_BIN", "rom-converto"),
+		ConvertoAPIBase:    envStr("CONVERTO_API_BASE", ""),
+		ConvertoTimeoutSec: envInt("CONVERTO_TIMEOUT_SEC", 3600),
 
 		AIMonitorEnabled:  envBool("AI_MONITOR_ENABLED", false),
 		AIProvider:        envStr("AI_PROVIDER", "ollama"),

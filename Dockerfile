@@ -26,12 +26,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
     -o /gamarr ./cmd/gamarr/
 
+# ── rom-converto fetch ────────────────────────────────────────────────────────
+# The ROM/disc conversion engine (internal/converto shells out to it). A single
+# static-musl binary, sha256-pinned to a release asset so the image is
+# reproducible. Static build → runs directly on the alpine runtime, no deps.
+FROM alpine:3.21 AS converto
+ARG ROM_CONVERTO_VERSION=v0.17.0
+ARG ROM_CONVERTO_SHA256=24fc93e8403121aa9f39483e22ffe9f330f6a8a65db865b464ab1770600aac54
+RUN apk add --no-cache curl \
+ && curl -fSL -o /rom-converto \
+      "https://github.com/DevYukine/rom-converto/releases/download/${ROM_CONVERTO_VERSION}/rom-converto-cli-linux-x64-musl" \
+ && echo "${ROM_CONVERTO_SHA256}  /rom-converto" | sha256sum -c - \
+ && chmod +x /rom-converto
+
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata p7zip && \
     adduser -D -u 1000 gamarr
 
 COPY --from=builder /gamarr /usr/local/bin/gamarr
+COPY --from=converto /rom-converto /usr/local/bin/rom-converto
 COPY clamd.conf /app/clamd.conf
 
 WORKDIR /app
