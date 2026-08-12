@@ -150,6 +150,15 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Normalize (DAT 1G1R rename + multi-disc .m3u) through the same seam as
+		// the download paths, killing the second organize path's divergence.
+		// ROM-only; no-op unless enabled. Reconciles the tracked path to the
+		// canonical name — rename preserves size, so FileSize stays the source
+		// stat until the convert stage (#261) can change it.
+		if !f.IsPC && f.PlatformSlug != "" {
+			destPath = s.mgr.MaybeNormalize("", destPath, f.PlatformSlug)
+		}
+
 		// Add to library
 		item := &db.LibraryItem{
 			Title:        title,

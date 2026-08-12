@@ -3,6 +3,7 @@
 package download
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	"gamarr/internal/config"
 	"gamarr/internal/db"
+	"gamarr/internal/normalize"
 	"gamarr/internal/nzbget"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
@@ -38,12 +40,13 @@ type Manager struct {
 	transmission *TransmissionClient
 	deluge       *DelugeClient
 	nzbget       *nzbget.Client
+	norm         *normalize.Normalizer
 	NotifyFunc   NotifyCallback
 }
 
 // New creates a new download Manager.
 func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
-	mgr := &Manager{cfg: cfg, jobs: jobs, qb: qb}
+	mgr := &Manager{cfg: cfg, jobs: jobs, qb: qb, norm: normalize.New(cfg)}
 
 	// Initialize optional download clients.
 	if cfg.HasTransmission() {
@@ -361,12 +364,17 @@ func (m *Manager) organizeGame(jobID string, torrent *qbit.Torrent, platf, platS
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed", "detail": fmt.Sprintf("Moved to RomM (%s)", platf),
 		})
-		writeMetadataSidecar(dest, torrentName, platf, platSlug, isPC, "torrent")
-		m.TrackInLibrary(torrentName, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrentHash)
+		// F5 normalize (DAT 1G1R rename + multi-disc .m3u): reconciles the tracked
+		// path to the canonical name. No-op unless enabled; never blocks import.
+		finalPath := m.MaybeNormalize(jobID, dest, platSlug)
+		writeMetadataSidecar(finalPath, torrentName, platf, platSlug, isPC, "torrent")
+		m.TrackInLibrary(torrentName, platf, platSlug, isPC, finalPath, 0, "torrent", "prowlarr", "torrent:"+torrentHash)
 		m.jobs.LogActivity("download_completed", torrentName, fmt.Sprintf("Organized to %s", platf), jobID, nil)
-		slog.Info("ROM organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(dest))
+		slog.Info("ROM organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(finalPath))
 
-		// Experimental: extract archives
+		// Experimental: extract archives. Runs on the original moved path; when a
+		// single file was renamed by normalize this is a stat-miss no-op, and for
+		// a directory the path is unchanged, so extraction still works.
 		m.maybeExtractArchives(jobID, dest)
 	} else {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
@@ -802,6 +810,9 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed", "detail": detail,
 		})
+		// F5 normalize (DAT 1G1R rename + multi-disc .m3u) on the clean, extracted
+		// path. No-op unless enabled; never blocks import.
+		finalPath = m.MaybeNormalize(jobID, finalPath, platSlug)
 		writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "ddl")
 		m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, contentSize(finalPath), "ddl", "ddl", "ddl:"+finalPath)
 		m.jobs.LogActivity("download_completed", title, fmt.Sprintf("DDL to %s", platf), jobID, nil)
@@ -924,6 +935,27 @@ func (m *Manager) maybeExtractArchives(jobID, dest string) {
 		}
 		slog.Info("extracted archives", "count", len(extracted))
 	}
+}
+
+// MaybeNormalize runs the F5 normalize step (DAT 1G1R rename + multi-disc .m3u)
+// over a freshly-organized ROM path when the NormalizeROMs setting is on, and
+// returns the path to track — unchanged when the step is disabled, the binary
+// is unavailable, or Playmatch has no match. Non-blocking: it never fails an
+// import. jobID may be empty (manual import), in which case job detail is not
+// touched. Callers must pass the specific artifact path (file or per-game dir),
+// never a shared platform root.
+func (m *Manager) MaybeNormalize(jobID, path, platSlug string) string {
+	if !m.LoadSettings().NormalizeROMs {
+		return path
+	}
+	finalPath, res, _ := m.norm.Normalize(context.Background(), path, platSlug, normalize.Policy{})
+	if jobID != "" && (res.Renamed || res.Playlist) {
+		if job, ok := m.jobs.Get(jobID); ok {
+			detail, _ := job["detail"].(string)
+			m.jobs.Update(jobID, "detail", detail+" (normalized)")
+		}
+	}
+	return finalPath
 }
 
 func extractArchives(directory string) []string {
@@ -1125,11 +1157,11 @@ func (m *Manager) LoadSettings() *Settings {
 	settingsFile := filepath.Join(m.cfg.DataDir, "settings.json")
 	data, err := os.ReadFile(settingsFile)
 	if err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives}
+		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs}
 	}
 	var s Settings
 	if err := json.Unmarshal(data, &s); err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives}
+		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs}
 	}
 	return &s
 }
@@ -1144,6 +1176,9 @@ func (m *Manager) SaveSettings(s *Settings) {
 // Settings for download behavior.
 type Settings struct {
 	ExtractArchives bool `json:"extract_archives"`
+	// NormalizeROMs gates the F5 normalize step (DAT 1G1R rename + multi-disc
+	// .m3u) on import. Ships off; flip it in the UI to enable.
+	NormalizeROMs bool `json:"normalize_roms"`
 }
 
 // DDL source management

@@ -323,8 +323,14 @@ func (m *Manager) completeNZBOrganize(jobID, dest, title, platf, platSlug string
 		"status": "completed",
 		"detail": fmt.Sprintf("Moved to %s", label),
 	})
-	writeMetadataSidecar(dest, title, platf, platSlug, isPC, "nzb")
-	m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "nzb", sourceClient, "nzb:"+dest)
+	// F5 normalize (DAT 1G1R rename + multi-disc .m3u) for ROMs, reconciling the
+	// tracked path. No-op unless enabled; never blocks import.
+	finalPath := dest
+	if !isPC && platSlug != "" {
+		finalPath = m.MaybeNormalize(jobID, dest, platSlug)
+	}
+	writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "nzb")
+	m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, 0, "nzb", sourceClient, "nzb:"+finalPath)
 	m.jobs.LogActivity("download_completed", title, fmt.Sprintf("NZB to %s", label), jobID, nil)
 
 	// Also extract archives for ROMs if enabled
