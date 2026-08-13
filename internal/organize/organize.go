@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"gamarr/internal/config"
+	"gamarr/internal/platform"
 )
 
 // Pipeline handles post-download game file organization.
@@ -81,7 +82,7 @@ func (p *Pipeline) organizePC(sourcePath string) (string, error) {
 }
 
 func (p *Pipeline) organizeROM(sourcePath, platformSlug string) (string, error) {
-	destDir := filepath.Join(p.cfg.GamesRomsPath, platformSlug)
+	destDir := filepath.Join(p.cfg.GamesRomsPath, platform.ToRommFSSlug(platformSlug))
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return sourcePath, err
 	}

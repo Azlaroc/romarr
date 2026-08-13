@@ -73,6 +73,48 @@ PROWLARR_RELEASES = [
 ]
 
 
+# RomM stub: the library-ownership source the sync mirrors. Credentials must
+# match the ROMM_API_* env in the app fixture — the stub 401s without them,
+# which is exactly how a real RomM behaves.
+ROMM_USER = "romarr-e2e"
+ROMM_PASS = "romm-stub-pw"
+ROMM_PAGE = 3  # server-side page size: forces the sync client through 2 pages
+
+ROMM_PLATFORMS = [
+    {"id": 41, "slug": "psx", "fs_slug": "psx", "name": "PlayStation", "rom_count": 5},
+]
+
+
+def _romm_rom(rid: int, fs_name: str, name: str, missing: bool = False) -> dict:
+    stem = fs_name.rsplit(".", 1)[0] if "." in fs_name else fs_name
+    return {
+        "id": rid,
+        "platform_id": 41,
+        "platform_slug": "psx",
+        "platform_fs_slug": "psx",
+        "fs_name": fs_name,
+        "fs_name_no_tags": stem.split(" (")[0],
+        "fs_name_no_ext": stem,
+        "fs_path": "roms/psx",
+        "fs_size_bytes": 1_000_000 + rid,
+        "name": name,
+        "crc_hash": f"crc{rid}",
+        "md5_hash": f"md5{rid}",
+        "sha1_hash": f"sha{rid}",
+        "igdb_id": 10_000 + rid,
+        "missing_from_fs": missing,
+    }
+
+
+ROMM_ROMS = [
+    _romm_rom(101, "Castlevania - Symphony of the Night (USA).chd", "Castlevania: Symphony of the Night"),
+    _romm_rom(102, "Wipeout (USA).chd", "Wipeout"),
+    _romm_rom(103, "Ridge Racer (USA).chd", "Ridge Racer"),
+    _romm_rom(104, "Crash Bandicoot (USA).chd", "Crash Bandicoot"),
+    _romm_rom(105, "Vanished Game (USA).chd", "Vanished Game", missing=True),
+]
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -110,7 +152,7 @@ def _ia_metadata() -> bytes:
 
 
 class _StubHandler(BaseHTTPRequestHandler):
-    """One handler impersonating qBittorrent + Prowlarr + archive.org."""
+    """One handler impersonating qBittorrent + Prowlarr + archive.org + RomM."""
 
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -118,6 +160,11 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _romm_auth_ok(self) -> bool:
+        import base64
+        want = "Basic " + base64.b64encode(f"{ROMM_USER}:{ROMM_PASS}".encode()).decode()
+        return self.headers.get("Authorization") == want
 
     # ── qBittorrent ────────────────────────────────────────────────────────
     def do_POST(self):  # noqa: N802 (http.server API)
@@ -146,6 +193,27 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(hits).encode(), "application/json")
         elif path == "/api/v1/indexer":
             self._send(200, b"[]", "application/json")
+        # ── RomM: heartbeat + platforms + paginated roms ──────────────────
+        elif path == "/api/heartbeat":
+            self._send(200, b"{}", "application/json")
+        elif path == "/api/platforms":
+            if not self._romm_auth_ok():
+                self._send(401, b"unauthorized", "text/plain")
+                return
+            self._send(200, json.dumps(ROMM_PLATFORMS).encode(), "application/json")
+        elif path == "/api/roms":
+            if not self._romm_auth_ok():
+                self._send(401, b"unauthorized", "text/plain")
+                return
+            from urllib.parse import parse_qs, urlparse
+            offset = int(parse_qs(urlparse(self.path).query).get("offset", ["0"])[0])
+            body = {
+                "items": ROMM_ROMS[offset:offset + ROMM_PAGE],
+                "total": len(ROMM_ROMS),
+                "limit": ROMM_PAGE,
+                "offset": offset,
+            }
+            self._send(200, json.dumps(body).encode(), "application/json")
         # ── archive.org: metadata listing + per-file downloads ────────────
         elif path == f"/metadata/{IA_GB_ITEM}":
             self._send(200, _ia_metadata(), "application/json")
@@ -225,6 +293,11 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         "QB_SAVE_PATH": str(incoming),
         "PROWLARR_URL": stub_server,
         "PROWLARR_API_KEY": "e2e-stub-key",
+        # RomM ownership sync: boot triggers an immediate full sync against
+        # the stub, so the Library shows RomM-owned titles with no local file.
+        "ROMM_URL": stub_server,
+        "ROMM_API_USER": ROMM_USER,
+        "ROMM_API_PASS": ROMM_PASS,
     }
     log = open(data / "gamarr.log", "w")
     proc = subprocess.Popen([str(gamarr_binary)], env=env, stdout=log, stderr=log)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"gamarr/internal/models"
 	"gamarr/internal/monitor"
 	"gamarr/internal/qbit"
+	"gamarr/internal/romm"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -211,6 +213,23 @@ func main() {
 	watcher := download.NewWatcher(cfg, mgr)
 	watcher.Start()
 
+	// RomM library sync — when configured, RomM owns the ROM side of the
+	// library and the fs scanner above only walks the PC vault.
+	var rommSync *romm.Syncer
+	if cfg.HasRomMAPI() && cfg.RomMSyncEnabled {
+		rommSync = romm.NewSyncer(
+			romm.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
+			database,
+			romm.SyncOptions{
+				RomsRoot:         cfg.GamesRomsPath,
+				Interval:         time.Duration(cfg.RomMSyncIntervalS) * time.Second,
+				ExcludePlatforms: cfg.RomMExcludePlatforms,
+				StateFile:        filepath.Join(cfg.DataDir, "romm_sync.json"),
+			},
+		)
+		rommSync.Start()
+	}
+
 	// Periodic cleanup: remove stale downloading jobs (>24h) and old finished jobs (>7d)
 	go func() {
 		// Initial cleanup on startup
@@ -229,7 +248,7 @@ func main() {
 	}()
 
 	// Create HTTP router
-	router := api.NewRouter(cfg, mgr, mon, sab, sched)
+	router := api.NewRouter(cfg, mgr, mon, sab, sched, rommSync)
 
 	// Start HTTP server
 	server := &http.Server{
@@ -259,6 +278,7 @@ func main() {
 	defer cancel()
 
 	watcher.Stop()
+	rommSync.Stop()
 	sched.Stop()
 	mon.Stop()
 	if err := server.Shutdown(shutdownCtx); err != nil {

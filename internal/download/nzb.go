@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gamarr/internal/nzbget"
+	"gamarr/internal/platform"
 	"gamarr/internal/sabnzbd"
 )
 
@@ -298,7 +299,7 @@ func (m *Manager) nzbDestPath(storagePath, platSlug string, isPC bool) (string, 
 	case isPC:
 		return filepath.Join(m.cfg.GamesVaultPath, base), true
 	case platSlug != "":
-		return filepath.Join(m.cfg.GamesRomsPath, platSlug, base), true
+		return filepath.Join(m.cfg.GamesRomsPath, platform.ToRommFSSlug(platSlug), base), true
 	default:
 		return "", false
 	}

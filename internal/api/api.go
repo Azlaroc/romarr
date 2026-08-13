@@ -18,11 +18,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"gamarr/internal/config"
+	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
 	"gamarr/internal/monitor"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
+	"gamarr/internal/romm"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -39,13 +41,14 @@ type Server struct {
 	sessions  *SessionStore
 	scheduler *scheduler.Scheduler
 	oidc      *OIDCHandler
+	rommSync  *romm.Syncer
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMonitor, sab *sabnzbd.Client, sched *scheduler.Scheduler) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMonitor, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, mon: mon, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler}
+	s := &Server{cfg: cfg, mgr: mgr, mon: mon, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -122,6 +125,8 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	// Library
 	r.Get("/api/library", s.handleLibrary)
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
+	r.Get("/api/library/sync/status", s.handleLibrarySyncStatus)
+	r.Post("/api/library/sync", requireAdmin(s.handleLibrarySync))
 
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)
@@ -498,6 +503,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			key := strings.ToLower(strings.TrimSpace(r.Title)) + "|" + r.PlatformSlug
 			if _, found := libraryMap[key]; found {
 				r.InLibrary = true
+				continue
+			}
+			// Release names usually carry a file extension the library
+			// titles/search keys do not — retry with it stripped.
+			if stripped := db.NormalizeTitleKey(r.Title); stripped != "" {
+				if _, found := libraryMap[stripped+"|"+r.PlatformSlug]; found {
+					r.InLibrary = true
+				}
 			}
 		}
 	}
@@ -542,8 +555,28 @@ func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, ep := range platform.ExtraPlatforms {
 		if !seen[ep.Name] {
+			seen[ep.Name] = true
 			platforms = append(platforms, map[string]string{"id": ep.Slug, "name": ep.Name})
 		}
+	}
+
+	// Merge platforms present in the library but absent from the static maps
+	// (RomM catalogs many systems the search taxonomy doesn't know yet), so
+	// the Library filter can reach every row.
+	seenSlugs := make(map[string]bool, len(platforms))
+	for _, p := range platforms {
+		seenSlugs[p["id"]] = true
+	}
+	for _, lp := range s.mgr.Jobs().LibraryPlatforms() {
+		if seenSlugs[lp.Slug] {
+			continue
+		}
+		seenSlugs[lp.Slug] = true
+		name := lp.Name
+		if name == "" {
+			name = strings.ToUpper(lp.Slug)
+		}
+		platforms = append(platforms, map[string]string{"id": lp.Slug, "name": name})
 	}
 	writeJSON(w, 200, map[string]interface{}{"platforms": platforms})
 }

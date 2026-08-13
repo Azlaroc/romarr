@@ -113,6 +113,40 @@ def test_ddl_download_pipeline_to_library(ui, app):
     expect(page.get_by_test_id("library-grid")).to_contain_text("Tetris", timeout=SLOW_MS)
 
 
+# ── RomM ownership sync: library rows with no local file ─────────────────────
+
+def _wait_for_romm_sync(app, minimum: int, timeout_s: int = 30) -> dict:
+    """Poll /api/stats until the boot-time RomM sync has landed its rows."""
+    import json as _json
+    import time as _time
+    stats = {}
+    deadline = _time.time() + timeout_s
+    while _time.time() < deadline:
+        with urllib.request.urlopen(f"{app['base']}/api/stats", timeout=5) as r:
+            stats = _json.load(r)
+        if stats.get("library_total", 0) >= minimum:
+            return stats
+        _time.sleep(0.5)
+    raise AssertionError(f"romm sync did not populate the library: {stats}")
+
+
+def test_romm_sync_populates_library(ui, app):
+    # 5 stub roms, one missing_from_fs → 4 owned rows expected.
+    _wait_for_romm_sync(app, minimum=4)
+
+    page = ui["page"]
+    _nav(page, "library", "Library")
+    grid = page.get_by_test_id("library-grid")
+    expect(grid).to_contain_text("Castlevania", timeout=SLOW_MS)
+    expect(grid).to_contain_text("Crash Bandicoot", timeout=SLOW_MS)
+    # missing_from_fs roms are not owned.
+    expect(grid).not_to_contain_text("Vanished Game")
+
+    # The F8 invariant: ownership comes from RomM, not the local disk.
+    assert not list(app["roms_dir"].rglob("*Castlevania*")), \
+        "RomM-owned title must not need a local file"
+
+
 # ── wishlist CRUD (Wanted) ────────────────────────────────────────────────────
 
 def test_wishlist_add_and_delete(ui):
@@ -148,6 +182,10 @@ def test_settings_connection_tests(ui):
     page.get_by_test_id("test-sabnzbd").click()
     expect(page.get_by_test_id("test-sabnzbd-status")).to_have_text(
         re.compile("fail|not configured", re.I), timeout=SLOW_MS)
+
+    page.get_by_test_id("test-romm").click()
+    expect(page.get_by_test_id("test-romm-status")).to_have_text(
+        re.compile("connected", re.I), timeout=SLOW_MS)
 
 
 def test_settings_shows_sources_and_stats(ui):

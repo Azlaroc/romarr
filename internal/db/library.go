@@ -96,6 +96,7 @@ func (s *JobStore) migrateExtra() {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_library_platform ON library_items(platform_slug)`,
 		`CREATE INDEX IF NOT EXISTS idx_library_source_id ON library_items(source_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_library_file_path ON library_items(file_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log(timestamp)`,
 	}
 	for _, ddl := range tables {
@@ -369,6 +370,16 @@ func (s *JobStore) ClearScanEntries() {
 	}
 }
 
+// ClearVaultScanEntries removes only the PC-vault scan rows, leaving ROM scan
+// rows alone. Used when the RomM sync owns the ROM side of the library and
+// the fs scanner only walks the vault.
+func (s *JobStore) ClearVaultScanEntries() {
+	result, _ := s.db.Exec("DELETE FROM library_items WHERE source = 'scan' AND is_pc = 1")
+	if n, _ := result.RowsAffected(); n > 0 {
+		slog.Info("cleared vault scan entries for rescan", "count", n)
+	}
+}
+
 // FindLibraryByTitle checks if a game with a matching title+platform exists in the library.
 // Uses case-insensitive LIKE matching. Returns nil if not found.
 func (s *JobStore) FindLibraryByTitle(title, platformSlug string) *LibraryItem {
@@ -401,15 +412,55 @@ func (s *JobStore) FindLibraryByTitle(title, platformSlug string) *LibraryItem {
 		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
 		&item.SourceID, &item.Metadata, &item.AddedAt)
 	if err != nil {
+		// Fallback: match on the RomM filesystem name (release names carry the
+		// on-disk name, not the IGDB display title the row is titled with).
+		if platformSlug != "" && platformSlug != "all" && platformSlug != "pc" {
+			return s.findLibraryBySearchKey(NormalizeTitleKey(title), platformSlug)
+		}
 		return nil
 	}
 	item.IsPC = isPC != 0
 	return &item
 }
 
+// findLibraryBySearchKey matches against the pre-lowered fs-name key the RomM
+// sync stashes at metadata $.romm.search_key.
+func (s *JobStore) findLibraryBySearchKey(key, platformSlug string) *LibraryItem {
+	if key == "" {
+		return nil
+	}
+	row := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE json_extract(metadata, '$.romm.search_key') = ? AND platform_slug = ? LIMIT 1",
+		key, platformSlug,
+	)
+	var item LibraryItem
+	var isPC int
+	if err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+		&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+		return nil
+	}
+	item.IsPC = isPC != 0
+	return &item
+}
+
+// NormalizeTitleKey lowercases, trims and strips one trailing file extension
+// from a title, matching how the RomM sync builds search keys from fs names.
+func NormalizeTitleKey(title string) string {
+	key := strings.ToLower(strings.TrimSpace(title))
+	if dot := strings.LastIndexByte(key, '.'); dot > 0 && dot < len(key)-1 {
+		ext := key[dot+1:]
+		if len(ext) <= 4 && !strings.ContainsAny(ext, " ()[]") {
+			key = key[:dot]
+		}
+	}
+	return strings.TrimSpace(key)
+}
+
 // GetAllLibraryTitles returns a map of normalized "title|platform_slug" to LibraryItem for bulk lookups.
+// RomM-synced rows are additionally keyed by their fs-name search key.
 func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items")
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(metadata, '$.romm.search_key') FROM library_items")
 	if err != nil {
 		return nil
 	}
@@ -419,15 +470,20 @@ func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
 	for rows.Next() {
 		var item LibraryItem
 		var isPC int
+		var searchKey sql.NullString
 		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+			&item.SourceID, &item.Metadata, &item.AddedAt, &searchKey); err != nil {
 			continue
 		}
 		item.IsPC = isPC != 0
 		key := strings.ToLower(strings.TrimSpace(item.Title)) + "|" + item.PlatformSlug
 		cp := item
 		result[key] = &cp
+		// Second key on the RomM fs-name so release-name lookups hit too.
+		if searchKey.Valid && searchKey.String != "" {
+			result[searchKey.String+"|"+item.PlatformSlug] = &cp
+		}
 	}
 	return result
 }
