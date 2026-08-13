@@ -3,13 +3,11 @@ package download
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"gamarr/internal/nzbget"
-	"gamarr/internal/platform"
 	"gamarr/internal/sabnzbd"
 )
 
@@ -267,6 +265,13 @@ func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf
 		return
 	}
 
+	if !isPC && platSlug != "" {
+		// ROM: hand the staging path straight to the shared fulfillment
+		// pipeline — it moves the content into the library itself.
+		m.completeNZBOrganize(jobID, storagePath, title, platf, platSlug, isPC, sourceClient)
+		return
+	}
+
 	dest, ok := m.nzbDestPath(storagePath, platSlug, isPC)
 	if !ok {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
@@ -274,9 +279,6 @@ func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf
 			"detail": "Downloaded (unknown platform, left in staging)",
 		})
 		return
-	}
-	if !isPC {
-		os.MkdirAll(filepath.Dir(dest), 0755)
 	}
 
 	if err := moveContent(storagePath, dest); err != nil {
@@ -299,7 +301,9 @@ func (m *Manager) nzbDestPath(storagePath, platSlug string, isPC bool) (string, 
 	case isPC:
 		return filepath.Join(m.cfg.GamesVaultPath, base), true
 	case platSlug != "":
-		return filepath.Join(m.cfg.GamesRomsPath, platform.ToRommFSSlug(platSlug), base), true
+		// Must mirror fulfillLocalROM's destination computation exactly: this
+		// path is what the restart-recovery re-entry check probes for.
+		return filepath.Join(m.romDestDir(platSlug), sanitizeFilename(base)), true
 	default:
 		return "", false
 	}
@@ -313,31 +317,29 @@ func (m *Manager) failNZBOrganize(jobID string) {
 }
 
 // completeNZBOrganize marks the job done and registers the content in the
-// library. TrackInLibrary dedupes on source ID, so re-entering this after a
-// restart is safe.
-func (m *Manager) completeNZBOrganize(jobID, dest, title, platf, platSlug string, isPC bool, sourceClient string) {
-	label := "GameVault"
-	if !isPC {
-		label = fmt.Sprintf("RomM (%s)", platf)
+// library. For ROMs, path may be either the staging path (normal flow — the
+// shared pipeline moves it) or the library destination (restart re-entry — the
+// pipeline's move-skip makes it idempotent). TrackInLibrary dedupes on source
+// ID, so re-entering after a restart is safe.
+func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string, isPC bool, sourceClient string) {
+	if !isPC && platSlug != "" {
+		_, _ = m.fulfillLocalROM(path, fulfillMeta{
+			JobID:        jobID,
+			Title:        title,
+			Platform:     platf,
+			PlatformSlug: platSlug,
+			Source:       "nzb",
+			SourceClient: sourceClient,
+		})
+		return
 	}
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
 		"status": "completed",
-		"detail": fmt.Sprintf("Moved to %s", label),
+		"detail": "Moved to GameVault",
 	})
-	// F5 normalize (DAT 1G1R rename + multi-disc .m3u) for ROMs, reconciling the
-	// tracked path. No-op unless enabled; never blocks import.
-	finalPath := dest
-	if !isPC && platSlug != "" {
-		finalPath = m.MaybeNormalize(jobID, dest, platSlug)
-	}
-	writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "nzb")
-	m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, 0, "nzb", sourceClient, "nzb:"+finalPath)
-	m.jobs.LogActivity("download_completed", title, fmt.Sprintf("NZB to %s", label), jobID, nil)
-
-	// Also extract archives for ROMs if enabled
-	if !isPC && platSlug != "" {
-		m.maybeExtractArchives(jobID, dest)
-	}
+	writeMetadataSidecar(path, title, platf, platSlug, isPC, "nzb")
+	m.TrackInLibrary(title, platf, platSlug, isPC, path, 0, "nzb", sourceClient, "nzb:"+path)
+	m.jobs.LogActivity("download_completed", title, "NZB to GameVault", jobID, nil)
 }
 
 // RetryJob retries a failed download job.
