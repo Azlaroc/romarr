@@ -2,6 +2,7 @@ package download
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -89,10 +90,27 @@ func newQbitMock(t *testing.T) *qbitMock {
 		}
 	})
 	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
+		form := url.Values{}
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+			// File-blob add (AddTorrentFile): record the fields plus the
+			// uploaded torrent bytes under the synthetic "__file" key so
+			// tests can distinguish file-adds from URL-adds.
+			r.ParseMultipartForm(1 << 20)
+			for k, vs := range r.MultipartForm.Value {
+				form[k] = vs
+			}
+			if f, _, err := r.FormFile("torrents"); err == nil {
+				blob, _ := io.ReadAll(f)
+				f.Close()
+				form.Set("__file", string(blob))
+			}
+		} else {
+			r.ParseForm()
+			form = r.PostForm
+		}
 		q.mu.Lock()
 		q.addCalls++
-		q.addForms = append(q.addForms, r.PostForm)
+		q.addForms = append(q.addForms, form)
 		ok := q.addOK
 		q.mu.Unlock()
 		if ok {

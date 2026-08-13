@@ -98,20 +98,89 @@ func TestDownloadTorrentAddFailure(t *testing.T) {
 	qm.addOK = false
 	qm.mu.Unlock()
 
+	// A .torrent URL is fetched server-side asynchronously; a dead URL falls
+	// back to the URL-add, which the mock rejects — the job must error.
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dead.Close()
+
 	m := New(cfg, jobs, qm.client())
-	jobID, err := m.DownloadTorrent(TorrentSpec{URL: "http://indexer.test/some.torrent", Title: "Some Game", Platform: "SNES", PlatformSlug: "snes"})
+	jobID, err := m.DownloadTorrent(TorrentSpec{URL: dead.URL + "/some.torrent", Title: "Some Game", Platform: "SNES", PlatformSlug: "snes"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	job, ok := jobs.Get(jobID)
-	if !ok {
-		t.Fatal("job not created")
-	}
-	if status, _ := job["status"].(string); status != "error" {
-		t.Errorf("status = %q, want error", status)
-	}
+	job := waitJobStatus(t, jobs, jobID, "error", 10*time.Second)
 	if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "qBittorrent") {
 		t.Errorf("error = %q, want qBittorrent add-failed message", errMsg)
+	}
+}
+
+func TestDownloadTorrentFetchesAndUploadsFile(t *testing.T) {
+	// A .torrent URL is fetched server-side and handed to qBittorrent as a
+	// file blob (qBittorrent's own URL fetching is dead on VPN-tunneled
+	// boxes), with the infohash extracted up front.
+	cfg := newTestConfig(t)
+	cfg.QBURL = "configured"
+	jobs := newTestJobs(t)
+	qm := newQbitMock(t)
+	blob, wantHash := testTorrentFixture()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(blob)
+	}))
+	defer srv.Close()
+
+	m := New(cfg, jobs, qm.client())
+	jobID, err := m.DownloadTorrent(TorrentSpec{URL: srv.URL + "/release.torrent", Title: "FileAdd", Platform: "SNES", PlatformSlug: "snes"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	waitFor(t, 10*time.Second, "file-blob add", func() bool { return qm.addCallCount() == 1 })
+	qm.mu.Lock()
+	form := qm.addForms[0]
+	qm.mu.Unlock()
+	if form.Get("__file") != string(blob) {
+		t.Error("torrent bytes were not uploaded as a file blob")
+	}
+	if form.Has("urls") {
+		t.Errorf("expected file add, got URL add: %v", form)
+	}
+	waitFor(t, 5*time.Second, "hash persisted", func() bool {
+		j, _ := jobFromDB(t, jobs, jobID)
+		h, _ := j["torrent_hash"].(string)
+		return h == wantHash
+	})
+}
+
+func TestDownloadTorrentURLAddFallbackWhenFetchFails(t *testing.T) {
+	// When the server-side fetch fails (e.g. the indexer only lets the
+	// download client fetch it), fall back to the legacy URL-add so
+	// deployments where qBittorrent CAN fetch keep working.
+	cfg := newTestConfig(t)
+	cfg.QBURL = "configured"
+	jobs := newTestJobs(t)
+	qm := newQbitMock(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	m := New(cfg, jobs, qm.client())
+	torrentURL := srv.URL + "/some.torrent"
+	jobID, err := m.DownloadTorrent(TorrentSpec{URL: torrentURL, Title: "Fallback", Platform: "SNES", PlatformSlug: "snes"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	waitFor(t, 10*time.Second, "fallback URL add", func() bool { return qm.addCallCount() == 1 })
+	qm.mu.Lock()
+	form := qm.addForms[0]
+	qm.mu.Unlock()
+	if form.Get("urls") != torrentURL {
+		t.Errorf("fallback did not URL-add: %v", form)
+	}
+	job, _ := jobFromDB(t, jobs, jobID)
+	if status, _ := job["status"].(string); status != "downloading" {
+		t.Errorf("status = %q, want downloading", status)
 	}
 }
 
@@ -886,10 +955,15 @@ func TestDownloadTorrentTargetFileAddMode(t *testing.T) {
 	cfg.QBURL = "configured"
 	jobs := newTestJobs(t)
 	qm := newQbitMock(t)
+	blob, _ := testTorrentFixture()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(blob)
+	}))
+	defer srv.Close()
 	m := New(cfg, jobs, qm.client())
 
 	jobID, err := m.DownloadTorrent(TorrentSpec{
-		URL: "http://indexer.test/pack.torrent", Title: "Pack", Platform: "SNES",
+		URL: srv.URL + "/pack.torrent", Title: "Pack", Platform: "SNES",
 		PlatformSlug: "snes", TargetFile: "Pack/B.sfc",
 	})
 	if err != nil {
@@ -899,6 +973,7 @@ func TestDownloadTorrentTargetFileAddMode(t *testing.T) {
 	if got, _ := job["target_file"].(string); got != "Pack/B.sfc" {
 		t.Errorf("target_file = %q", got)
 	}
+	waitFor(t, 10*time.Second, "stopped file add", func() bool { return qm.addCallCount() == 1 })
 	forms := func() []url.Values {
 		qm.mu.Lock()
 		defer qm.mu.Unlock()
@@ -906,11 +981,11 @@ func TestDownloadTorrentTargetFileAddMode(t *testing.T) {
 		copy(out, qm.addForms)
 		return out
 	}()
-	if len(forms) != 1 {
-		t.Fatalf("addForms = %d, want 1", len(forms))
-	}
 	if forms[0].Get("stopped") != "true" || forms[0].Get("paused") != "true" {
 		t.Errorf("torrent-URL target add not stopped: %v", forms[0])
+	}
+	if forms[0].Get("__file") == "" {
+		t.Errorf("target add should upload the torrent file blob: %v", forms[0])
 	}
 
 	if _, err := m.DownloadTorrent(TorrentSpec{

@@ -3,10 +3,12 @@
 package qbit
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -187,6 +189,61 @@ func (c *Client) AddTorrentOpts(torrentURL string, o AddOptions) bool {
 	if resp.StatusCode == 403 {
 		c.login()
 		resp2, err := c.client.PostForm(c.baseURL+"/api/v2/torrents/add", data)
+		if err != nil {
+			return false
+		}
+		defer resp2.Body.Close()
+		body, _ := io.ReadAll(resp2.Body)
+		return addAccepted(resp2.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return addAccepted(resp.StatusCode, body)
+}
+
+// AddTorrentFile adds a torrent from raw .torrent file bytes via multipart
+// upload. This is how the *arr apps feed qBittorrent: the caller fetches the
+// .torrent itself, so qBittorrent never needs its own HTTP egress — which is
+// commonly dead on VPN-tunneled deployments (the URL-add form silently accepts
+// the request and then times out fetching, and no torrent ever appears).
+func (c *Client) AddTorrentFile(filename string, blob []byte, o AddOptions) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ensureAuth()
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("torrents", filename)
+	if err != nil {
+		return false
+	}
+	if _, err := fw.Write(blob); err != nil {
+		return false
+	}
+	mw.WriteField("savepath", o.SavePath)
+	mw.WriteField("category", o.Category)
+	if o.Tags != "" {
+		mw.WriteField("tags", o.Tags)
+	}
+	if o.Stopped {
+		mw.WriteField("stopped", "true")
+		mw.WriteField("paused", "true")
+	}
+	if err := mw.Close(); err != nil {
+		return false
+	}
+
+	post := func() (*http.Response, error) {
+		return c.client.Post(c.baseURL+"/api/v2/torrents/add", mw.FormDataContentType(), bytes.NewReader(buf.Bytes()))
+	}
+	resp, err := post()
+	if err != nil {
+		slog.Error("qBittorrent add torrent file failed", "error", err)
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 403 {
+		c.login()
+		resp2, err := post()
 		if err != nil {
 			return false
 		}

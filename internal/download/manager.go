@@ -160,27 +160,84 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 		}
 	}
 
-	// Selective download (#256): a .torrent-URL add goes in stopped so no
+	// Magnets go straight to qBittorrent. A .torrent URL is fetched
+	// server-side and uploaded as a file blob (async — the fetch can take a
+	// while): qBittorrent's URL-add silently accepts the request and then
+	// fetches the URL itself, which times out on VPN-tunneled deployments with
+	// no client HTTP egress — the torrent never appears and the job dies at
+	// the association grace. Feeding it the bytes is how the *arr apps do it,
+	// and yields the infohash up front so association never needs the tag.
+	if strings.HasPrefix(strings.ToLower(spec.URL), "magnet:") {
+		// Selective download (#256): magnets always add running — a stopped
+		// magnet never fetches metadata via DHT; accept the brief head start
+		// before the watcher's selection pass.
+		if !m.qb.AddTorrentOpts(spec.URL, qbit.AddOptions{
+			SavePath: m.cfg.QBSavePath,
+			Category: m.cfg.QBCategory,
+			Tags:     tag,
+		}) {
+			m.jobs.UpdateMulti(jobID, map[string]interface{}{
+				"status": "error",
+				"error":  "Failed to add torrent to qBittorrent",
+			})
+			return jobID, nil
+		}
+		m.jobs.Update(jobID, "detail", "Downloading via qBittorrent...")
+		slog.Info("torrent added", "title", spec.Title, "hash", hash, "tag", tag)
+		return jobID, nil
+	}
+
+	go m.submitTorrentURL(jobID, tag, spec)
+	return jobID, nil
+}
+
+// submitTorrentURL fetches a .torrent file server-side and hands qBittorrent
+// the raw bytes; if the fetch or upload fails it falls back to the legacy
+// URL-add so deployments where qBittorrent CAN fetch URLs keep working.
+// Runs async: the .torrent fetch may be slow and the API reply carries the
+// job ID, not the outcome — the job record does.
+func (m *Manager) submitTorrentURL(jobID, tag string, spec TorrentSpec) {
+	// Selective download (#256): a .torrent add goes in stopped so no
 	// unwanted pack bytes download before the watcher prio-0s the rest.
-	// Magnets always add running — a stopped magnet never fetches metadata via
-	// DHT — and accept the brief head start before selection.
-	stopped := spec.TargetFile != "" && !strings.HasPrefix(strings.ToLower(spec.URL), "magnet:")
-	if !m.qb.AddTorrentOpts(spec.URL, qbit.AddOptions{
+	stopped := spec.TargetFile != ""
+	opts := qbit.AddOptions{
 		SavePath: m.cfg.QBSavePath,
 		Category: m.cfg.QBCategory,
 		Tags:     tag,
 		Stopped:  stopped,
-	}) {
+	}
+
+	blob, err := fetchTorrentFile(spec.URL)
+	if err == nil {
+		if h := infohashFromTorrentData(blob); h != "" {
+			m.jobs.Update(jobID, "torrent_hash", h)
+			// Adopt-by-hash, now that the hash is known pre-add: a duplicate
+			// add silently no-ops and the tag would never appear.
+			if existing := m.qb.GetTorrentsFiltered("", "", h); len(existing) > 0 {
+				m.jobs.Update(jobID, "detail", "Torrent already in qBittorrent; watching...")
+				slog.Info("torrent already present, adopting", "title", spec.Title, "hash", h)
+				return
+			}
+		}
+		if m.qb.AddTorrentFile("release.torrent", blob, opts) {
+			m.jobs.Update(jobID, "detail", "Downloading via qBittorrent...")
+			slog.Info("torrent file uploaded", "title", spec.Title, "tag", tag)
+			return
+		}
+		slog.Warn("torrent file upload rejected; falling back to URL add", "title", spec.Title)
+	} else {
+		slog.Warn("server-side torrent fetch failed; falling back to URL add",
+			"title", spec.Title, "error", err)
+	}
+
+	if !m.qb.AddTorrentOpts(spec.URL, opts) {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "error",
 			"error":  "Failed to add torrent to qBittorrent",
 		})
-		return jobID, nil
+		return
 	}
-
-	m.jobs.Update(jobID, "detail", "Downloading via qBittorrent...")
-	slog.Info("torrent added", "title", spec.Title, "hash", hash, "tag", tag)
-	return jobID, nil
+	m.jobs.Update(jobID, "detail", "Downloading via qBittorrent (URL add)...")
 }
 
 // DownloadDDL starts a direct download. md5/sha1 are the expected content
