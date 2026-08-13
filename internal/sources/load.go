@@ -88,9 +88,6 @@ func decode(data []byte) (*Registry, error) {
 // backwards compatibility for users who configure individual endpoints via
 // env vars instead of editing the registry.
 func (r *Registry) ApplyEnvOverrides(getenv func(string) string) *Registry {
-	if v := getenv("MYRIENT_URL"); v != "" {
-		r.Myrient.BaseURL = v
-	}
 	if v := getenv("VIMM_URL"); v != "" {
 		r.Vimm.BaseURL = v
 	}

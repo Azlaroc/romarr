@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"sync"
 
 	"gamarr/internal/models"
 	"gamarr/internal/search"
@@ -14,45 +13,11 @@ import (
 // release-profile scoring) that downstream *arr consumers do themselves —
 // they only want raw indexer-style results.
 func (s *Server) searchForTorznab(ctx context.Context, query, platformSlug string) []*models.SearchResult {
-	var allResults []*models.SearchResult
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
 	slug := platformSlug
 	if slug == "all" {
 		slug = ""
 	}
-
-	wg.Add(4)
-	go func() {
-		defer wg.Done()
-		results := search.SearchProwlarr(s.cfg, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchMyrient(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchVimm(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchArchiveOrg(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	wg.Wait()
+	allResults := search.FanOut(ctx, search.BuildSources(s.cfg), query, slug)
 
 	// Split + filter torrent results; pass DDL through (FilterGameResults
 	// targets torrent-only release artefacts like NFO/SFV/sample dirs).

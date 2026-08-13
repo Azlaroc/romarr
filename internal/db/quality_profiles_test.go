@@ -132,13 +132,13 @@ func TestQualityProfile_DuplicateName(t *testing.T) {
 func TestSourceRankScore(t *testing.T) {
 	store := newTestStore(t)
 
-	// Default "PC Default" profile: ["FitGirl", "DODI", "PLAZA", "Myrient", "Vimm"]
-	// FitGirl is index 0 -> score = (5-0)*2 = 10
-	// Vimm is index 4 -> score = (5-4)*2 = 2
+	// Default "PC Default" profile: ["FitGirl", "DODI", "PLAZA", "Vimm"]
+	// FitGirl is index 0 -> score = (4-0)*2 = 8
+	// Vimm is index 3 -> score = (4-3)*2 = 2
 
 	score := store.SourceRankScore("FitGirl")
-	if score != 10 {
-		t.Errorf("FitGirl score=%d, want 10", score)
+	if score != 8 {
+		t.Errorf("FitGirl score=%d, want 8", score)
 	}
 
 	score = store.SourceRankScore("Vimm")
@@ -147,14 +147,14 @@ func TestSourceRankScore(t *testing.T) {
 	}
 
 	score = store.SourceRankScore("DODI")
-	if score != 8 {
-		t.Errorf("DODI score=%d, want 8", score)
+	if score != 6 {
+		t.Errorf("DODI score=%d, want 6", score)
 	}
 
 	// Case insensitive
 	score = store.SourceRankScore("fitgirl")
-	if score != 10 {
-		t.Errorf("fitgirl (lowercase) score=%d, want 10", score)
+	if score != 8 {
+		t.Errorf("fitgirl (lowercase) score=%d, want 8", score)
 	}
 
 	// Unknown source

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -121,7 +120,6 @@ func main() {
 		QBReauth: func() bool {
 			return cfg.HasQBittorrent() && qb.Login()
 		},
-		ClearMyrientCache: search.ClearMyrientCache,
 		RunOrphanRecovery: func() { go mgr.RecoverOrphanedTorrents() },
 	})
 	mon.Start()
@@ -149,43 +147,11 @@ func main() {
 
 	// Initialize scheduler
 	searchFn := func(query, platformSlug string) []*models.SearchResult {
-		var allResults []*models.SearchResult
-		var mu sync.Mutex
-		var wg sync.WaitGroup
 		slug := platformSlug
 		if slug == "all" {
 			slug = ""
 		}
-		wg.Add(4)
-		go func() {
-			defer wg.Done()
-			results := search.SearchProwlarr(cfg, query, slug)
-			mu.Lock()
-			allResults = append(allResults, results...)
-			mu.Unlock()
-		}()
-		go func() {
-			defer wg.Done()
-			results := search.SearchMyrient(cfg.Sources, query, slug)
-			mu.Lock()
-			allResults = append(allResults, results...)
-			mu.Unlock()
-		}()
-		go func() {
-			defer wg.Done()
-			results := search.SearchVimm(cfg.Sources, query, slug)
-			mu.Lock()
-			allResults = append(allResults, results...)
-			mu.Unlock()
-		}()
-		go func() {
-			defer wg.Done()
-			results := search.SearchArchiveOrg(cfg.Sources, query, slug)
-			mu.Lock()
-			allResults = append(allResults, results...)
-			mu.Unlock()
-		}()
-		wg.Wait()
+		allResults := search.FanOut(context.Background(), search.BuildSources(cfg), query, slug)
 		// Filter and score
 		var torrentResults, ddlResults []*models.SearchResult
 		for _, r := range allResults {

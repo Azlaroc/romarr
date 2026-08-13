@@ -7,7 +7,7 @@
 //  2. GAMARR_SOURCES_URL  — HTTP(S) URL to a JSON file
 //  3. embedded defaults    — fallback if neither is set or both fail to load
 //
-// Legacy per-source env vars (MYRIENT_URL, VIMM_URL) still take precedence
+// Legacy per-source env vars (VIMM_URL, ARCHIVEORG_URL) still take precedence
 // over the registry value when set, so existing deployments need no
 // migration.
 package sources
@@ -24,7 +24,6 @@ var defaultsJSON []byte
 // Registry is the in-memory representation of the source-driver registry.
 type Registry struct {
 	Version    int            `json:"version"`
-	Myrient    MyrientSpec    `json:"myrient"`
 	Vimm       VimmSpec       `json:"vimm"`
 	ArchiveOrg ArchiveOrgSpec `json:"archiveorg"`
 }
@@ -37,12 +36,6 @@ type Registry struct {
 type ArchiveOrgSpec struct {
 	BaseURL string            `json:"base_url"`
 	Items   map[string]string `json:"items"`
-}
-
-// MyrientSpec carries the configurable bits of the Myrient direct-download driver.
-type MyrientSpec struct {
-	BaseURL       string            `json:"base_url"`
-	PlatformPaths map[string]string `json:"platform_paths"`
 }
 
 // VimmSpec carries the configurable bits of the Vimm direct-download driver.

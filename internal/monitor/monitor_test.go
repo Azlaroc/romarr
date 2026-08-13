@@ -247,17 +247,17 @@ func TestProcessResponse(t *testing.T) {
 				{ID: "j1", Data: map[string]interface{}{"status": "error", "title": "Game"}},
 			}
 		},
-		ClearMyrientCache: func() { executed = true },
+		RunOrphanRecovery: func() { executed = true },
 	}
 
 	mon := New(cfg, cb)
 	response := map[string]interface{}{
-		"diagnosis": "Myrient cache stale",
+		"diagnosis": "orphaned torrents detected",
 		"actions": []interface{}{
 			map[string]interface{}{
-				"action":      "refresh_myrient_cache",
+				"action":      "run_orphan_recovery",
 				"params":      map[string]interface{}{},
-				"description": "Refresh cache",
+				"description": "Recover orphaned torrents",
 			},
 		},
 	}
@@ -265,9 +265,9 @@ func TestProcessResponse(t *testing.T) {
 	mon.processResponse(response)
 
 	if !executed {
-		t.Error("expected ClearMyrientCache to be called")
+		t.Error("expected RunOrphanRecovery to be called")
 	}
-	if mon.diagnosis != "Myrient cache stale" {
+	if mon.diagnosis != "orphaned torrents detected" {
 		t.Errorf("diagnosis=%q", mon.diagnosis)
 	}
 }

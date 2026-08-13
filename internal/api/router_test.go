@@ -80,8 +80,8 @@ func TestSourcesEndpoint(t *testing.T) {
 	m := decodeMap(t, rr)
 
 	srcs, ok := m["sources"].([]interface{})
-	if !ok || len(srcs) != 3 {
-		t.Fatalf("expected 3 sources, got %v", m["sources"])
+	if !ok || len(srcs) != 2 {
+		t.Fatalf("expected 2 sources, got %v", m["sources"])
 	}
 	names := map[string]bool{}
 	for _, s := range srcs {
@@ -89,7 +89,7 @@ func TestSourcesEndpoint(t *testing.T) {
 		name, _ := sm["name"].(string)
 		names[name] = true
 	}
-	for _, want := range []string{"prowlarr", "myrient", "vimm"} {
+	for _, want := range []string{"prowlarr", "vimm"} {
 		if !names[want] {
 			t.Errorf("sources missing %q (got %v)", want, names)
 		}

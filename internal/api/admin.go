@@ -26,7 +26,6 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, _ *http.Request) {
 	// Source health.
 	sourcesHealth := []map[string]interface{}{
 		{"name": "prowlarr", "label": "Prowlarr", "status": sourceStatus(s.cfg.HasProwlarr())},
-		{"name": "myrient", "label": "Myrient", "status": "ok"},
 		{"name": "vimm", "label": "Vimm's Lair", "status": "ok"},
 	}
 

@@ -51,43 +51,7 @@ func (rs *recordingServer) requestURIs() []string {
 func TestRegistryFlow(t *testing.T) {
 	// Reset the package-level circuit breakers so prior tests don't bleed in.
 	t.Cleanup(func() {
-		RecordSearchSuccess("myrient")
 		RecordSearchSuccess("vimm")
-	})
-
-	t.Run("myrient hits reg.Myrient.BaseURL + reg.Myrient.PlatformPaths[slug]", func(t *testing.T) {
-		ClearMyrientCache()
-		srv := newRecordingServer(t, 200, `<html><body><a href="Game.zip">Game.zip</a></body></html>`)
-		reg, _ := sources.Default()
-		reg.Myrient.BaseURL = srv.URL + "/"
-		reg.Myrient.PlatformPaths = map[string]string{"nes": "TestNES/"}
-
-		_ = SearchMyrient(reg, "game", "nes")
-		if !srv.hit() {
-			t.Fatalf("Myrient did not call the registry URL")
-		}
-		got := srv.requestURIs()[0]
-		if !strings.HasPrefix(got, "/TestNES/") {
-			t.Errorf("expected /TestNES/ path (from registry platform_paths), got %q", got)
-		}
-	})
-
-	t.Run("myrient uses the registry — no fallback to hardcoded myrient.erista.me", func(t *testing.T) {
-		ClearMyrientCache()
-		// Reset circuit breaker first so the previous test doesn't trip it.
-		RecordSearchSuccess("myrient")
-		reg, _ := sources.Default()
-		reg.Myrient.BaseURL = "https://sentinel.test.invalid/"
-		reg.Myrient.PlatformPaths = map[string]string{"nes": "x/"}
-
-		results := SearchMyrient(reg, "game", "nes")
-		if results != nil {
-			t.Errorf("expected nil results when DNS fails, got %d", len(results))
-		}
-		// If the driver fell back to a hardcoded URL we'd silently succeed
-		// against the real myrient.erista.me. We can't directly assert that,
-		// but the nil result + (silently logged) WARN about sentinel.test.invalid
-		// proves the registry value was consulted.
 	})
 
 	t.Run("vimm hits reg.Vimm.BaseURL", func(t *testing.T) {
@@ -127,8 +91,8 @@ func TestRegistryFlow(t *testing.T) {
 	})
 }
 
-// TestRegistryFlow_LegacyEnvOverride confirms MYRIENT_URL / VIMM_URL env vars
-// still take precedence over the registry value when set.
+// TestRegistryFlow_LegacyEnvOverride confirms the VIMM_URL env var still takes
+// precedence over the registry value when set.
 func TestRegistryFlow_LegacyEnvOverride(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -137,8 +101,6 @@ func TestRegistryFlow_LegacyEnvOverride(t *testing.T) {
 		check  func(*sources.Registry) string
 		want   string
 	}{
-		{"MYRIENT_URL overrides Myrient.BaseURL", "MYRIENT_URL", "https://my-override.test/",
-			func(r *sources.Registry) string { return r.Myrient.BaseURL }, "https://my-override.test/"},
 		{"VIMM_URL overrides Vimm.BaseURL", "VIMM_URL", "https://vimm-override.test/",
 			func(r *sources.Registry) string { return r.Vimm.BaseURL }, "https://vimm-override.test/"},
 	}
