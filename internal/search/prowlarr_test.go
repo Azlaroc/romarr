@@ -63,8 +63,8 @@ func TestSearchProwlarr_ParsesResults(t *testing.T) {
 	if r.Seeders != 100 {
 		t.Errorf("seeders=%d, want 100", r.Seeders)
 	}
-	if r.SourceType != "torrent" {
-		t.Errorf("source_type=%q, want torrent", r.SourceType)
+	if r.SourceType != "indexer" {
+		t.Errorf("source_type=%q, want indexer", r.SourceType)
 	}
 	if r.DownloadProtocol != "torrent" {
 		t.Errorf("download_protocol=%q, want torrent", r.DownloadProtocol)
@@ -100,8 +100,8 @@ func TestSearchProwlarr_MapsUsenetProtocol(t *testing.T) {
 	if results[0].DownloadProtocol != "nzb" {
 		t.Errorf("download_protocol=%q, want nzb", results[0].DownloadProtocol)
 	}
-	if results[0].SourceType != "torrent" {
-		t.Errorf("source_type=%q, want torrent", results[0].SourceType)
+	if results[0].SourceType != "indexer" {
+		t.Errorf("source_type=%q, want indexer", results[0].SourceType)
 	}
 }
 

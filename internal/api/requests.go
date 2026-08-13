@@ -257,7 +257,7 @@ func (s *Server) handleSearchRequest(w http.ResponseWriter, r *http.Request) {
 	// Filter and sort
 	var torrentResults, ddlResults []*models.SearchResult
 	for _, r := range allResults {
-		if r.SourceType == "torrent" {
+		if r.SourceType == "indexer" {
 			torrentResults = append(torrentResults, r)
 		} else {
 			ddlResults = append(ddlResults, r)

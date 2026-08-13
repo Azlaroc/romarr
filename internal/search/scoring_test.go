@@ -8,7 +8,7 @@ import (
 
 func TestScoreResults_ExactMatch(t *testing.T) {
 	results := []*models.SearchResult{
-		{Title: "Super Mario Bros", Seeders: 50, Size: 1_000_000, PlatformSlug: "nes", SourceType: "torrent", SafetyScore: 80},
+		{Title: "Super Mario Bros", Seeders: 50, Size: 1_000_000, PlatformSlug: "nes", SourceType: "indexer", SafetyScore: 80},
 	}
 	scored := ScoreResults(results, "Super Mario Bros", "nes")
 	if len(scored) != 1 {
@@ -122,7 +122,7 @@ func TestScoreResults_DDLSeederScore(t *testing.T) {
 
 func TestScoreResults_NZBSeederScore(t *testing.T) {
 	results := []*models.SearchResult{
-		{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "torrent", DownloadProtocol: "nzb"},
+		{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "indexer", DownloadProtocol: "nzb"},
 	}
 	scored := ScoreResults(results, "Game", "")
 	if scored[0].ScoreBreakdown.SeederScore != 10 {
@@ -149,7 +149,7 @@ func TestScoreResults_SeederTiers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			results := []*models.SearchResult{
-				{Title: "Game", Seeders: tt.seeders, Size: 1_000_000_000, SourceType: "torrent"},
+				{Title: "Game", Seeders: tt.seeders, Size: 1_000_000_000, SourceType: "indexer"},
 			}
 			scored := ScoreResults(results, "Game", "")
 			if scored[0].ScoreBreakdown.SeederScore != tt.want {
@@ -248,7 +248,7 @@ func TestScoreResults_Confidence(t *testing.T) {
 func TestScoreResults_TotalClamped(t *testing.T) {
 	// A perfect result with all max scores
 	results := []*models.SearchResult{
-		{Title: "Game", Seeders: 100, Size: 5_000_000_000, PlatformSlug: "pc", SourceType: "torrent", SafetyScore: 100},
+		{Title: "Game", Seeders: 100, Size: 5_000_000_000, PlatformSlug: "pc", SourceType: "indexer", SafetyScore: 100},
 	}
 	scored := ScoreResults(results, "Game", "pc")
 	if scored[0].Score > 100 {

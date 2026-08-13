@@ -21,7 +21,7 @@ func TestSearchResult_JSONSerialization(t *testing.T) {
 		PlatformSlug:     "switch",
 		IsPC:             false,
 		Age:              5,
-		SourceType:       "torrent",
+		SourceType:       "indexer",
 		DownloadProtocol: "nzb",
 		SafetyScore:      85,
 		SafetyWarnings:   []string{"warning1"},
@@ -62,7 +62,7 @@ func TestDownloadRequest_JSONSerialization(t *testing.T) {
 		Platform:         "PC",
 		PlatformSlug:     "",
 		IsPC:             true,
-		SourceType:       "torrent",
+		SourceType:       "indexer",
 		DownloadProtocol: "torrent",
 	}
 
