@@ -1,0 +1,43 @@
+{
+  "items": [
+    {
+      "id": 104,
+      "platform_id": 41,
+      "platform_slug": "psx",
+      "platform_fs_slug": "psx",
+      "fs_name": "Wipeout (USA).chd",
+      "fs_name_no_tags": "Wipeout",
+      "fs_name_no_ext": "Wipeout (USA)",
+      "fs_extension": "chd",
+      "fs_path": "roms/psx",
+      "fs_size_bytes": 300000000,
+      "name": "Wipeout",
+      "crc_hash": "55667788",
+      "md5_hash": "00112233445566778899aabbccddeeff",
+      "sha1_hash": "00112233445566778899aabbccddeeff00112233",
+      "igdb_id": 1234,
+      "missing_from_fs": false
+    },
+    {
+      "id": 105,
+      "platform_id": 41,
+      "platform_slug": "psx",
+      "platform_fs_slug": "psx",
+      "fs_name": "Ridge Racer (USA).chd",
+      "fs_name_no_tags": "Ridge Racer",
+      "fs_name_no_ext": "Ridge Racer (USA)",
+      "fs_extension": "chd",
+      "fs_path": "roms/psx",
+      "fs_size_bytes": 350000000,
+      "name": "Ridge Racer",
+      "crc_hash": "99aabbcc",
+      "md5_hash": "ffeeddccbbaa99887766554433221100",
+      "sha1_hash": "ffeeddccbbaa99887766554433221100ffeeddcc",
+      "igdb_id": 2345,
+      "missing_from_fs": true
+    }
+  ],
+  "total": 5,
+  "limit": 3,
+  "offset": 3
+}

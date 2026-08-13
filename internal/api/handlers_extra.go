@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"gamarr/internal/db"
+	"gamarr/internal/romm"
 	"gamarr/internal/search"
 )
 
@@ -203,6 +205,22 @@ func (s *Server) handleTestNZBGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"success": true, "version": version})
 }
 
+func (s *Server) handleTestRomM(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.HasRomMAPI() {
+		writeJSON(w, 200, map[string]interface{}{"success": false, "error": "Not configured"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	client := romm.New(s.cfg.RomMURL, s.cfg.RomMAPIUser, s.cfg.RomMAPIPass)
+	count, err := client.TestConnection(ctx)
+	if err != nil {
+		writeJSON(w, 200, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"success": true, "platforms": count})
+}
+
 // ── Source Health ─────────────────────────────────────────────────────────────
 
 func (s *Server) handleSourcesHealth(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +268,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		},
 		"rawg": map[string]interface{}{
 			"configured": s.cfg.HasRAWG(),
+		},
+		"romm": map[string]interface{}{
+			"configured": s.cfg.HasRomMAPI(),
+			"url":        s.cfg.RomMURL,
 		},
 		"gamevault_url": s.cfg.GameVaultURL,
 		"romm_url":      s.cfg.RomMURL,

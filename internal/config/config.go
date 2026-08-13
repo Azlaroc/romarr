@@ -96,6 +96,13 @@ type Config struct {
 	GameVaultURL string
 	RomMURL      string
 
+	// RomM API (library ownership sync; RomMURL doubles as the API base)
+	RomMAPIUser          string
+	RomMAPIPass          string
+	RomMSyncEnabled      bool
+	RomMSyncIntervalS    int
+	RomMExcludePlatforms []string
+
 	// Webhooks (default from env, additional via DB)
 	WebhookURL  string
 	WebhookType string // "discord" or "generic"
@@ -220,6 +227,12 @@ func Load() *Config {
 		GameVaultURL: envStr("GAMEVAULT_URL", ""),
 		RomMURL:      envStr("ROMM_URL", ""),
 
+		RomMAPIUser:          envStr("ROMM_API_USER", ""),
+		RomMAPIPass:          envStr("ROMM_API_PASS", ""),
+		RomMSyncEnabled:      envBool("ROMM_SYNC_ENABLED", true),
+		RomMSyncIntervalS:    envInt("ROMM_SYNC_INTERVAL", 1800),
+		RomMExcludePlatforms: envStrSlice("ROMM_EXCLUDE_PLATFORMS"),
+
 		WebhookURL:  envStr("WEBHOOK_URL", ""),
 		WebhookType: envStr("WEBHOOK_TYPE", "generic"),
 
@@ -300,6 +313,12 @@ func (c *Config) HasRAWG() bool {
 	return c.RAWGAPIKey != ""
 }
 
+// HasRomMAPI reports whether the RomM REST client can be constructed. RomMURL
+// alone only powers the UI link-out; the API needs credentials too.
+func (c *Config) HasRomMAPI() bool {
+	return c.RomMURL != "" && c.RomMAPIUser != "" && c.RomMAPIPass != ""
+}
+
 func (c *Config) HasOIDC() bool {
 	return c.OIDCEnabled && c.OIDCIssuer != "" && c.OIDCClientID != ""
 }
@@ -347,6 +366,21 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return s == "true" || s == "1" || s == "yes"
+}
+
+func envStrSlice(key string) []string {
+	s := os.Getenv(key)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func envIntSlice(key string, fallback []int) []int {
