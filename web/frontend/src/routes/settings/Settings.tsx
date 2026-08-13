@@ -20,6 +20,7 @@ const TEST_SERVICES = [
   { id: 'qbittorrent', label: 'qBittorrent' },
   { id: 'sabnzbd', label: 'SABnzbd' },
   { id: 'nzbget', label: 'NZBGet' },
+  { id: 'romm', label: 'RomM' },
 ]
 
 type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; msg?: string }

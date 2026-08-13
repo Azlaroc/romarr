@@ -224,7 +224,9 @@ Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SA
 | `RENAME_ENABLED` | `false` | Rename files on import |
 | `RENAME_PATTERN` | `{title} ({platform}).{ext}` | Rename pattern |
 | `GAMEVAULT_URL` | | GameVault server URL |
-| `ROMM_URL` | | RomM server URL |
+| `ROMM_URL` | | RomM server URL (also the API base for the RomM integration) |
+| `ROMM_API_USER` | | RomM API username (read access; enables the RomM integration) |
+| `ROMM_API_PASS` | | RomM API password |
 
 ### Notifications
 
