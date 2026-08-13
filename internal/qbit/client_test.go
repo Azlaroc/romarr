@@ -580,3 +580,67 @@ func TestGetTorrentFiles_FieldsAndIndexFallback(t *testing.T) {
 		}
 	})
 }
+
+func TestAddTorrentFile(t *testing.T) {
+	var gotFields url.Values
+	var gotBlob []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			w.Write([]byte("Ok."))
+		case "/api/v2/torrents/add":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("expected multipart add: %v", err)
+				w.Write([]byte("Fails."))
+				return
+			}
+			gotFields = url.Values(r.MultipartForm.Value)
+			f, _, err := r.FormFile("torrents")
+			if err != nil {
+				t.Errorf("missing torrents file part: %v", err)
+			} else {
+				gotBlob = make([]byte, 512)
+				n, _ := f.Read(gotBlob)
+				gotBlob = gotBlob[:n]
+				f.Close()
+			}
+			w.Write([]byte("Ok."))
+		}
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "u", "p")
+	blob := []byte("d4:infod4:name3:fooee")
+	ok := c.AddTorrentFile("release.torrent", blob, AddOptions{
+		SavePath: "/dl", Category: "games", Tags: "gamarr-abc", Stopped: true,
+	})
+	if !ok {
+		t.Fatal("AddTorrentFile returned false")
+	}
+	if string(gotBlob) != string(blob) {
+		t.Errorf("uploaded blob = %q, want %q", gotBlob, blob)
+	}
+	for k, want := range map[string]string{
+		"savepath": "/dl", "category": "games", "tags": "gamarr-abc",
+		"stopped": "true", "paused": "true",
+	} {
+		if gotFields.Get(k) != want {
+			t.Errorf("field %s = %q, want %q", k, gotFields.Get(k), want)
+		}
+	}
+}
+
+func TestAddTorrentFile_Rejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			w.Write([]byte("Ok."))
+			return
+		}
+		w.Write([]byte("Fails."))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "u", "p")
+	if c.AddTorrentFile("x.torrent", []byte("blob"), AddOptions{}) {
+		t.Fatal("rejected add must return false")
+	}
+}
