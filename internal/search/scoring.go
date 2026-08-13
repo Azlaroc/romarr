@@ -30,6 +30,12 @@ var platformSizeRange = map[string][2]int64{
 	"xbox360": {500e6, 16e9}, // 500MB - 16GB
 	"pc":      {50e6, 100e9}, // 50MB - 100GB
 	"switch":  {50e6, 32e9},  // 50MB - 32GB
+	"sms":     {10e3, 1e6},   // 10KB - 1MB
+	"gg":      {10e3, 2e6},   // 10KB - 2MB
+	"pce":     {50e3, 20e6},  // 50KB - 20MB
+	"a26":     {1e3, 64e3},   // 1KB - 64KB
+	"col":     {4e3, 64e3},   // 4KB - 64KB
+	"wiiu":    {500e6, 25e9}, // 500MB - 25GB
 }
 
 // ScoreResults applies scoring to all results and returns them (modifies in place).
