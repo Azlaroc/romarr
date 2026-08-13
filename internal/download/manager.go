@@ -107,6 +107,10 @@ type TorrentSpec struct {
 	// TargetFile names one file inside a pack torrent to download and import
 	// (selective download, #256). Empty = whole content. Wired in F3 PR-3.
 	TargetFile string
+	// DiscSet marks this download as one member of a multi-disc group (F4):
+	// members converge into one game dir and finalize together. Zero value =
+	// not a set member.
+	DiscSet DiscSet
 }
 
 // DownloadTorrent submits a torrent to qBittorrent and registers a job that
@@ -148,6 +152,7 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 	if spec.TargetFile != "" {
 		jobData["target_file"] = spec.TargetFile
 	}
+	applyDiscSetJobData(jobData, spec.DiscSet)
 	m.jobs.Set(jobID, jobData)
 
 	// A duplicate add silently no-ops in qBittorrent — the tag would never
@@ -244,9 +249,11 @@ func (m *Manager) submitTorrentURL(jobID, tag string, spec TorrentSpec) {
 // hashes from the chosen SearchResult (archive.org exposes them); they are
 // stored on the job and threaded to organize-time so the convert stage (#261)
 // can verify before a destructive convert. Empty when the source has no hash.
-func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC bool, md5, sha1 string) string {
+// The optional trailing DiscSet (at most one) marks the download as a
+// disc-set member (F4) — variadic so the many existing call sites stay put.
+func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC bool, md5, sha1 string, set ...DiscSet) string {
 	jobID := newJobID()
-	m.jobs.Set(jobID, map[string]interface{}{
+	jobData := map[string]interface{}{
 		"status":        "downloading",
 		"title":         title,
 		"platform":      platf,
@@ -256,7 +263,11 @@ func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC b
 		"detail":        "Starting direct download...",
 		"md5":           md5,
 		"sha1":          sha1,
-	})
+	}
+	if len(set) > 0 {
+		applyDiscSetJobData(jobData, set[0])
+	}
+	m.jobs.Set(jobID, jobData)
 	go m.ddlDownloadWorker(jobID, url, vimmID, title, platf, platSlug, isPC, md5, sha1)
 	return jobID
 }
@@ -407,10 +418,16 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 	}
 
 	base := sanitizeFilename(filepath.Base(contentPath))
+	set := discSetFromJob(job) // zero value for non-members; PC ignores sets
 	var destRoot, dest string
 	if isPC {
 		destRoot = m.cfg.GamesVaultPath
 		dest = filepath.Join(destRoot, base)
+	} else if set.valid() {
+		// Set member: the shared set dir existing is expected (earlier discs
+		// created it) — only a collision on this member's own path errors.
+		destRoot = m.cfg.GamesRomsPath
+		dest = filepath.Join(m.romDestDir(platSlug), sanitizeFilename(set.Dir), base)
 	} else {
 		destRoot = m.cfg.GamesRomsPath
 		dest = filepath.Join(m.romDestDir(platSlug), base)
@@ -472,6 +489,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 			Source:       "torrent",
 			SourceClient: "prowlarr",
 			SourceID:     "torrent:" + torrent.Hash,
+			DiscSet:      set,
 		}); err != nil {
 			os.RemoveAll(tmpDir)
 			return
@@ -851,6 +869,10 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 		m.jobs.LogActivity("download_completed", title, "DDL to GameVault", jobID, nil)
 		slog.Info("DDL PC game organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
+		var set DiscSet
+		if job, ok := m.jobs.Get(jobID); ok {
+			set = discSetFromJob(job)
+		}
 		if _, err := m.fulfillLocalROM(fp, fulfillMeta{
 			JobID:        jobID,
 			Title:        title,
@@ -860,6 +882,7 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 			SourceClient: "ddl",
 			MD5:          md5,
 			SHA1:         sha1,
+			DiscSet:      set,
 		}); err != nil {
 			return
 		}

@@ -564,12 +564,18 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		duplicateWarning = fmt.Sprintf("Game already exists in library: %s (%s)", existing.Title, existing.Platform)
 	}
 
+	set, err := discSetFromRequest(&req)
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+
 	if req.SourceType == "ddl" {
 		if req.DownloadURL == "" && req.VimmID == "" {
 			writeError(w, 400, "No download URL")
 			return
 		}
-		jobID := s.mgr.DownloadDDL(req.DownloadURL, req.VimmID, req.Title, req.Platform, req.PlatformSlug, req.IsPC, req.MD5, req.SHA1)
+		jobID := s.mgr.DownloadDDL(req.DownloadURL, req.VimmID, req.Title, req.Platform, req.PlatformSlug, req.IsPC, req.MD5, req.SHA1, set)
 		resp := map[string]interface{}{"success": true, "job_id": jobID}
 		if duplicateWarning != "" {
 			resp["warning"] = duplicateWarning
@@ -585,7 +591,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "No NZB URL")
 			return
 		}
-		jobID, err := s.mgr.DownloadNZB(s.sab, nzbURL, req.Title, req.Platform, req.PlatformSlug, req.IsPC)
+		jobID, err := s.mgr.DownloadNZB(s.sab, nzbURL, req.Title, req.Platform, req.PlatformSlug, req.IsPC, set)
 		if err != nil {
 			writeError(w, 400, err.Error())
 			return
@@ -615,6 +621,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		PlatformSlug: req.PlatformSlug,
 		IsPC:         req.IsPC,
 		TargetFile:   req.TargetFile,
+		DiscSet:      set,
 	})
 	if err != nil {
 		writeError(w, 400, err.Error())

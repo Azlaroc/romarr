@@ -234,9 +234,12 @@ func main() {
 
 	// Periodic cleanup: remove stale downloading jobs (>24h) and old finished jobs (>7d)
 	go func() {
-		// Initial cleanup on startup
+		// Initial cleanup on startup. The disc-set sweep runs after job
+		// recovery: it re-finalizes sets whose barrier a restart interrupted
+		// and degrades sets that can no longer complete (F4).
 		database.CleanupStaleDownloads(24)
 		database.Cleanup(7)
+		mgr.SweepDiscSets()
 
 		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()
@@ -246,6 +249,7 @@ func main() {
 			if stale > 0 || old > 0 {
 				slog.Info("periodic cleanup", "stale_downloads", stale, "old_jobs", old)
 			}
+			mgr.SweepDiscSets()
 		}
 	}()
 

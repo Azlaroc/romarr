@@ -4,10 +4,16 @@
     "title": "Gamarr API",
     "description": "Self-hosted game and ROM search, download, and library manager. The HTTP/JSON API powers both the SPA and any external tooling (CLI scripts, AI agents, *arr-family integrations).",
     "version": "1.x",
-    "license": {"name": "MIT", "identifier": "MIT"}
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
   },
   "servers": [
-    {"url": "http://localhost:5001", "description": "Default local install"}
+    {
+      "url": "http://localhost:5001",
+      "description": "Default local install"
+    }
   ],
   "components": {
     "securitySchemes": {
@@ -27,95 +33,319 @@
     "schemas": {
       "QualityProfile": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
-          "id": {"type": "integer", "format": "int64"},
-          "name": {"type": "string", "maxLength": 100},
-          "platform_slug": {"type": "string", "maxLength": 50, "description": "Platform this profile overrides; empty string = global profile. Unique across profiles when non-empty."},
-          "is_default": {"type": "boolean", "description": "Marks the global fallback profile. Setting it clears the flag on other profiles."},
-          "region_priority": {"type": "array", "items": {"type": "string"}, "description": "Ordered region preference, best first (lowered No-Intro/Redump tokens, e.g. usa, world, europe, japan)."},
-          "format_preference": {"type": "array", "items": {"type": "string"}, "description": "Ordered format preference, best first. Tokens: chd, cue, iso, gdi, zip, 7z, raw."},
-          "prefer_1g1r": {"type": "boolean", "description": "Prefer verified dumps and latest revisions (one game, one ROM)."},
-          "allow_proto": {"type": "boolean", "description": "Allow (Proto)/(Beta)/(Sample) releases."},
-          "allow_demo": {"type": "boolean", "description": "Allow (Demo) releases."},
-          "allow_bios": {"type": "boolean", "description": "Allow [BIOS] releases."},
-          "source_ranking": {"type": "array", "items": {"type": "string"}, "description": "Ordered source preference, best first."},
-          "preferred_size_min": {"type": "integer", "format": "int64", "description": "Size-sanity floor in bytes; 0 = built-in per-platform default."},
-          "preferred_size_max": {"type": "integer", "format": "int64", "description": "Size-sanity ceiling in bytes; 0 = built-in per-platform default."},
-          "upgrade_allowed": {"type": "boolean", "description": "Reserved for the upgrade loop; not consumed yet."},
-          "cutoff_source": {"type": "string", "description": "Reserved for the upgrade loop; not consumed yet."}
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "platform_slug": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Platform this profile overrides; empty string = global profile. Unique across profiles when non-empty."
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Marks the global fallback profile. Setting it clears the flag on other profiles."
+          },
+          "region_priority": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered region preference, best first (lowered No-Intro/Redump tokens, e.g. usa, world, europe, japan)."
+          },
+          "format_preference": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered format preference, best first. Tokens: chd, cue, iso, gdi, zip, 7z, raw."
+          },
+          "prefer_1g1r": {
+            "type": "boolean",
+            "description": "Prefer verified dumps and latest revisions (one game, one ROM)."
+          },
+          "allow_proto": {
+            "type": "boolean",
+            "description": "Allow (Proto)/(Beta)/(Sample) releases."
+          },
+          "allow_demo": {
+            "type": "boolean",
+            "description": "Allow (Demo) releases."
+          },
+          "allow_bios": {
+            "type": "boolean",
+            "description": "Allow [BIOS] releases."
+          },
+          "source_ranking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered source preference, best first."
+          },
+          "preferred_size_min": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size-sanity floor in bytes; 0 = built-in per-platform default."
+          },
+          "preferred_size_max": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size-sanity ceiling in bytes; 0 = built-in per-platform default."
+          },
+          "upgrade_allowed": {
+            "type": "boolean",
+            "description": "Reserved for the upgrade loop; not consumed yet."
+          },
+          "cutoff_source": {
+            "type": "string",
+            "description": "Reserved for the upgrade loop; not consumed yet."
+          }
         }
       },
       "Error": {
         "type": "object",
-        "required": ["success", "error"],
+        "required": [
+          "success",
+          "error"
+        ],
         "properties": {
-          "success": {"type": "boolean", "enum": [false]},
-          "error":   {"type": "string"}
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
         }
       },
       "SearchResult": {
         "type": "object",
-        "description": "A single game/ROM search hit. Fields are populated per source — DDL sources omit seeders/leechers; torrent sources usually omit detail-page GUIDs.",
+        "description": "A single game/ROM search hit. Fields are populated per source \u2014 DDL sources omit seeders/leechers; torrent sources usually omit detail-page GUIDs.",
         "properties": {
-          "title":          {"type": "string"},
-          "size":           {"type": "integer", "format": "int64", "description": "Bytes."},
-          "size_human":     {"type": "string"},
-          "seeders":        {"type": "integer"},
-          "leechers":       {"type": "integer"},
-          "indexer":        {"type": "string"},
-          "download_url":   {"type": "string", "format": "uri"},
-          "magnet_url":     {"type": "string"},
-          "info_hash":      {"type": "string"},
-          "guid":           {"type": "string"},
-          "platform":       {"type": "string"},
-          "platform_slug":  {"type": "string"},
-          "source_type":    {"type": "string", "enum": ["torrent", "ddl"]},
-          "safety_score":   {"type": "integer", "description": "0-100; higher is safer."},
-          "score":          {"type": "integer"},
-          "in_library":     {"type": "boolean"}
+          "title": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes."
+          },
+          "size_human": {
+            "type": "string"
+          },
+          "seeders": {
+            "type": "integer"
+          },
+          "leechers": {
+            "type": "integer"
+          },
+          "indexer": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "magnet_url": {
+            "type": "string"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_slug": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "torrent",
+              "ddl"
+            ]
+          },
+          "safety_score": {
+            "type": "integer",
+            "description": "0-100; higher is safer."
+          },
+          "score": {
+            "type": "integer"
+          },
+          "in_library": {
+            "type": "boolean"
+          }
         }
       },
       "WishlistItem": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
-          "id":            {"type": "integer", "format": "int64"},
-          "title":         {"type": "string", "maxLength": 500},
-          "platform":      {"type": "string", "maxLength": 100},
-          "platform_slug": {"type": "string", "maxLength": 50}
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "platform": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "platform_slug": {
+            "type": "string",
+            "maxLength": 50
+          }
         }
       },
       "BulkJobRequest": {
         "type": "object",
         "description": "Empty or missing job_ids means 'operate on all matching jobs' (failed for retry, active for cancel).",
         "properties": {
-          "job_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 500}
+          "job_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500
+          }
         }
       },
       "BulkResult": {
         "type": "object",
         "properties": {
-          "success":   {"type": "boolean"},
-          "requested": {"type": "integer"},
-          "succeeded": {"type": "integer"},
+          "success": {
+            "type": "boolean"
+          },
+          "requested": {
+            "type": "integer"
+          },
+          "succeeded": {
+            "type": "integer"
+          },
           "results": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "job_id":  {"type": "string"},
-                "id":      {"type": "integer"},
-                "success": {"type": "boolean"},
-                "message": {"type": "string"}
+                "job_id": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer"
+                },
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                }
               }
             }
+          }
+        }
+      },
+      "DownloadRequest": {
+        "type": "object",
+        "description": "POST body for /api/download. Mirrors a SearchResult row (clients may POST one verbatim) plus optional pluck and disc-set controls.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "download_url": {
+            "type": "string"
+          },
+          "magnet_url": {
+            "type": "string"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_slug": {
+            "type": "string"
+          },
+          "is_pc": {
+            "type": "boolean"
+          },
+          "source_type": {
+            "type": "string",
+            "description": "\"ddl\" routes to the direct downloader; anything else routes by download_protocol"
+          },
+          "vimm_id": {
+            "type": "string"
+          },
+          "download_protocol": {
+            "type": "string",
+            "enum": [
+              "torrent",
+              "nzb"
+            ]
+          },
+          "md5": {
+            "type": "string",
+            "description": "Expected content MD5 (archive.org); verified before a destructive convert"
+          },
+          "sha1": {
+            "type": "string",
+            "description": "Expected content SHA1"
+          },
+          "target_file": {
+            "type": "string",
+            "description": "One file to pluck out of a pack torrent (#256); empty = whole content"
+          },
+          "disc_set_id": {
+            "type": "string",
+            "description": "Disc-set membership (F4): downloads sharing an id converge into set_dir and finalize (normalize/convert/.m3u/one library row) when the last member lands. All four disc-set fields travel together."
+          },
+          "disc_index": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based disc number within the set"
+          },
+          "disc_total": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Member count the set is complete at"
+          },
+          "set_dir": {
+            "type": "string",
+            "description": "Shared game-directory name (single path component, disc token stripped)"
           }
         }
       }
     }
   },
-  "security": [{"apiKey": []}, {"session": []}],
+  "security": [
+    {
+      "apiKey": []
+    },
+    {
+      "session": []
+    }
+  ],
   "paths": {
     "/api/quality-profiles": {
       "get": {
@@ -124,17 +354,49 @@
         "responses": {
           "200": {
             "description": "Profiles",
-            "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean"}, "profiles": {"type": "array", "items": {"$ref": "#/components/schemas/QualityProfile"}}}}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/QualityProfile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
       "post": {
         "summary": "Create a quality profile",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QualityProfile"}}}},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityProfile"
+              }
+            }
+          }
+        },
         "responses": {
-          "201": {"description": "Created"},
-          "400": {"description": "Validation error (unknown region/format token, missing name)"},
-          "409": {"description": "Another profile already claims the platform_slug"}
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Validation error (unknown region/format token, missing name)"
+          },
+          "409": {
+            "description": "Another profile already claims the platform_slug"
+          }
         }
       }
     },
@@ -142,19 +404,56 @@
       "put": {
         "summary": "Replace a quality profile",
         "description": "Full-body replace: omitted fields are zeroed.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QualityProfile"}}}},
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityProfile"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {"description": "Updated"},
-          "400": {"description": "Validation error"},
-          "409": {"description": "Another profile already claims the platform_slug"}
+          "200": {
+            "description": "Updated"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "409": {
+            "description": "Another profile already claims the platform_slug"
+          }
         }
       },
       "delete": {
         "summary": "Delete a quality profile",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Deleted"}
+          "200": {
+            "description": "Deleted"
+          }
         }
       }
     },
@@ -163,7 +462,11 @@
         "summary": "Health check",
         "description": "Liveness probe. Returns 200 if the binary is running. No auth required.",
         "security": [],
-        "responses": {"200": {"description": "OK"}}
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
       }
     },
     "/api/openapi.json": {
@@ -174,7 +477,13 @@
         "responses": {
           "200": {
             "description": "OpenAPI 3.1 document",
-            "content": {"application/json": {"schema": {"type": "object"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -182,22 +491,46 @@
     "/api/auth/status": {
       "get": {
         "summary": "Current auth state",
-        "responses": {"200": {"description": "auth status"}}
+        "responses": {
+          "200": {
+            "description": "auth status"
+          }
+        }
       }
     },
     "/api/platforms": {
       "get": {
         "summary": "List supported gaming platforms",
         "description": "Returns the platform slugs Gamarr's drivers recognize (e.g., nes, snes, ps2, pc).",
-        "responses": {"200": {"description": "platform list"}}
+        "responses": {
+          "200": {
+            "description": "platform list"
+          }
+        }
       }
     },
     "/api/search": {
       "get": {
         "summary": "Search all configured sources for a game/ROM",
         "parameters": [
-          {"name": "q",        "in": "query", "required": true, "schema": {"type": "string"}, "description": "Search query."},
-          {"name": "platform", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Platform slug filter, e.g. 'nes'. Omit or 'all' for cross-platform."}
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query."
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Platform slug filter, e.g. 'nes'. Omit or 'all' for cross-platform."
+          }
         ],
         "responses": {
           "200": {
@@ -207,9 +540,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "results":        {"type": "array", "items": {"$ref": "#/components/schemas/SearchResult"}},
-                    "search_time_ms": {"type": "integer"},
-                    "sources":        {"type": "array", "items": {"type": "object"}}
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SearchResult"
+                      }
+                    },
+                    "search_time_ms": {
+                      "type": "integer"
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
                   }
                 }
               }
@@ -225,22 +570,48 @@
       }
     },
     "/api/sources/health": {
-      "get": {"summary": "Detailed source health"}
+      "get": {
+        "summary": "Detailed source health"
+      }
     },
     "/api/sources/{name}/reset": {
       "post": {
         "summary": "Reset a source's circuit breaker",
-        "parameters": [{"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Reset"}}
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reset"
+          }
+        }
       }
     },
     "/api/downloads": {
-      "get": {"summary": "List active and recent downloads"}
+      "get": {
+        "summary": "List active and recent downloads"
+      }
     },
     "/api/downloads/{jobID}/retry": {
       "post": {
         "summary": "Retry a single failed download",
-        "parameters": [{"name": "jobID", "in": "path", "required": true, "schema": {"type": "string"}}]
+        "parameters": [
+          {
+            "name": "jobID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/admin/bulk/retry": {
@@ -249,11 +620,35 @@
         "description": "Empty body retries ALL failed jobs. Otherwise retries the specified job_ids.",
         "requestBody": {
           "required": false,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BulkJobRequest"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkJobRequest"
+              }
+            }
+          }
         },
         "responses": {
-          "200": {"description": "Per-id outcomes", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BulkResult"}}}},
-          "400": {"description": "Bad request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Per-id outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -263,10 +658,25 @@
         "description": "Empty body cancels ALL active jobs. Otherwise cancels the specified job_ids.",
         "requestBody": {
           "required": false,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BulkJobRequest"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkJobRequest"
+              }
+            }
+          }
         },
         "responses": {
-          "200": {"description": "Per-id outcomes", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BulkResult"}}}}
+          "200": {
+            "description": "Per-id outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResult"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -274,34 +684,100 @@
       "get": {
         "summary": "List items in the library",
         "parameters": [
-          {"name": "page",     "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 1}},
-          {"name": "page_size","in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
-          {"name": "platform", "in": "query", "schema": {"type": "string"}}
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
         ]
       }
     },
     "/api/wishlist": {
-      "get":  {"summary": "List wishlist items"},
+      "get": {
+        "summary": "List wishlist items"
+      },
       "post": {
         "summary": "Add a wishlist item",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WishlistItem"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WishlistItem"
+              }
+            }
+          }
         },
         "responses": {
-          "200": {"description": "Created"},
-          "400": {"description": "Validation error",     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "415": {"description": "Wrong Content-Type",   "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Wrong Content-Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/wishlist/{id}": {
       "delete": {
         "summary": "Delete a wishlist item",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64", "minimum": 1}}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Deleted"},
-          "400": {"description": "Invalid id"}
+          "200": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "Invalid id"
+          }
         }
       }
     },
@@ -314,40 +790,155 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["ids"],
-                "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "maxItems": 500, "minItems": 1}}
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "maxItems": 500,
+                    "minItems": 1
+                  }
+                }
               }
             }
           }
         },
         "responses": {
-          "200": {"description": "Per-id outcomes", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BulkResult"}}}}
+          "200": {
+            "description": "Per-id outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResult"
+                }
+              }
+            }
+          }
         }
       }
     },
-    "/api/test/prowlarr":     {"post": {"summary": "Connectivity test: Prowlarr"}},
-    "/api/test/qbittorrent":  {"post": {"summary": "Connectivity test: qBittorrent"}},
-    "/api/test/sabnzbd":      {"post": {"summary": "Connectivity test: SABnzbd"}},
-    "/api/test/nzbget":       {"post": {"summary": "Connectivity test: NZBGet"}},
-    "/api/test/transmission": {"post": {"summary": "Connectivity test: Transmission"}},
-    "/api/test/deluge":       {"post": {"summary": "Connectivity test: Deluge"}},
+    "/api/test/prowlarr": {
+      "post": {
+        "summary": "Connectivity test: Prowlarr"
+      }
+    },
+    "/api/test/qbittorrent": {
+      "post": {
+        "summary": "Connectivity test: qBittorrent"
+      }
+    },
+    "/api/test/sabnzbd": {
+      "post": {
+        "summary": "Connectivity test: SABnzbd"
+      }
+    },
+    "/api/test/nzbget": {
+      "post": {
+        "summary": "Connectivity test: NZBGet"
+      }
+    },
+    "/api/test/transmission": {
+      "post": {
+        "summary": "Connectivity test: Transmission"
+      }
+    },
+    "/api/test/deluge": {
+      "post": {
+        "summary": "Connectivity test: Deluge"
+      }
+    },
     "/torznab/api": {
       "get": {
         "summary": "Torznab indexer API",
         "description": "Lets Prowlarr / Sonarr / other *arr apps use Gamarr as a Torznab indexer. ?t=caps returns the capabilities document; ?t=search&q=<title> returns RSS results.",
         "parameters": [
-          {"name": "t",      "in": "query", "schema": {"type": "string", "enum": ["caps", "search", "console-search", "pc-search"]}},
-          {"name": "q",      "in": "query", "schema": {"type": "string"}, "description": "Search query (omit for caps)."},
-          {"name": "platform","in": "query", "schema": {"type": "string"}, "description": "Gamarr platform slug filter."},
-          {"name": "apikey", "in": "query", "schema": {"type": "string"}, "description": "Required when TORZNAB_API_KEY is set."}
+          {
+            "name": "t",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caps",
+                "search",
+                "console-search",
+                "pc-search"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query (omit for caps)."
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Gamarr platform slug filter."
+          },
+          {
+            "name": "apikey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required when TORZNAB_API_KEY is set."
+          }
         ],
         "responses": {
-          "200": {"description": "Torznab XML (RSS feed or caps document)", "content": {"application/xml": {}}}
+          "200": {
+            "description": "Torznab XML (RSS feed or caps document)",
+            "content": {
+              "application/xml": {}
+            }
+          }
         }
       }
     },
     "/metrics": {
-      "get": {"summary": "Prometheus metrics", "security": []}
+      "get": {
+        "summary": "Prometheus metrics",
+        "security": []
+      }
+    },
+    "/api/download": {
+      "post": {
+        "summary": "Start a download (DDL, torrent, or NZB)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Job created; body carries job_id and an optional duplicate-library warning"
+          },
+          "400": {
+            "description": "Missing URL or invalid disc-set fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

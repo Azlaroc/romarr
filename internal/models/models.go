@@ -129,6 +129,18 @@ type DownloadRequest struct {
 	// Torrent protocol only; supplied by API callers now, by the F4 selector
 	// later.
 	TargetFile string `json:"target_file,omitempty"`
+
+	// Disc-set membership (F4): N downloads sharing a DiscSetID converge into
+	// the SetDir game directory and finalize (normalize/convert/.m3u/library
+	// row) together when the last one lands. All four fields travel together:
+	// DiscIndex is 1-based, DiscTotal is the member count the set completes
+	// at, SetDir is the shared single-component directory name (disc token
+	// stripped). Supplied by API callers now, stamped by the F4 selector in
+	// enforce mode.
+	DiscSetID string `json:"disc_set_id,omitempty"`
+	DiscIndex int    `json:"disc_index,omitempty"`
+	DiscTotal int    `json:"disc_total,omitempty"`
+	SetDir    string `json:"set_dir,omitempty"`
 }
 
 // DDLSource represents a custom direct-download source.
