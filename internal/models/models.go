@@ -70,7 +70,8 @@ type ScoreBreakdown struct {
 	SeederScore   int    `json:"seeder_score"`   // 0-15
 	SizeScore     int    `json:"size_score"`     // 0-15
 	SafetyScore   int    `json:"safety_score"`   // 0-15
-	Total         int    `json:"total"`          // 0-100
+	ProfileAdjust int    `json:"profile_adjust"` // release-profile preferred-word adjustment
+	Total         int    `json:"total"`          // 0-100 (clamped; always == SearchResult.Score)
 	Confidence    string `json:"confidence"`     // "high", "medium", "low"
 }
 

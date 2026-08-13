@@ -23,6 +23,7 @@ import (
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
+	"gamarr/internal/selection"
 	"gamarr/internal/webhook"
 )
 
@@ -154,23 +155,17 @@ func main() {
 			slug = ""
 		}
 		allResults := search.FanOut(context.Background(), search.BuildSources(cfg), query, slug)
-		// Filter and score
-		var torrentResults, ddlResults []*models.SearchResult
-		for _, r := range allResults {
-			if r.SourceType == "indexer" {
-				torrentResults = append(torrentResults, r)
-			} else {
-				ddlResults = append(ddlResults, r)
-			}
+		// Shared F4 preparation — the scheduler path finally gets the same
+		// blocklist / release-profile / tier-sort treatment as /api/search.
+		pl := &selection.Pipeline{
+			Blocklisted:     database.IsBlocklisted,
+			ReleaseProfiles: database.ApplyReleaseProfiles,
 		}
-		filtered := search.FilterGameResults(torrentResults, query)
-		var results []*models.SearchResult
-		results = append(results, filtered...)
-		results = append(results, ddlResults...)
+		prof := database.ResolveQualityProfile(slug)
+		results := pl.Prepare(allResults, query, platformSlug, prof)
 		if results == nil {
 			results = []*models.SearchResult{}
 		}
-		results = search.ScoreResults(results, query, platformSlug)
 		return results
 	}
 

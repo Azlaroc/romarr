@@ -189,3 +189,22 @@ func removeSpans(s string, spans []span) string {
 func collapseSpaces(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
+
+// StripDiscToken returns the release title with its "(Disc N…)" token and
+// trailing extension removed, original case preserved and whitespace
+// collapsed — the shared directory name a disc set converges into
+// ("Final Fantasy VII (USA) (Disc 1).cue" → "Final Fantasy VII (USA)").
+// A title with no disc token returns unchanged (minus extension).
+func StripDiscToken(title string) string {
+	name := strings.TrimSpace(title)
+	if ext := trailingExtension(name); ext != "" {
+		name = name[:len(name)-len(ext)]
+	}
+	var discSpans []span
+	for _, m := range tokenRe.FindAllStringSubmatchIndex(name, -1) {
+		if m[2] >= 0 && discRe.MatchString(strings.TrimSpace(name[m[2]:m[3]])) {
+			discSpans = append(discSpans, span{m[0], m[1]})
+		}
+	}
+	return collapseSpaces(removeSpans(name, discSpans))
+}

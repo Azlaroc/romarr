@@ -108,10 +108,12 @@ type Config struct {
 	WebhookType string // "discord" or "generic"
 
 	// Scheduler
-	SchedulerEnabled       bool
-	SchedulerIntervalHours int
-	SchedulerAutoDownload  bool
-	SchedulerMinScore      int
+	SchedulerEnabled        bool
+	SchedulerIntervalHours  int
+	SchedulerAutoDownload   bool
+	SchedulerMinScore       int
+	SelectorMode            string // off | shadow | enforce
+	SelectorSetTimeoutHours int    // disc-set degrade timeout (consumed by fulfillment)
 
 	// Retry
 	MaxRetries          int
@@ -240,10 +242,12 @@ func Load() *Config {
 		WebhookURL:  envStr("WEBHOOK_URL", ""),
 		WebhookType: envStr("WEBHOOK_TYPE", "generic"),
 
-		SchedulerEnabled:       envBool("SCHEDULER_ENABLED", false),
-		SchedulerIntervalHours: envInt("SCHEDULER_INTERVAL_HOURS", 24),
-		SchedulerAutoDownload:  envBool("SCHEDULER_AUTO_DOWNLOAD", true),
-		SchedulerMinScore:      envInt("SCHEDULER_MIN_SCORE", 70),
+		SchedulerEnabled:        envBool("SCHEDULER_ENABLED", false),
+		SchedulerIntervalHours:  envInt("SCHEDULER_INTERVAL_HOURS", 24),
+		SchedulerAutoDownload:   envBool("SCHEDULER_AUTO_DOWNLOAD", true),
+		SchedulerMinScore:       envInt("SCHEDULER_MIN_SCORE", 70),
+		SelectorMode:            envStr("SELECTOR_MODE", "shadow"),
+		SelectorSetTimeoutHours: envInt("SELECTOR_SET_TIMEOUT_HOURS", 24),
 
 		AuthUsername: envStr("AUTH_USERNAME", ""),
 		AuthPassword: envStr("AUTH_PASSWORD", ""),

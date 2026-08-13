@@ -3,6 +3,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
+	"gamarr/internal/selection"
 	"gamarr/internal/webhook"
 )
 
@@ -176,6 +178,36 @@ func (s *Scheduler) run() {
 		})
 
 		totalResults += len(results)
+
+		// F4 selector (SELECTOR_MODE): run the tiered selection engine and
+		// log its decision. In shadow mode (the default) the legacy top-pick
+		// below still drives the actual grab so behavior is unchanged;
+		// enforce-mode execution lands with the disc-set fulfillment
+		// machinery (PR-5) and is treated as shadow until then. Owned /
+		// ActiveGrab checks are wired there too.
+		if s.cfg.SelectorMode != "off" {
+			dec := selection.Select(results, selection.SelectOpts{
+				Query:        item.Title,
+				PlatformSlug: item.PlatformSlug,
+				MinScore:     minScore,
+				Profile:      s.jobs.ResolveQualityProfile(item.PlatformSlug),
+			})
+			chosen := ""
+			if len(dec.Grabs) > 0 {
+				chosen = dec.Grabs[0].Result.Title
+			}
+			legacy := ""
+			if len(results) > 0 {
+				legacy = results[0].Title
+			}
+			slog.Info("selector_decision",
+				"mode", s.cfg.SelectorMode, "wishlist_title", item.Title,
+				"action", dec.Action.String(), "chosen", chosen, "grabs", len(dec.Grabs),
+				"reason", dec.Reason, "rejected", len(dec.Rejected), "legacy_pick", legacy)
+			s.jobs.LogActivity("selector_decision", item.Title,
+				fmt.Sprintf("[%s] %s: %s (grabs=%d, rejected=%d; legacy pick: %s)",
+					s.cfg.SelectorMode, dec.Action.String(), dec.Reason, len(dec.Grabs), len(dec.Rejected), legacy), "", nil)
+		}
 
 		// Auto-download best match if score is high enough
 		if s.cfg.SchedulerAutoDownload && len(results) > 0 && results[0].Score >= minScore {

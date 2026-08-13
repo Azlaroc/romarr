@@ -38,6 +38,16 @@ var platformSizeRange = map[string][2]int64{
 	"wiiu":    {500e6, 25e9}, // 500MB - 25GB
 }
 
+// PlatformSizeRange returns the plausible [min, max] size band in bytes for a
+// platform slug, falling back to the generic band for unknown slugs. Exported
+// for the selection engine's size-sanity filter.
+func PlatformSizeRange(slug string) (int64, int64) {
+	if r, ok := platformSizeRange[slug]; ok {
+		return r[0], r[1]
+	}
+	return 1e6, 50e9
+}
+
 // ScoreResults applies scoring to all results and returns them (modifies in place).
 func ScoreResults(results []*models.SearchResult, query string, platformFilter string) []*models.SearchResult {
 	for _, r := range results {

@@ -183,8 +183,10 @@ func FilterGameResults(results []*models.SearchResult, query string) []*models.S
 			continue
 		}
 
-		// Dedup by normalized title
-		norm := normalizeTitle(r.Title)
+		// Dedup by normalized title + disc number: normalizeTitle truncates to
+		// 60 chars, so long multi-disc titles would collide across discs and
+		// silently drop disc 2/3 as "dupes".
+		norm := normalizeTitle(r.Title) + discDedupSuffix(r.Title)
 		if existing, ok := seen[norm]; ok {
 			if r.Seeders > existing.Seeders {
 				// Remove old, add new
@@ -203,6 +205,19 @@ func FilterGameResults(results []*models.SearchResult, query string) []*models.S
 		filtered = append(filtered, r)
 	}
 	return filtered
+}
+
+// discDedupRe mirrors the selection parser's disc token, kept local to avoid
+// an import cycle (selection imports search).
+var discDedupRe = regexp.MustCompile(`(?i)\(disc (\d+)`)
+
+// discDedupSuffix returns "|disc<N>" for multi-disc release names so each
+// disc survives dedup, and "" otherwise.
+func discDedupSuffix(title string) string {
+	if m := discDedupRe.FindStringSubmatch(title); m != nil {
+		return "|disc" + m[1]
+	}
+	return ""
 }
 
 func normalizeTitle(title string) string {
