@@ -33,15 +33,15 @@ func (s *JobStore) migrateQualityProfiles() {
 	var count int
 	s.db.QueryRow("SELECT COUNT(*) FROM quality_profiles").Scan(&count)
 	if count == 0 {
-		pcRanking, _ := json.Marshal([]string{"FitGirl", "DODI", "PLAZA", "Myrient", "Vimm"})
-		romRanking, _ := json.Marshal([]string{"Myrient", "Vimm"})
+		pcRanking, _ := json.Marshal([]string{"FitGirl", "DODI", "PLAZA", "Vimm"})
+		romRanking, _ := json.Marshal([]string{"Vimm"})
 		s.db.Exec(
 			"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source) VALUES (?, ?, ?, ?, ?, ?)",
 			"PC Default", string(pcRanking), 50*1024*1024, 100*1024*1024*1024, 1, "FitGirl",
 		)
 		s.db.Exec(
 			"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source) VALUES (?, ?, ?, ?, ?, ?)",
-			"ROM Default", string(romRanking), 0, 0, 0, "Myrient",
+			"ROM Default", string(romRanking), 0, 0, 0, "Vimm",
 		)
 	}
 }

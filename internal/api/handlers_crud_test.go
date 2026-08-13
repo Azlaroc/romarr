@@ -335,8 +335,8 @@ func TestDDLSourcesCRUD(t *testing.T) {
 	rr := env.do("GET", "/api/ddl-sources", "")
 	wantStatus(t, rr, 200)
 	sources, _ := decodeMap(t, rr)["sources"].([]interface{})
-	if len(sources) != 2 {
-		t.Fatalf("expected 2 built-in sources, got %d", len(sources))
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 built-in source, got %d", len(sources))
 	}
 
 	t.Run("add requires name and url", func(t *testing.T) {
@@ -350,8 +350,8 @@ func TestDDLSourcesCRUD(t *testing.T) {
 
 		rr = env.do("GET", "/api/ddl-sources", "")
 		sources, _ := decodeMap(t, rr)["sources"].([]interface{})
-		if len(sources) != 3 {
-			t.Fatalf("expected 3 sources after add, got %d", len(sources))
+		if len(sources) != 2 {
+			t.Fatalf("expected 2 sources after add, got %d", len(sources))
 		}
 
 		// Custom sources are indexed within the custom list (index 0 here).
@@ -360,8 +360,8 @@ func TestDDLSourcesCRUD(t *testing.T) {
 
 		rr = env.do("GET", "/api/ddl-sources", "")
 		sources, _ = decodeMap(t, rr)["sources"].([]interface{})
-		if len(sources) != 2 {
-			t.Errorf("expected 2 sources after delete, got %d", len(sources))
+		if len(sources) != 1 {
+			t.Errorf("expected 1 source after delete, got %d", len(sources))
 		}
 	})
 

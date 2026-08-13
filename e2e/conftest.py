@@ -1,19 +1,22 @@
-"""Hermetic end-to-end test harness for the gamarr web UI.
+"""Hermetic end-to-end test harness for the RomArr web UI.
 
 Boots the real gamarr binary against a single local stub server that
-impersonates every external service gamarr talks to, so the full user
+impersonates every external service RomArr talks to, so the full user
 journey — search, DDL download, organize, library, wishlist, settings —
 runs with ZERO external network access:
 
-    [chromium] -> [gamarr binary] -> [stub qBittorrent/Prowlarr/Myrient on 127.0.0.1]
+    [chromium] -> [gamarr binary] -> [stub qBittorrent/Prowlarr/archive.org on 127.0.0.1]
 
-The injected sources registry points Myrient at the stub (which serves a
-real ZIP so the DDL pipeline completes for real) and Vimm at a dead local
-port that refuses connections instantly, keeping runs fast and deterministic.
+The injected sources registry points the native archive.org driver at the stub
+(which serves a real ZIP so the DDL pipeline completes for real) and Vimm at a
+dead local port that refuses connections instantly, keeping runs fast and
+deterministic. Myrient was retired (host shut down 2026-03-31); archive.org is
+the DDL source of record.
 
 Requires: the gamarr binary (built automatically, or set GAMARR_E2E_BIN),
 pytest-playwright with chromium installed.
 """
+import hashlib
 import io
 import json
 import os
@@ -31,7 +34,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Myrient fixture files for the "gb" platform. Names mirror No-Intro naming
+# archive.org collection item the stub serves for the "gb" platform.
+IA_GB_ITEM = "nointro-gb-e2e"
+
+# archive.org fixture files for the "gb" platform. Names mirror No-Intro naming
 # so region filtering and title matching run the same code paths as prod.
 GB_FILES = [
     "Tetris (World) (Rev 1).zip",
@@ -74,15 +80,37 @@ def _free_port() -> int:
 
 
 def _rom_zip(name: str) -> bytes:
-    """A small but genuine ZIP containing a fake .gb ROM."""
+    """A small but genuine ZIP containing a fake .gb ROM. Deterministic bytes
+    (zipfile stamps writestr entries with a fixed 1980 date), so the md5/sha1/
+    size published in the metadata below stay stable."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(name.replace(".zip", ".gb"), b"GAMARR-E2E-ROM" * 64)
     return buf.getvalue()
 
 
+def _ia_metadata() -> bytes:
+    """An archive.org /metadata/<item> document for the gb item: one files[]
+    entry per GB_FILES, carrying real size/md5/sha1 (archive.org encodes size
+    as a string) so the driver parses exactly the prod shape."""
+    files = []
+    for n in GB_FILES:
+        b = _rom_zip(n)
+        files.append({
+            "name": n,
+            "source": "original",
+            "format": "ZIP",
+            "size": str(len(b)),
+            "md5": hashlib.md5(b).hexdigest(),
+            "sha1": hashlib.sha1(b).hexdigest(),
+        })
+    return json.dumps(
+        {"server": "stub", "dir": f"/{IA_GB_ITEM}", "files": files}
+    ).encode()
+
+
 class _StubHandler(BaseHTTPRequestHandler):
-    """One handler impersonating qBittorrent + Prowlarr + Myrient."""
+    """One handler impersonating qBittorrent + Prowlarr + archive.org."""
 
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -104,7 +132,6 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_GET(self):  # noqa: N802
-        base = f"http://127.0.0.1:{self.server.server_address[1]}"
         path = self.path.split("?")[0]
 
         if path == "/api/v2/torrents/info":
@@ -119,20 +146,15 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(hits).encode(), "application/json")
         elif path == "/api/v1/indexer":
             self._send(200, b"[]", "application/json")
-        # ── Myrient directory listing + ROM files ─────────────────────────
-        elif path == "/files/gb/":
-            rows = "".join(
-                f'<tr><td><a href="{urllib.parse.quote(n)}" title="{n}">{n}</a></td></tr>'
-                for n in GB_FILES
-            )
-            html = f'<html><body><table><tr><td><a href="../">Parent</a></td></tr>{rows}</table></body></html>'
-            self._send(200, html.encode(), "text/html")
-        elif path.startswith("/files/gb/"):
-            name = urllib.parse.unquote(path.split("/files/gb/")[1])
+        # ── archive.org: metadata listing + per-file downloads ────────────
+        elif path == f"/metadata/{IA_GB_ITEM}":
+            self._send(200, _ia_metadata(), "application/json")
+        elif path.startswith(f"/download/{IA_GB_ITEM}/"):
+            name = urllib.parse.unquote(path.split(f"/download/{IA_GB_ITEM}/", 1)[1])
             if name in GB_FILES:
                 self._send(200, _rom_zip(name), "application/zip")
             else:
-                self._send(404, b"no such rom", "text/plain")
+                self._send(404, b"no such file", "text/plain")
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -165,15 +187,15 @@ def gamarr_binary(tmp_path_factory) -> Path:
 
 @pytest.fixture(scope="session")
 def app(stub_server, gamarr_binary, tmp_path_factory):
-    """Boot gamarr with an injected registry: Myrient -> stub, Vimm -> dead
-    port that refuses connections instantly."""
+    """Boot gamarr with an injected registry: archive.org -> stub (a live gb
+    item), Vimm -> dead port that refuses connections instantly."""
     data = tmp_path_factory.mktemp("data")
     dead = "http://127.0.0.1:1/"
     registry = {
         "version": 1,
-        "myrient": {
-            "base_url": f"{stub_server}/files/",
-            "platform_paths": {"gb": "gb/"},
+        "archiveorg": {
+            "base_url": stub_server,
+            "items": {"gb": IA_GB_ITEM},
         },
         "vimm": {"base_url": dead, "platform_systems": {}},
     }

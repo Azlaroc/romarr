@@ -28,7 +28,6 @@ type Callbacks struct {
 		Data map[string]interface{}
 	}
 	QBReauth          func() bool
-	ClearMyrientCache func()
 	RunOrphanRecovery func()
 }
 
@@ -36,12 +35,11 @@ var allowedActions = map[string]struct {
 	Risk  string
 	Label string
 }{
-	"retry_job":             {"safe", "Re-queue a failed download job"},
-	"clear_interrupted":     {"safe", "Mark interrupted/stuck jobs as cleared"},
-	"reauth_qbittorrent":    {"safe", "Force qBittorrent session re-authentication"},
-	"refresh_myrient_cache": {"safe", "Clear cached Myrient directory listings"},
-	"run_orphan_recovery":   {"safe", "Run orphan torrent recovery routine"},
-	"restart_qbittorrent":   {"approval", "Restart qBittorrent Docker container"},
+	"retry_job":           {"safe", "Re-queue a failed download job"},
+	"clear_interrupted":   {"safe", "Mark interrupted/stuck jobs as cleared"},
+	"reauth_qbittorrent":  {"safe", "Force qBittorrent session re-authentication"},
+	"run_orphan_recovery": {"safe", "Run orphan torrent recovery routine"},
+	"restart_qbittorrent": {"approval", "Restart qBittorrent Docker container"},
 }
 
 func buildSystemPrompt() string {
@@ -52,7 +50,7 @@ func buildSystemPrompt() string {
 	return `You are an AI monitor for Gamarr, a self-hosted game and ROM download manager.
 
 Gamarr integrates with: qBittorrent (torrent client), Prowlarr (torrent indexer), ` +
-		`Myrient (direct ROM downloads — cached directory listings), and Vimm's Lair (ROM downloads).
+		`and Vimm's Lair (ROM downloads).
 It downloads PC games, console ROMs (NES, SNES, N64, DS, 3DS, Switch, PS1, PS2, etc.) and ` +
 		`organizes them into a vault or ROM library.
 
@@ -527,9 +525,6 @@ func (m *GamarrMonitor) executeAction(action string, params interface{}) string 
 			return "qBittorrent re-authenticated"
 		}
 		return "qBittorrent re-auth failed"
-	case "refresh_myrient_cache":
-		m.callbacks.ClearMyrientCache()
-		return "Myrient directory cache cleared"
 	case "run_orphan_recovery":
 		m.callbacks.RunOrphanRecovery()
 		return "Orphan torrent recovery triggered"

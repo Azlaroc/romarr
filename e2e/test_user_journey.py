@@ -154,5 +154,5 @@ def test_settings_shows_sources_and_stats(ui):
     page = ui["page"]
     _nav(page, "settings", "Settings")
     expect(page.get_by_test_id("settings-sources")).to_contain_text(
-        re.compile("myrient", re.I), timeout=SLOW_MS)
+        re.compile("vimm", re.I), timeout=SLOW_MS)
     expect(page.get_by_test_id("settings-stats")).to_be_visible(timeout=SLOW_MS)

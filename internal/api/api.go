@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -427,57 +426,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	var allResults []*models.SearchResult
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	// Search all sources concurrently
-	wg.Add(4)
-	go func() {
-		defer wg.Done()
-		slug := platformFilter
-		if slug == "all" {
-			slug = ""
-		}
-		results := search.SearchProwlarr(s.cfg, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		slug := platformFilter
-		if slug == "all" {
-			slug = ""
-		}
-		results := search.SearchMyrient(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		slug := platformFilter
-		if slug == "all" {
-			slug = ""
-		}
-		results := search.SearchVimm(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		slug := platformFilter
-		if slug == "all" {
-			slug = ""
-		}
-		results := search.SearchArchiveOrg(s.cfg.Sources, query, slug)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	wg.Wait()
+	slug := platformFilter
+	if slug == "all" {
+		slug = ""
+	}
+	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug)
 
 	// Filter torrent results, pass through DDL
 	var torrentResults, ddlResults []*models.SearchResult
@@ -552,9 +505,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Source metadata
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()},
-		{"name": "myrient", "label": "Myrient", "color": "#10b981", "source_type": "ddl", "enabled": true},
-		{"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
 	}
 
 	writeJSON(w, 200, map[string]interface{}{
@@ -599,9 +550,7 @@ func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	healthData := search.GetAllSourceHealth()
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()},
-		{"name": "myrient", "label": "Myrient", "color": "#10b981", "source_type": "ddl", "enabled": true},
-		{"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
 	}
 	// Attach health data to each source
 	for _, src := range sourceMeta {
@@ -853,8 +802,6 @@ func (s *Server) handleOrganizeTorrent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDDLSources(w http.ResponseWriter, r *http.Request) {
 	builtIn := []map[string]interface{}{
-		{"name": "Myrient", "url": s.cfg.Sources.Myrient.BaseURL, "type": "myrient", "builtin": true,
-			"platforms": search.MyrientPlatformSlugs(s.cfg.Sources)},
 		{"name": "Vimm's Lair", "url": s.cfg.Sources.Vimm.BaseURL, "type": "vimm", "builtin": true,
 			"platforms": search.VimmPlatformSlugs(s.cfg.Sources)},
 	}

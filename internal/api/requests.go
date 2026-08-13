@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -219,40 +218,7 @@ func (s *Server) handleSearchRequest(w http.ResponseWriter, r *http.Request) {
 	query := req.Title
 	platformFilter := req.PlatformSlug
 
-	var allResults []*models.SearchResult
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	wg.Add(4)
-	go func() {
-		defer wg.Done()
-		results := search.SearchProwlarr(s.cfg, query, platformFilter)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchMyrient(s.cfg.Sources, query, platformFilter)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchVimm(s.cfg.Sources, query, platformFilter)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	go func() {
-		defer wg.Done()
-		results := search.SearchArchiveOrg(s.cfg.Sources, query, platformFilter)
-		mu.Lock()
-		allResults = append(allResults, results...)
-		mu.Unlock()
-	}()
-	wg.Wait()
+	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, platformFilter)
 
 	// Filter and sort
 	var torrentResults, ddlResults []*models.SearchResult
