@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -353,5 +354,99 @@ func TestAddAccepted(t *testing.T) {
 		if got := addAccepted(tc.status, []byte(tc.body)); got != tc.want {
 			t.Errorf("%s: addAccepted(%d, %q)=%v, want %v", tc.name, tc.status, tc.body, got, tc.want)
 		}
+	}
+}
+
+func TestAddTorrentOpts_FormEncoding(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			w.Write([]byte("Ok."))
+			return
+		}
+		r.ParseForm()
+		got = r.PostForm
+		w.Write([]byte("Ok."))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "u", "p")
+	ok := c.AddTorrentOpts("magnet:?xt=urn:btih:aaaa", AddOptions{
+		SavePath: "/downloads", Category: "games", Tags: "gamarr-abc", Stopped: true,
+	})
+	if !ok {
+		t.Fatal("AddTorrentOpts returned false")
+	}
+	want := map[string]string{
+		"urls": "magnet:?xt=urn:btih:aaaa", "savepath": "/downloads",
+		"category": "games", "tags": "gamarr-abc",
+		// Both spellings so 5.x (stopped) and 4.x (paused) honor the flag.
+		"stopped": "true", "paused": "true",
+	}
+	for k, v := range want {
+		if got.Get(k) != v {
+			t.Errorf("form[%s] = %q, want %q", k, got.Get(k), v)
+		}
+	}
+}
+
+func TestAddTorrentOpts_OmitsOptionalKeys(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			w.Write([]byte("Ok."))
+			return
+		}
+		r.ParseForm()
+		got = r.PostForm
+		w.Write([]byte("Ok."))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "u", "p")
+	c.AddTorrentOpts("magnet:x", AddOptions{SavePath: "/d", Category: "games"})
+	if got.Has("tags") || got.Has("stopped") || got.Has("paused") {
+		t.Errorf("optional keys sent when unset: %v", got)
+	}
+}
+
+func TestGetTorrentsFiltered_QueryBuilding(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			w.Write([]byte("Ok."))
+			return
+		}
+		gotQuery = r.URL.Query()
+		w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "u", "p")
+	c.GetTorrentsFiltered("games", "gamarr-x", "aaa|bbb")
+	if gotQuery.Get("category") != "games" || gotQuery.Get("tag") != "gamarr-x" || gotQuery.Get("hashes") != "aaa|bbb" {
+		t.Errorf("query = %v", gotQuery)
+	}
+}
+
+func TestTorrentDecode_SeedingFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			w.Write([]byte("Ok."))
+			return
+		}
+		w.Write([]byte(`[{"name":"T","hash":"h1","progress":1.0,"state":"stoppedUP",` +
+			`"amount_left":512,"category":"games","tags":"a, b","ratio":1.5}]`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "u", "p")
+	ts := c.GetTorrents("")
+	if len(ts) != 1 {
+		t.Fatalf("torrents = %d, want 1", len(ts))
+	}
+	got := ts[0]
+	if got.AmountLeft != 512 || got.Category != "games" || got.Tags != "a, b" || got.Ratio != 1.5 {
+		t.Errorf("decoded = %+v", got)
 	}
 }

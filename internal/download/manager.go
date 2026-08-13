@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gamarr/internal/config"
@@ -45,6 +46,11 @@ type Manager struct {
 	nzbget       *nzbget.Client
 	norm         *normalize.Normalizer
 	NotifyFunc   NotifyCallback
+
+	// importing single-flights torrent imports per job ID: the watcher tick,
+	// a restart-resumed tick, and the manual organize button may all try to
+	// launch the same import.
+	importing sync.Map
 }
 
 // New creates a new download Manager.
@@ -90,77 +96,80 @@ func newJobID() string {
 	return fmt.Sprintf("%x", b)
 }
 
-// DownloadTorrent starts a torrent download.
-// Tries clients in order: qBittorrent -> Transmission -> Deluge (first available).
-func (m *Manager) DownloadTorrent(url, title, platf, platSlug string, isPC bool) (string, error) {
-	if url == "" {
+// TorrentSpec describes a torrent download request.
+type TorrentSpec struct {
+	URL          string
+	InfoHash     string
+	Title        string
+	Platform     string
+	PlatformSlug string
+	IsPC         bool
+	// TargetFile names one file inside a pack torrent to download and import
+	// (selective download, #256). Empty = whole content. Wired in F3 PR-3.
+	TargetFile string
+}
+
+// DownloadTorrent submits a torrent to qBittorrent and registers a job that
+// the completion watcher drives through import. Job↔torrent association is by
+// infohash — from the spec or parsed out of a magnet link — with a per-job
+// qBittorrent tag as the fallback for .torrent URLs whose hash is unknown
+// until qBittorrent resolves them (the watcher learns it from the tag).
+// Torrents that only Transmission/Deluge could take are rejected outright:
+// nothing ever watched those clients, so an add there was a silent black hole.
+func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
+	if spec.URL == "" {
 		return "", fmt.Errorf("no download URL")
 	}
+	if !m.cfg.HasQBittorrent() {
+		return "", fmt.Errorf("qBittorrent not configured")
+	}
+
+	hash := normalizeInfoHash(spec.InfoHash)
+	if hash == "" {
+		hash = parseBTIH(spec.URL)
+	}
+
 	jobID := newJobID()
+	tag := "gamarr-" + jobID
 	m.jobs.Set(jobID, map[string]interface{}{
 		"status":        "downloading",
-		"title":         title,
-		"platform":      platf,
-		"platform_slug": platSlug,
-		"is_pc":         isPC,
+		"title":         spec.Title,
+		"platform":      spec.Platform,
+		"platform_slug": spec.PlatformSlug,
+		"is_pc":         spec.IsPC,
 		"error":         nil,
-		"detail":        "Sending to download client...",
+		"detail":        "Sending to qBittorrent...",
+		"source_type":   "torrent",
+		"source_client": "qbittorrent",
+		"torrent_hash":  hash,
+		"qb_tag":        tag,
+		"started_at":    time.Now().Unix(),
 	})
 
-	added := false
-	clientUsed := ""
-
-	// Try qBittorrent first.
-	if m.cfg.HasQBittorrent() {
-		m.jobs.Update(jobID, "detail", "Sending to qBittorrent...")
-		ok := m.qb.AddTorrent(url, title, m.cfg.QBSavePath, m.cfg.QBCategory)
-		if ok {
-			added = true
-			clientUsed = "qBittorrent"
-		} else {
-			slog.Warn("qBittorrent add failed, trying fallback clients", "title", title)
+	// A duplicate add silently no-ops in qBittorrent — the tag would never
+	// appear and association would time out — so adopt an existing torrent.
+	if hash != "" {
+		if existing := m.qb.GetTorrentsFiltered("", "", hash); len(existing) > 0 {
+			m.jobs.Update(jobID, "detail", "Torrent already in qBittorrent; watching...")
+			slog.Info("torrent already present, adopting", "title", spec.Title, "hash", hash)
+			return jobID, nil
 		}
 	}
 
-	// Try Transmission.
-	if !added && m.transmission != nil {
-		m.jobs.Update(jobID, "detail", "Sending to Transmission...")
-		_, err := m.transmission.AddTorrent(url, m.cfg.QBSavePath)
-		if err == nil {
-			added = true
-			clientUsed = "Transmission"
-		} else {
-			slog.Warn("Transmission add failed", "title", title, "error", err)
-		}
-	}
-
-	// Try Deluge.
-	if !added && m.deluge != nil {
-		m.jobs.Update(jobID, "detail", "Sending to Deluge...")
-		opts := map[string]interface{}{
-			"download_location": m.cfg.QBSavePath,
-		}
-		_, err := m.deluge.AddTorrent(url, opts)
-		if err == nil {
-			added = true
-			clientUsed = "Deluge"
-		} else {
-			slog.Warn("Deluge add failed", "title", title, "error", err)
-		}
-	}
-
-	if !added {
+	if !m.qb.AddTorrentOpts(spec.URL, qbit.AddOptions{
+		SavePath: m.cfg.QBSavePath,
+		Category: m.cfg.QBCategory,
+		Tags:     tag,
+	}) {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "error",
-			"error":  "Failed to add torrent to any download client",
+			"error":  "Failed to add torrent to qBittorrent",
 		})
 		return jobID, nil
 	}
 
-	m.jobs.Update(jobID, "detail", fmt.Sprintf("Downloading via %s...", clientUsed))
-	slog.Info("torrent added", "client", clientUsed, "title", title)
-
-	go m.watchGameTorrent(jobID, title, platf, platSlug, isPC)
+	m.jobs.Update(jobID, "detail", "Downloading via qBittorrent...")
+	slog.Info("torrent added", "title", spec.Title, "hash", hash, "tag", tag)
 	return jobID, nil
 }
 
@@ -204,113 +213,55 @@ func (m *Manager) OrganizeTorrent(hash, platf, platSlug string, isPC bool) (stri
 
 	jobID := newJobID()
 	m.jobs.Set(jobID, map[string]interface{}{
-		"status":        "organizing",
+		"status":        "scanning",
 		"title":         torrent.Name,
 		"platform":      platf,
 		"platform_slug": platSlug,
 		"is_pc":         isPC,
 		"error":         nil,
-		"detail":        "Scanning and organizing...",
+		"detail":        "Scanning and importing...",
+		"source_type":   "torrent",
+		"source_client": "qbittorrent",
+		"torrent_hash":  strings.ToLower(torrent.Hash),
+		"started_at":    time.Now().Unix(),
 	})
 
-	go m.organizeWithScan(jobID, torrent, platf, platSlug, isPC)
+	go m.importTorrentJob(jobID, torrent)
 	return jobID, nil
 }
 
-func (m *Manager) watchGameTorrent(jobID, title, platf, platSlug string, isPC bool) {
-	slog.Info("watching game torrent", "title", title, "platform", platf)
-	maxWait := 7 * 24 * time.Hour
-	start := time.Now()
-	fileScanDone := false
-
-	for time.Since(start) < maxWait {
-		torrents := m.qb.GetTorrents(m.cfg.QBCategory)
-		for _, t := range torrents {
-			tName := t.Name
-			if !titlesMatch(title, tName) {
-				continue
-			}
-
-			// Layer 1: scan file list once metadata is available
-			if !fileScanDone && t.Progress > 0 {
-				m.jobs.Update(jobID, "detail", "Scanning file list...")
-				isSafe, issues := safety.ScanTorrentFileList(m.qb, t.Hash)
-				fileScanDone = true
-				if !isSafe {
-					slog.Warn("file list scan failed", "title", title, "issues", issues)
-					m.jobs.UpdateMulti(jobID, map[string]interface{}{
-						"status": "error",
-						"error":  fmt.Sprintf("Blocked: %s", strings.Join(issues, "; ")),
-						"detail": "Dangerous files detected - download cancelled",
-					})
-					m.qb.DeleteTorrent(t.Hash, true)
-					return
-				}
-				m.jobs.Update(jobID, "detail", "File list clean. Downloading...")
-			}
-
-			// Wait for completion
-			if t.Progress >= 1.0 || t.State == "stoppedUP" {
-				contentPath := t.ContentPath
-				savePath := t.SavePath
-				if savePath == "" {
-					savePath = m.cfg.QBSavePath
-				}
-				scanPath := contentPath
-				if scanPath == "" {
-					scanPath = filepath.Join(savePath, tName)
-				}
-
-				// Layer 2: ClamAV scan
-				m.jobs.UpdateMulti(jobID, map[string]interface{}{
-					"status": "scanning",
-					"detail": "Running virus scan...",
-				})
-				isClean, infected := safety.ScanWithClamAV(scanPath, m.cfg.ClamAVContainer, m.cfg.ClamAVSocket, m.cfg.DockerSocket)
-				if !isClean {
-					slog.Warn("ClamAV found infections", "title", title, "infected", infected)
-					detail := infected
-					if len(detail) > 3 {
-						detail = detail[:3]
-					}
-					m.jobs.UpdateMulti(jobID, map[string]interface{}{
-						"status": "error",
-						"error":  fmt.Sprintf("Virus detected: %s", strings.Join(detail, "; ")),
-						"detail": "Infected files found - download quarantined",
-					})
-					m.qb.DeleteTorrent(t.Hash, true)
-					return
-				}
-
-				m.jobs.UpdateMulti(jobID, map[string]interface{}{
-					"status": "organizing",
-					"detail": "Scans passed. Moving to library...",
-				})
-				m.organizeGame(jobID, &t, platf, platSlug, isPC)
-				return
-			}
-		}
-		time.Sleep(5 * time.Second)
+// importTorrentJob imports a completed torrent's payload into the library by
+// COPYING it out — the original payload keeps seeding untouched. The pipeline
+// renames, rewrites, and deletes inside whatever it is handed (DAT rename,
+// .m3u writes, CHD convert consuming sources, sidecar), so it must never see
+// the live payload. The job completes at import; the torrent's seed lifecycle
+// is independent (qBittorrent share limits, or the opt-in seed janitor).
+func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
+	if _, busy := m.importing.LoadOrStore(jobID, struct{}{}); busy {
+		return
 	}
-	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status": "error",
-		"error":  "Timed out waiting for download",
-	})
-}
+	defer m.importing.Delete(jobID)
 
-func (m *Manager) organizeGame(jobID string, torrent *qbit.Torrent, platf, platSlug string, isPC bool) {
+	job, ok := m.jobs.Get(jobID)
+	if !ok {
+		return
+	}
+	platf, _ := job["platform"].(string)
+	platSlug, _ := job["platform_slug"].(string)
+	isPC, _ := job["is_pc"].(bool)
+	title, _ := job["title"].(string)
+	if title == "" {
+		title = torrent.Name
+	}
+
 	contentPath := torrent.ContentPath
-	torrentName := torrent.Name
-	torrentHash := torrent.Hash
-
 	if contentPath == "" || !pathExists(contentPath) {
 		savePath := torrent.SavePath
 		if savePath == "" {
 			savePath = m.cfg.QBSavePath
 		}
-		contentPath = filepath.Join(savePath, torrentName)
+		contentPath = filepath.Join(savePath, torrent.Name)
 	}
-
 	if !pathExists(contentPath) {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "error",
@@ -320,84 +271,14 @@ func (m *Manager) organizeGame(jobID string, torrent *qbit.Torrent, platf, platS
 		return
 	}
 
-	// Platform detection from metadata
-	if platSlug == "" && !isPC {
-		if info, ok := platform.DetectPlatformFromMetadata(contentPath); ok {
-			platf, platSlug, isPC = info.Name, info.Slug, info.IsPC
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"platform": platf, "platform_slug": platSlug, "is_pc": isPC,
-			})
-			slog.Info("detected platform from metadata", "platform", platf)
-		}
-	}
-
-	// Platform detection from files/title
-	if platSlug == "" && !isPC {
-		if info, ok := platform.DetectPlatformFromFiles(contentPath, torrentName); ok {
-			platf, platSlug, isPC = info.Name, info.Slug, info.IsPC
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"platform": platf, "platform_slug": platSlug, "is_pc": isPC,
-			})
-			slog.Info("detected platform from files/title", "platform", platf)
-		}
-	}
-
-	if isPC {
-		dest := filepath.Join(m.cfg.GamesVaultPath, sanitizeFilename(filepath.Base(contentPath)))
-		if err := moveContent(contentPath, dest); err != nil {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-			})
-			return
-		}
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": "Moved to GameVault",
-		})
-		writeMetadataSidecar(dest, torrentName, platf, platSlug, isPC, "torrent")
-		m.TrackInLibrary(torrentName, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrentHash)
-		m.jobs.LogActivity("download_completed", torrentName, "Organized to GameVault", jobID, nil)
-		slog.Info("PC game organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(dest))
-	} else if platSlug != "" {
-		if _, err := m.fulfillLocalROM(contentPath, fulfillMeta{
-			JobID:        jobID,
-			Title:        torrentName,
-			Platform:     platf,
-			PlatformSlug: platSlug,
-			Source:       "torrent",
-			SourceClient: "prowlarr",
-			SourceID:     "torrent:" + torrentHash,
-		}); err != nil {
-			return
-		}
-	} else {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": "Downloaded (unknown platform, left in staging)",
-		})
-		slog.Warn("no platform slug, left in downloads", "name", torrentName)
-		return // Don't delete torrent
-	}
-
-	m.qb.DeleteTorrent(torrentHash, true)
-}
-
-func (m *Manager) organizeWithScan(jobID string, torrent *qbit.Torrent, platf, platSlug string, isPC bool) {
-	contentPath := torrent.ContentPath
-	savePath := torrent.SavePath
-	if savePath == "" {
-		savePath = m.cfg.QBSavePath
-	}
-	tName := torrent.Name
-	scanPath := contentPath
-	if scanPath == "" {
-		scanPath = filepath.Join(savePath, tName)
-	}
-
+	// Layer 2: ClamAV — a read-only scan, safe on the seeding payload. An
+	// infected torrent is never worth seeding: delete it, files included.
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
 		"status": "scanning", "detail": "Running virus scan...",
 	})
-	isClean, infected := safety.ScanWithClamAV(scanPath, m.cfg.ClamAVContainer, m.cfg.ClamAVSocket, m.cfg.DockerSocket)
+	isClean, infected := safety.ScanWithClamAV(contentPath, m.cfg.ClamAVContainer, m.cfg.ClamAVSocket, m.cfg.DockerSocket)
 	if !isClean {
-		slog.Warn("ClamAV found infections", "title", tName, "infected", infected)
+		slog.Warn("ClamAV found infections", "title", title, "infected", infected)
 		detail := infected
 		if len(detail) > 3 {
 			detail = detail[:3]
@@ -410,10 +291,116 @@ func (m *Manager) organizeWithScan(jobID string, torrent *qbit.Torrent, platf, p
 		m.qb.DeleteTorrent(torrent.Hash, true)
 		return
 	}
+
+	// Platform detection (read-only) when the request didn't pin one.
+	if platSlug == "" && !isPC {
+		if info, ok := platform.DetectPlatformFromMetadata(contentPath); ok {
+			platf, platSlug, isPC = info.Name, info.Slug, info.IsPC
+			m.jobs.UpdateMulti(jobID, map[string]interface{}{
+				"platform": platf, "platform_slug": platSlug, "is_pc": isPC,
+			})
+			slog.Info("detected platform from metadata", "platform", platf)
+		}
+	}
+	if platSlug == "" && !isPC {
+		if info, ok := platform.DetectPlatformFromFiles(contentPath, torrent.Name); ok {
+			platf, platSlug, isPC = info.Name, info.Slug, info.IsPC
+			m.jobs.UpdateMulti(jobID, map[string]interface{}{
+				"platform": platf, "platform_slug": platSlug, "is_pc": isPC,
+			})
+			slog.Info("detected platform from files/title", "platform", platf)
+		}
+	}
+	if !isPC && platSlug == "" {
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "completed", "detail": "Downloaded (unknown platform, left in staging)",
+		})
+		slog.Warn("no platform slug, left in downloads", "name", torrent.Name)
+		return
+	}
+
+	base := sanitizeFilename(filepath.Base(contentPath))
+	var destRoot, dest string
+	if isPC {
+		destRoot = m.cfg.GamesVaultPath
+		dest = filepath.Join(destRoot, base)
+	} else {
+		destRoot = m.cfg.GamesRomsPath
+		dest = filepath.Join(m.romDestDir(platSlug), base)
+	}
+	// Never clobber content another source already put at the destination.
+	if pathExists(dest) {
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "error",
+			"error":  fmt.Sprintf("Destination already exists: %s", dest),
+		})
+		return
+	}
+
+	// Copy into a dot-dir staging area on the destination filesystem (invisible
+	// to the library scanner and RomM), then hand the copy to the pipeline —
+	// its own move is a same-fs rename. A crashed prior attempt's leftovers are
+	// wiped first, so re-entry after a restart is safe.
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status": "organizing", "detail": "Scans passed. Moving to library...",
+		"status": "importing", "detail": "Copying out of seeding payload...",
 	})
-	m.organizeGame(jobID, torrent, platf, platSlug, isPC)
+	tmpDir := filepath.Join(destRoot, ".gamarr-tmp", jobID)
+	os.RemoveAll(tmpDir)
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "error", "error": fmt.Sprintf("Import staging failed: %v", err),
+		})
+		return
+	}
+	tmp := filepath.Join(tmpDir, base)
+	if err := copyContent(contentPath, tmp); err != nil {
+		os.RemoveAll(tmpDir)
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "error", "error": fmt.Sprintf("Import copy failed: %v", err),
+		})
+		return
+	}
+
+	if isPC {
+		if err := moveContent(tmp, dest); err != nil {
+			os.RemoveAll(tmpDir)
+			m.jobs.UpdateMulti(jobID, map[string]interface{}{
+				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
+			})
+			return
+		}
+		m.jobs.UpdateMulti(jobID, map[string]interface{}{
+			"status": "completed", "detail": "Moved to GameVault",
+		})
+		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "torrent")
+		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrent.Hash)
+		m.jobs.LogActivity("download_completed", title, "Organized to GameVault", jobID, nil)
+		slog.Info("PC game imported", "name", sanitizeLog(title), "dest", sanitizeLog(dest))
+	} else {
+		if _, err := m.fulfillLocalROM(tmp, fulfillMeta{
+			JobID:        jobID,
+			Title:        title,
+			Platform:     platf,
+			PlatformSlug: platSlug,
+			Source:       "torrent",
+			SourceClient: "prowlarr",
+			SourceID:     "torrent:" + torrent.Hash,
+		}); err != nil {
+			os.RemoveAll(tmpDir)
+			return
+		}
+	}
+	os.RemoveAll(tmpDir)
+	m.jobs.Update(jobID, "imported_at", time.Now().Unix())
+
+	if m.cfg.RemoveAfterImport {
+		m.qb.DeleteTorrent(torrent.Hash, true)
+		slog.Info("removed torrent after import", "name", torrent.Name)
+	}
+	if m.NotifyFunc != nil {
+		m.NotifyFunc("", "download_complete", title,
+			"Downloaded and imported: "+title+" ("+platf+")")
+	}
 }
 
 func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug string, isPC bool, md5, sha1 string) {
@@ -796,93 +783,25 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 	}
 }
 
-// RecoverOrphanedTorrents checks for existing game torrents and re-links them.
+// RecoverOrphanedTorrents wakes the qBittorrent session after a restart. Job
+// recovery itself no longer happens here: torrent jobs persist their infohash
+// (or association tag) and the completion watcher re-drives them straight from
+// the database, so minting duplicate jobs at boot is structurally impossible.
+// Out-of-band torrents are minted as completed_unorganized by the watcher's
+// orphan sweep.
 func (m *Manager) RecoverOrphanedTorrents() {
 	if !m.cfg.HasQBittorrent() {
 		slog.Info("orphan torrent recovery disabled")
 		return
 	}
-
-	// Retry login for up to 60s
 	for attempt := 0; attempt < 12; attempt++ {
 		if m.qb.Login() {
-			break
+			return
 		}
 		slog.Info("orphan recovery: waiting for qBit", "attempt", attempt+1)
 		time.Sleep(5 * time.Second)
-		if attempt == 11 {
-			slog.Warn("cannot check orphaned torrents - qBit login failed after retries")
-			return
-		}
 	}
-
-	torrents := m.qb.GetTorrents(m.cfg.QBCategory)
-	pcReleaseGroups := map[string]bool{
-		"skidrow": true, "codex": true, "fitgirl": true, "dodi": true,
-		"gog": true, "plaza": true, "cpy": true, "empress": true,
-		"rune": true, "razordox": true, "tinyiso": true, "elamigos": true, "repack": true,
-	}
-	platformHints := map[string]struct {
-		Name string
-		Slug string
-		IsPC bool
-	}{
-		"wii": {"Wii", "wii", false}, "gamecube": {"GameCube", "ngc", false},
-		"ngc": {"GameCube", "ngc", false}, "switch": {"Switch", "switch", false},
-		"nsp": {"Switch", "switch", false}, "xci": {"Switch", "switch", false},
-		"ps2": {"PS2", "ps2", false}, "ps3": {"PS3", "ps3", false},
-		"psp": {"PSP", "psp", false}, "nds": {"DS", "nds", false},
-		"3ds": {"3DS", "3ds", false}, "dreamcast": {"Dreamcast", "dc", false},
-		"gba": {"Game Boy Advance", "gba", false},
-	}
-
-	for _, t := range torrents {
-		jobID := newJobID()
-		platf := "Unknown"
-		var platSlug string
-		isPC := false
-
-		nameLower := strings.ToLower(t.Name)
-		for grp := range pcReleaseGroups {
-			if strings.Contains(nameLower, grp) {
-				platf, platSlug, isPC = "PC", "", true
-				break
-			}
-		}
-		if !isPC {
-			for hint, info := range platformHints {
-				if strings.Contains(nameLower, hint) {
-					platf, platSlug, isPC = info.Name, info.Slug, info.IsPC
-					break
-				}
-			}
-		}
-
-		if t.Progress >= 1.0 {
-			m.jobs.Set(jobID, map[string]interface{}{
-				"status":        "completed_unorganized",
-				"title":         t.Name,
-				"platform":      platf,
-				"platform_slug": platSlug,
-				"is_pc":         isPC,
-				"error":         nil,
-				"detail":        "Completed - needs organizing (use organize button)",
-			})
-			slog.Info("recovered completed torrent", "name", t.Name)
-		} else {
-			m.jobs.Set(jobID, map[string]interface{}{
-				"status":        "downloading",
-				"title":         t.Name,
-				"platform":      platf,
-				"platform_slug": platSlug,
-				"is_pc":         isPC,
-				"error":         nil,
-				"detail":        "Recovered - watching download...",
-			})
-			go m.watchGameTorrent(jobID, t.Name, platf, platSlug, isPC)
-			slog.Info("recovered in-progress torrent", "name", t.Name, "progress", fmt.Sprintf("%.0f%%", t.Progress*100))
-		}
-	}
+	slog.Warn("qBit login failed after retries")
 }
 
 // MaybeNormalize runs the F5 normalize step (DAT 1G1R rename + multi-disc .m3u)
@@ -1062,6 +981,46 @@ func moveContent(src, dest string) error {
 		return os.RemoveAll(src)
 	}
 	return moveFile(src, dest)
+}
+
+// copyContent recursively copies src (file or dir) to dest without ever
+// touching src — the seeding-safe sibling of moveContent. qBittorrent working
+// files (*.!qB, *.parts) are skipped: they are partial-piece scratch, not
+// payload.
+func copyContent(src, dest string) error {
+	fi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return copyFile(src, dest)
+	}
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("path %q escapes source dir", path)
+		}
+		target, err := safeChild(dest, rel)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		if isQbitWorkFile(info.Name()) {
+			return nil
+		}
+		return copyFile(path, target)
+	})
+}
+
+// isQbitWorkFile reports whether name is qBittorrent partial-piece scratch.
+func isQbitWorkFile(name string) bool {
+	l := strings.ToLower(name)
+	return strings.HasSuffix(l, ".!qb") || strings.HasSuffix(l, ".parts")
 }
 
 func copyDir(src, dest string) error {

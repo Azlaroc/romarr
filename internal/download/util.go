@@ -2,9 +2,12 @@ package download
 
 import (
 	"crypto/rand"
+	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -41,6 +44,36 @@ func safeChild(dir, name string) (string, error) {
 func sanitizeLog(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.ReplaceAll(s, "\r", " ")
+}
+
+var btihRe = regexp.MustCompile(`(?i)xt=urn:btih:([0-9a-z]+)`)
+
+// normalizeInfoHash canonicalizes a BitTorrent v1 infohash to lowercase hex.
+// Accepts 40-char hex or 32-char base32 (both appear in magnet links and
+// Torznab feeds); returns "" for anything else.
+func normalizeInfoHash(s string) string {
+	s = strings.TrimSpace(s)
+	switch len(s) {
+	case 40:
+		if _, err := hex.DecodeString(s); err == nil {
+			return strings.ToLower(s)
+		}
+	case 32:
+		raw, err := base32.StdEncoding.DecodeString(strings.ToUpper(s))
+		if err == nil && len(raw) == 20 {
+			return hex.EncodeToString(raw)
+		}
+	}
+	return ""
+}
+
+// parseBTIH extracts the v1 infohash from a magnet link ("" if absent or v2).
+func parseBTIH(u string) string {
+	m := btihRe.FindStringSubmatch(u)
+	if m == nil {
+		return ""
+	}
+	return normalizeInfoHash(m[1])
 }
 
 // titlesMatch reports whether a tracked job title and a torrent name refer to

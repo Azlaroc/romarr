@@ -2,7 +2,6 @@ package download
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,18 +66,39 @@ func TestNewManager(t *testing.T) {
 func TestDownloadTorrentValidation(t *testing.T) {
 	cfg := newTestConfig(t)
 	m := New(cfg, newTestJobs(t), nil)
-	if _, err := m.DownloadTorrent("", "Title", "PC", "", true); err == nil {
+	if _, err := m.DownloadTorrent(TorrentSpec{Title: "Title", Platform: "PC", IsPC: true}); err == nil {
 		t.Fatal("empty URL should return an error")
 	}
 }
 
 func TestDownloadTorrentNoClientAvailable(t *testing.T) {
-	// No qBittorrent, Transmission, or Deluge configured: the job errors.
+	// No qBittorrent configured: rejected outright. The old Transmission/
+	// Deluge fallbacks were silent black holes (nothing ever watched those
+	// clients), so they are gone.
 	cfg := newTestConfig(t)
 	jobs := newTestJobs(t)
 	m := New(cfg, jobs, nil)
 
-	jobID, err := m.DownloadTorrent("magnet:x", "Some Game", "PC", "", true)
+	_, err := m.DownloadTorrent(TorrentSpec{URL: "magnet:x", Title: "Some Game", Platform: "PC", IsPC: true})
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("err = %v, want qBittorrent-not-configured error", err)
+	}
+	if n := len(jobs.Items()); n != 0 {
+		t.Errorf("jobs created = %d, want 0", n)
+	}
+}
+
+func TestDownloadTorrentAddFailure(t *testing.T) {
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	cfg.QBURL = "configured"
+	qm := newQbitMock(t)
+	qm.mu.Lock()
+	qm.addOK = false
+	qm.mu.Unlock()
+
+	m := New(cfg, jobs, qm.client())
+	jobID, err := m.DownloadTorrent(TorrentSpec{URL: "http://indexer.test/some.torrent", Title: "Some Game", Platform: "SNES", PlatformSlug: "snes"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,15 +109,59 @@ func TestDownloadTorrentNoClientAvailable(t *testing.T) {
 	if status, _ := job["status"].(string); status != "error" {
 		t.Errorf("status = %q, want error", status)
 	}
-	if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "any download client") {
-		t.Errorf("error = %q, want failed-to-add message", errMsg)
+	if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "qBittorrent") {
+		t.Errorf("error = %q, want qBittorrent add-failed message", errMsg)
+	}
+}
+
+func TestDownloadTorrentAdoptsExisting(t *testing.T) {
+	// A duplicate add silently no-ops in qBittorrent, so a submit whose hash
+	// already exists must adopt the torrent instead of adding again.
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	cfg.QBURL = "configured"
+	hash := strings.Repeat("cd", 20)
+	qm := newQbitMock(t)
+	qm.setTorrents([]qbit.Torrent{{Name: "Existing", Hash: hash, Progress: 0.5}})
+
+	m := New(cfg, jobs, qm.client())
+	jobID, err := m.DownloadTorrent(TorrentSpec{URL: "magnet:?xt=urn:btih:" + hash, Title: "Existing", Platform: "SNES", PlatformSlug: "snes"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if qm.addCallCount() != 0 {
+		t.Errorf("addCalls = %d, want 0 (adopt, not re-add)", qm.addCallCount())
+	}
+	job, _ := jobFromDB(t, jobs, jobID)
+	if got, _ := job["torrent_hash"].(string); got != hash {
+		t.Errorf("torrent_hash = %q, want %q", got, hash)
+	}
+}
+
+func TestParseBTIH(t *testing.T) {
+	hexHash := "0123456789abcdef0123456789abcdef01234567"
+	tests := []struct {
+		in, want string
+	}{
+		{"magnet:?xt=urn:btih:" + hexHash + "&dn=Game", hexHash},
+		{"magnet:?xt=urn:btih:" + strings.ToUpper(hexHash), hexHash},
+		// base32 form of the same 20 bytes.
+		{"magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH", hexHash},
+		{"http://indexer.test/file.torrent", ""},
+		{"magnet:?xt=urn:btih:tooshort", ""},
+	}
+	for _, tt := range tests {
+		if got := parseBTIH(tt.in); got != tt.want {
+			t.Errorf("parseBTIH(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 
 func TestDownloadTorrentQBitFullFlow(t *testing.T) {
-	// End-to-end: add via qBittorrent, file-list scan passes, ClamAV
-	// unavailable (skipped), content organized into the ROM library,
-	// torrent deleted.
+	// End-to-end with the persistent watcher: submit by magnet (hash known up
+	// front), the watcher tick sees the completed torrent, and the import
+	// COPIES the payload into the ROM library — the seeding payload and the
+	// torrent itself must survive.
 	cfg := newTestConfig(t)
 	jobs := newTestJobs(t)
 	cfg.QBURL = "configured"
@@ -105,49 +169,68 @@ func TestDownloadTorrentQBitFullFlow(t *testing.T) {
 	content := filepath.Join(t.TempDir(), "Super Game (USA)")
 	writeFileT(t, filepath.Join(content, "game.sfc"), []byte("rom-data"))
 
+	hash := strings.Repeat("ab", 20)
 	qm := newQbitMock(t)
 	qm.setFiles([]qbit.TorrentFile{{Name: "Super Game (USA)/game.sfc"}})
-	qm.setTorrents([]qbit.Torrent{{
-		Name:        "Super Game (USA)",
-		Hash:        "hash-full-flow",
-		Progress:    1.0,
-		ContentPath: content,
-	}})
 
 	m := New(cfg, jobs, qm.client())
-	jobID, err := m.DownloadTorrent("magnet:x", "Super Game (USA)", "SNES", "snes", false)
+	jobID, err := m.DownloadTorrent(TorrentSpec{
+		URL:   "magnet:?xt=urn:btih:" + hash,
+		Title: "Super Game (USA)", Platform: "SNES", PlatformSlug: "snes",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	job, _ := jobFromDB(t, jobs, jobID)
+	if got, _ := job["torrent_hash"].(string); got != hash {
+		t.Fatalf("torrent_hash = %q, want %q", got, hash)
+	}
 
-	waitFor(t, 10*time.Second, "torrent deletion after organize", func() bool {
-		return len(qm.deletedHashes()) > 0
-	})
+	// The torrent appears in qBittorrent, fully downloaded and seeding.
+	qm.setTorrents([]qbit.Torrent{{
+		Name: "Super Game (USA)", Hash: hash, Progress: 1.0,
+		State: "uploading", ContentPath: content,
+	}})
 
-	job := waitJobStatus(t, jobs, jobID, "completed", 5*time.Second)
+	w := NewWatcher(cfg, m)
+	w.tick()
+
+	job = waitJobStatus(t, jobs, jobID, "completed", 10*time.Second)
 	if detail, _ := job["detail"].(string); !strings.Contains(detail, "RomM (SNES)") {
 		t.Errorf("detail = %q, want RomM (SNES)", detail)
 	}
+	// imported_at is the import goroutine's LAST write (after library
+	// tracking and staging cleanup) — waiting on it makes everything below
+	// race-free.
+	waitFor(t, 10*time.Second, "imported_at", func() bool {
+		j, _ := jobFromDB(t, jobs, jobID)
+		return int64Value(j["imported_at"]) > 0
+	})
 
 	dest := filepath.Join(cfg.GamesRomsPath, "snes", "Super Game (USA)")
 	if !pathExists(filepath.Join(dest, "game.sfc")) {
-		t.Errorf("game file not moved to %s", dest)
+		t.Errorf("game file not imported to %s", dest)
 	}
 	if !pathExists(filepath.Join(dest, ".gamarr.json")) {
 		t.Error("metadata sidecar not written")
 	}
-	if pathExists(content) {
-		t.Error("source content should be removed after move")
+	// Seed-safety: the payload is untouched and the torrent survives.
+	data, err := os.ReadFile(filepath.Join(content, "game.sfc"))
+	if err != nil || string(data) != "rom-data" {
+		t.Errorf("seeding payload was touched: %q err=%v", data, err)
 	}
-	if !jobs.LibraryHasSourceID("torrent:hash-full-flow") {
+	if got := qm.deletedHashes(); len(got) != 0 {
+		t.Errorf("torrent deleted after import: %v", got)
+	}
+	if !jobs.LibraryHasSourceID("torrent:" + hash) {
 		t.Error("library item not tracked")
 	}
 	items := jobs.RecentLibraryItems(1)
 	if len(items) != 1 || items[0].FileSize <= 0 {
 		t.Errorf("library file_size not populated: %+v", items)
 	}
-	if got := qm.deletedHashes(); got[0] != "hash-full-flow" {
-		t.Errorf("deleted hash = %q, want hash-full-flow", got[0])
+	if pathExists(filepath.Join(cfg.GamesRomsPath, ".gamarr-tmp", jobID)) {
+		t.Error("import staging dir not cleaned up")
 	}
 }
 
@@ -156,111 +239,33 @@ func TestDownloadTorrentBlocksDangerousFiles(t *testing.T) {
 	jobs := newTestJobs(t)
 	cfg.QBURL = "configured"
 
+	hash := strings.Repeat("ee", 20)
 	qm := newQbitMock(t)
 	qm.setFiles([]qbit.TorrentFile{{Name: "Game/keygen.bat"}, {Name: "Game/setup.scr"}})
-	qm.setTorrents([]qbit.Torrent{{
-		Name:     "Evil Game",
-		Hash:     "hash-evil",
-		Progress: 0.5, // metadata available, still downloading
-	}})
 
 	m := New(cfg, jobs, qm.client())
-	jobID, err := m.DownloadTorrent("magnet:x", "Evil Game", "PC", "", true)
+	jobID, err := m.DownloadTorrent(TorrentSpec{
+		URL:   "magnet:?xt=urn:btih:" + hash,
+		Title: "Evil Game", Platform: "PC", IsPC: true,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	waitFor(t, 10*time.Second, "dangerous torrent deletion", func() bool {
-		return len(qm.deletedHashes()) > 0
-	})
+	qm.setTorrents([]qbit.Torrent{{
+		Name: "Evil Game", Hash: hash, Progress: 0.5, State: "downloading",
+	}})
+
+	w := NewWatcher(cfg, m)
+	w.tick()
+
 	job := waitJobStatus(t, jobs, jobID, "error", 5*time.Second)
 	if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "Blocked") {
 		t.Errorf("error = %q, want Blocked message", errMsg)
 	}
-}
-
-func TestDownloadTorrentFallbacks(t *testing.T) {
-	newFallbackQbit := func(t *testing.T) *qbitMock {
-		qm := newQbitMock(t)
-		qm.mu.Lock()
-		qm.addOK = false // qBittorrent add always fails
-		qm.mu.Unlock()
-		return qm
+	if got := qm.deletedHashes(); len(got) != 1 || got[0] != hash {
+		t.Errorf("deleted hashes = %v, want the dangerous torrent removed", got)
 	}
-
-	t.Run("transmission used when qbit fails", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		cfg.QBURL = "configured"
-		qm := newFallbackQbit(t)
-
-		trSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"result":"success","arguments":{"torrent-added":{"id":1}}}`)
-		}))
-		defer trSrv.Close()
-		cfg.TransmissionURL = trSrv.URL
-
-		m := New(cfg, jobs, qm.client())
-		jobID, err := m.DownloadTorrent("magnet:x", "Fallback Game", "PC", "", true)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		job, _ := jobFromDB(t, jobs, jobID)
-		if detail, _ := job["detail"].(string); !strings.Contains(detail, "Transmission") {
-			t.Errorf("detail = %q, want Transmission", detail)
-		}
-	})
-
-	t.Run("deluge used when qbit and transmission fail", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		cfg.QBURL = "configured"
-		qm := newFallbackQbit(t)
-
-		trSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"result":"duplicate torrent"}`)
-		}))
-		defer trSrv.Close()
-		cfg.TransmissionURL = trSrv.URL
-
-		dlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"id":1,"result":"deluge-hash","error":null}`)
-		}))
-		defer dlSrv.Close()
-		cfg.DelugeURL = dlSrv.URL
-
-		m := New(cfg, jobs, qm.client())
-		jobID, err := m.DownloadTorrent("magnet:x", "Fallback Game 2", "PC", "", true)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		job, _ := jobFromDB(t, jobs, jobID)
-		if detail, _ := job["detail"].(string); !strings.Contains(detail, "Deluge") {
-			t.Errorf("detail = %q, want Deluge", detail)
-		}
-	})
-
-	t.Run("all clients fail", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		cfg.QBURL = "configured"
-		qm := newFallbackQbit(t)
-
-		deadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-		deadSrv.Close()
-		cfg.TransmissionURL = deadSrv.URL
-		cfg.DelugeURL = deadSrv.URL
-
-		m := New(cfg, jobs, qm.client())
-		jobID, err := m.DownloadTorrent("magnet:x", "Doomed Game", "PC", "", true)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		job, _ := jobs.Get(jobID)
-		if status, _ := job["status"].(string); status != "error" {
-			t.Errorf("status = %q, want error", status)
-		}
-	})
 }
 
 func TestOrganizeTorrent(t *testing.T) {
@@ -283,7 +288,7 @@ func TestOrganizeTorrent(t *testing.T) {
 		}
 	})
 
-	t.Run("organizes completed PC torrent", func(t *testing.T) {
+	t.Run("organizes completed PC torrent by copy", func(t *testing.T) {
 		cfg := newTestConfig(t)
 		jobs := newTestJobs(t)
 		content := filepath.Join(t.TempDir(), "Cool.Game-FitGirl")
@@ -299,21 +304,26 @@ func TestOrganizeTorrent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		waitFor(t, 10*time.Second, "torrent deletion", func() bool {
-			return len(qm.deletedHashes()) > 0
-		})
-		job := waitJobStatus(t, jobs, jobID, "completed", 5*time.Second)
+		job := waitJobStatus(t, jobs, jobID, "completed", 10*time.Second)
 		if detail, _ := job["detail"].(string); !strings.Contains(detail, "GameVault") {
 			t.Errorf("detail = %q, want GameVault", detail)
 		}
 		if !pathExists(filepath.Join(cfg.GamesVaultPath, "Cool.Game-FitGirl", "setup.exe")) {
-			t.Error("game not moved to vault")
+			t.Error("game not imported to vault")
+		}
+		// Manual organize must not kill seeding either: payload + torrent live.
+		if !pathExists(filepath.Join(content, "setup.exe")) {
+			t.Error("seeding payload was touched")
+		}
+		if got := qm.deletedHashes(); len(got) != 0 {
+			t.Errorf("torrent deleted: %v", got)
 		}
 	})
 }
 
-// setupOrganizeJob creates a manager plus a pre-seeded organizing job.
-func setupOrganizeJob(t *testing.T) (*Manager, *qbitMock, string) {
+// setupImportJob creates a manager plus a pre-seeded torrent job ready for
+// importTorrentJob.
+func setupImportJob(t *testing.T, platf, platSlug string, isPC bool) (*Manager, *qbitMock, string) {
 	t.Helper()
 	cfg := newTestConfig(t)
 	jobs := newTestJobs(t)
@@ -321,16 +331,18 @@ func setupOrganizeJob(t *testing.T) (*Manager, *qbitMock, string) {
 	m := New(cfg, jobs, qm.client())
 	jobID := newJobID()
 	jobs.Set(jobID, map[string]interface{}{
-		"status": "organizing", "title": "T", "error": nil, "detail": "",
+		"status": "scanning", "title": "T", "platform": platf,
+		"platform_slug": platSlug, "is_pc": isPC, "error": nil, "detail": "",
+		"source_type": "torrent", "source_client": "qbittorrent",
 	})
 	return m, qm, jobID
 }
 
-func TestOrganizeGame(t *testing.T) {
+func TestImportTorrentJob(t *testing.T) {
 	t.Run("missing content path errors", func(t *testing.T) {
-		m, _, jobID := setupOrganizeJob(t)
+		m, _, jobID := setupImportJob(t, "PC", "", true)
 		torrent := &qbit.Torrent{Name: "Ghost", Hash: "gh", ContentPath: "/nonexistent/nope"}
-		m.organizeGame(jobID, torrent, "PC", "", true)
+		m.importTorrentJob(jobID, torrent)
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "error" {
 			t.Errorf("status = %q, want error", status)
@@ -338,12 +350,12 @@ func TestOrganizeGame(t *testing.T) {
 	})
 
 	t.Run("unknown platform left in staging", func(t *testing.T) {
-		m, qm, jobID := setupOrganizeJob(t)
+		m, qm, jobID := setupImportJob(t, "", "", false)
 		content := filepath.Join(t.TempDir(), "mysterious-thing")
 		writeFileT(t, filepath.Join(content, "data.dat"), []byte("???"))
 		torrent := &qbit.Torrent{Name: "mysterious-thing", Hash: "mh", ContentPath: content}
 
-		m.organizeGame(jobID, torrent, "", "", false)
+		m.importTorrentJob(jobID, torrent)
 
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "completed" {
@@ -360,13 +372,13 @@ func TestOrganizeGame(t *testing.T) {
 		}
 	})
 
-	t.Run("platform detected from file extension", func(t *testing.T) {
-		m, _, jobID := setupOrganizeJob(t)
+	t.Run("platform detected from file extension, payload survives", func(t *testing.T) {
+		m, qm, jobID := setupImportJob(t, "", "", false)
 		content := filepath.Join(t.TempDir(), "handheld-game")
 		writeFileT(t, filepath.Join(content, "game.gba"), []byte("gba-rom"))
 		torrent := &qbit.Torrent{Name: "handheld-game", Hash: "dh", ContentPath: content}
 
-		m.organizeGame(jobID, torrent, "", "", false)
+		m.importTorrentJob(jobID, torrent)
 
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "completed" {
@@ -376,18 +388,26 @@ func TestOrganizeGame(t *testing.T) {
 			t.Errorf("platform_slug = %q, want gba", slug)
 		}
 		if !pathExists(filepath.Join(m.cfg.GamesRomsPath, "gba", "handheld-game", "game.gba")) {
-			t.Error("ROM not moved to gba library dir")
+			t.Error("ROM not imported to gba library dir")
+		}
+		// Copy, not move: the seeding payload survives byte-identical.
+		data, err := os.ReadFile(filepath.Join(content, "game.gba"))
+		if err != nil || string(data) != "gba-rom" {
+			t.Errorf("seeding payload touched: %q err=%v", data, err)
+		}
+		if len(qm.deletedHashes()) != 0 {
+			t.Error("torrent must not be deleted")
 		}
 	})
 
 	t.Run("platform detected from metadata.json", func(t *testing.T) {
-		m, _, jobID := setupOrganizeJob(t)
+		m, _, jobID := setupImportJob(t, "", "", false)
 		content := filepath.Join(t.TempDir(), "meta-game")
 		writeFileT(t, filepath.Join(content, "metadata.json"), []byte(`{"platform":"snes"}`))
 		writeFileT(t, filepath.Join(content, "game.bin2"), []byte("rom"))
 		torrent := &qbit.Torrent{Name: "meta-game", Hash: "mm", ContentPath: content}
 
-		m.organizeGame(jobID, torrent, "", "", false)
+		m.importTorrentJob(jobID, torrent)
 
 		job, _ := m.Jobs().Get(jobID)
 		if slug, _ := job["platform_slug"].(string); slug != "snes" {
@@ -396,25 +416,25 @@ func TestOrganizeGame(t *testing.T) {
 	})
 
 	t.Run("falls back to save path when content path empty", func(t *testing.T) {
-		m, _, jobID := setupOrganizeJob(t)
+		m, _, jobID := setupImportJob(t, "SNES", "snes", false)
 		savePath := t.TempDir()
 		writeFileT(t, filepath.Join(savePath, "SavedGame", "rom.sfc"), []byte("rom"))
 		torrent := &qbit.Torrent{Name: "SavedGame", Hash: "sp", SavePath: savePath}
 
-		m.organizeGame(jobID, torrent, "SNES", "snes", false)
+		m.importTorrentJob(jobID, torrent)
 
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "completed" {
 			t.Errorf("status = %q, want completed", status)
 		}
 		if !pathExists(filepath.Join(m.cfg.GamesRomsPath, "snes", "SavedGame", "rom.sfc")) {
-			t.Error("ROM not moved from save path")
+			t.Error("ROM not imported from save path")
 		}
 	})
 
-	t.Run("move failure sets error", func(t *testing.T) {
-		m, _, jobID := setupOrganizeJob(t)
-		// Make the vault path a regular file so MkdirAll/copy fails.
+	t.Run("staging failure sets error and leaves seed intact", func(t *testing.T) {
+		m, _, jobID := setupImportJob(t, "PC", "", true)
+		// Make the vault path a regular file so the .gamarr-tmp MkdirAll fails.
 		os.RemoveAll(m.cfg.GamesVaultPath)
 		writeFileT(t, m.cfg.GamesVaultPath, []byte("not a dir"))
 
@@ -422,14 +442,37 @@ func TestOrganizeGame(t *testing.T) {
 		writeFileT(t, filepath.Join(content, "setup.exe"), []byte("x"))
 		torrent := &qbit.Torrent{Name: "Blocked.Game-CODEX", Hash: "bf", ContentPath: content}
 
-		m.organizeGame(jobID, torrent, "PC", "", true)
+		m.importTorrentJob(jobID, torrent)
 
 		job, _ := m.Jobs().Get(jobID)
 		if status, _ := job["status"].(string); status != "error" {
 			t.Errorf("status = %q, want error", status)
 		}
-		if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "Organize failed") {
-			t.Errorf("error = %q, want Organize failed", errMsg)
+		if !pathExists(filepath.Join(content, "setup.exe")) {
+			t.Error("seeding payload touched on failure")
+		}
+	})
+
+	t.Run("existing destination is never clobbered", func(t *testing.T) {
+		m, _, jobID := setupImportJob(t, "SNES", "snes", false)
+		content := filepath.Join(t.TempDir(), "Dupe Game")
+		writeFileT(t, filepath.Join(content, "rom.sfc"), []byte("new"))
+		dest := filepath.Join(m.cfg.GamesRomsPath, "snes", "Dupe Game")
+		writeFileT(t, filepath.Join(dest, "rom.sfc"), []byte("original"))
+		torrent := &qbit.Torrent{Name: "Dupe Game", Hash: "dg", ContentPath: content}
+
+		m.importTorrentJob(jobID, torrent)
+
+		job, _ := m.Jobs().Get(jobID)
+		if status, _ := job["status"].(string); status != "error" {
+			t.Errorf("status = %q, want error", status)
+		}
+		if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "already exists") {
+			t.Errorf("error = %q, want already-exists message", errMsg)
+		}
+		data, _ := os.ReadFile(filepath.Join(dest, "rom.sfc"))
+		if string(data) != "original" {
+			t.Errorf("existing destination clobbered: %q", data)
 		}
 	})
 }
@@ -659,13 +702,15 @@ func TestOrganizeDDLFile(t *testing.T) {
 }
 
 func TestRecoverOrphanedTorrents(t *testing.T) {
+	// Boot recovery no longer mints jobs — it only wakes the qBittorrent
+	// session. Torrent jobs persist their infohash and the watcher re-drives
+	// them from the database, so duplicate jobs at boot are structurally
+	// impossible; out-of-band torrents are the watcher orphan sweep's job.
 	cfg := newTestConfig(t)
 	jobs := newTestJobs(t)
 	qm := newQbitMock(t)
-	// All torrents complete so no watch goroutines are spawned.
 	qm.setTorrents([]qbit.Torrent{
 		{Name: "Awesome.Game.v1.2-FitGirl", Hash: "h1", Progress: 1.0},
-		{Name: "Zelda Collection wii pack", Hash: "h2", Progress: 1.0},
 		{Name: "Totally Mysterious Thing", Hash: "h3", Progress: 1.0},
 	})
 	cfg.QBURL = qm.srv.URL
@@ -673,40 +718,8 @@ func TestRecoverOrphanedTorrents(t *testing.T) {
 	m := New(cfg, jobs, qm.client())
 	m.RecoverOrphanedTorrents()
 
-	byTitle := map[string]map[string]interface{}{}
-	for _, item := range jobs.Items() {
-		title, _ := item.Data["title"].(string)
-		byTitle[title] = item.Data
-	}
-	if len(byTitle) != 3 {
-		t.Fatalf("recovered %d jobs, want 3", len(byTitle))
-	}
-
-	tests := []struct {
-		title    string
-		platform string
-		isPC     bool
-	}{
-		{"Awesome.Game.v1.2-FitGirl", "PC", true},
-		{"Zelda Collection wii pack", "Wii", false},
-		{"Totally Mysterious Thing", "Unknown", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.title, func(t *testing.T) {
-			job, ok := byTitle[tt.title]
-			if !ok {
-				t.Fatalf("no job recovered for %q", tt.title)
-			}
-			if status, _ := job["status"].(string); status != "completed_unorganized" {
-				t.Errorf("status = %q, want completed_unorganized", status)
-			}
-			if platf, _ := job["platform"].(string); platf != tt.platform {
-				t.Errorf("platform = %q, want %q", platf, tt.platform)
-			}
-			if isPC, _ := job["is_pc"].(bool); isPC != tt.isPC {
-				t.Errorf("is_pc = %v, want %v", isPC, tt.isPC)
-			}
-		})
+	if n := len(jobs.Items()); n != 0 {
+		t.Fatalf("recovery minted %d jobs, want 0", n)
 	}
 }
 

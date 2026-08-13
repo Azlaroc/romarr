@@ -304,6 +304,60 @@ func TestJobStore_InterruptedOnLoad(t *testing.T) {
 	}
 }
 
+func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
+	// Torrent jobs with a persisted infohash (or association tag) and NZBGet
+	// jobs with an nzb_id are re-driven from stored state after a restart, so
+	// loadAll must NOT mark them interrupted. Everything else still is.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	store1, _ := New(dbPath)
+	store1.Set("torrent-hash", map[string]interface{}{
+		"status": "downloading", "source_type": "torrent", "torrent_hash": "abc123",
+	})
+	store1.Set("torrent-tag", map[string]interface{}{
+		"status": "importing", "source_type": "torrent", "torrent_hash": "", "qb_tag": "gamarr-x1",
+	})
+	store1.Set("torrent-bare", map[string]interface{}{
+		"status": "downloading", "source_type": "torrent",
+	})
+	store1.Set("nzbget-id", map[string]interface{}{
+		"status": "downloading", "source_type": "nzb", "source_client": "nzbget", "nzb_id": 42,
+	})
+	store1.Set("nzbget-noid", map[string]interface{}{
+		"status": "downloading", "source_type": "nzb", "source_client": "nzbget",
+	})
+	store1.Set("sab", map[string]interface{}{
+		"status": "downloading", "source_type": "nzb", "source_client": "sabnzbd",
+	})
+	store1.Set("ddl", map[string]interface{}{
+		"status": "downloading",
+	})
+	store1.Close()
+
+	store2, _ := New(dbPath)
+	defer store2.Close()
+
+	tests := []struct{ id, want string }{
+		{"torrent-hash", "downloading"},
+		{"torrent-tag", "importing"},
+		{"torrent-bare", "interrupted"},
+		{"nzbget-id", "downloading"},
+		{"nzbget-noid", "interrupted"},
+		{"sab", "interrupted"},
+		{"ddl", "interrupted"},
+	}
+	for _, tt := range tests {
+		got, ok := store2.Get(tt.id)
+		if !ok {
+			t.Fatalf("%s: job missing after reload", tt.id)
+		}
+		if got["status"] != tt.want {
+			t.Errorf("%s: status = %v, want %s", tt.id, got["status"], tt.want)
+		}
+	}
+}
+
 func TestJobStore_Cleanup(t *testing.T) {
 	store := newTestStore(t)
 	// Add some old completed jobs

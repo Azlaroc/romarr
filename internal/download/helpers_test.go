@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,6 +66,7 @@ type qbitMock struct {
 	loginOK  bool
 	addOK    bool
 	addCalls int
+	addForms []url.Values
 	deleted  []string
 }
 
@@ -82,8 +85,10 @@ func newQbitMock(t *testing.T) *qbitMock {
 		}
 	})
 	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
 		q.mu.Lock()
 		q.addCalls++
+		q.addForms = append(q.addForms, r.PostForm)
 		ok := q.addOK
 		q.mu.Unlock()
 		if ok {
@@ -93,9 +98,26 @@ func newQbitMock(t *testing.T) *qbitMock {
 		}
 	})
 	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		// Honors the hashes= and tag= filters the client can send; category
+		// stays lenient (legacy tests register torrents without one).
+		hashFilter := map[string]bool{}
+		if hs := r.URL.Query().Get("hashes"); hs != "" {
+			for _, h := range strings.Split(hs, "|") {
+				hashFilter[strings.ToLower(h)] = true
+			}
+		}
+		tag := r.URL.Query().Get("tag")
 		q.mu.Lock()
-		list := make([]qbit.Torrent, len(q.torrents))
-		copy(list, q.torrents)
+		list := make([]qbit.Torrent, 0, len(q.torrents))
+		for _, t := range q.torrents {
+			if len(hashFilter) > 0 && !hashFilter[strings.ToLower(t.Hash)] {
+				continue
+			}
+			if tag != "" && !tagListContains(t.Tags, tag) {
+				continue
+			}
+			list = append(list, t)
+		}
 		q.mu.Unlock()
 		json.NewEncoder(w).Encode(list)
 	})
@@ -140,6 +162,21 @@ func (q *qbitMock) deletedHashes() []string {
 	out := make([]string, len(q.deleted))
 	copy(out, q.deleted)
 	return out
+}
+
+func (q *qbitMock) addCallCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.addCalls
+}
+
+func tagListContains(tags, want string) bool {
+	for _, t := range strings.Split(tags, ",") {
+		if strings.TrimSpace(t) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // jobFromDB reads a job's persisted state directly from SQLite, verifying the

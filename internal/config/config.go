@@ -140,6 +140,10 @@ type Config struct {
 	WatcherEnabled    bool
 	WatcherIntervalS  int
 	RemoveAfterImport bool
+	// SeedJanitorEnabled lets the watcher delete (torrent AND files) imported
+	// torrents that qBittorrent's own share limits have stopped
+	// (stoppedUP/pausedUP). Off by default: deletion is unrecoverable.
+	SeedJanitorEnabled bool
 
 	// Server
 	Port           int
@@ -257,9 +261,10 @@ func Load() *Config {
 		CircuitBreakerThreshold: envInt("CIRCUIT_BREAKER_THRESHOLD", 3),
 		CircuitBreakerTimeoutS:  envInt("CIRCUIT_BREAKER_TIMEOUT", 300),
 
-		WatcherEnabled:    envBool("WATCHER_ENABLED", true),
-		WatcherIntervalS:  envInt("WATCHER_INTERVAL", 30),
-		RemoveAfterImport: envBool("REMOVE_TORRENT_AFTER_IMPORT", false),
+		WatcherEnabled:     envBool("WATCHER_ENABLED", true),
+		WatcherIntervalS:   envInt("WATCHER_INTERVAL", 30),
+		RemoveAfterImport:  envBool("REMOVE_TORRENT_AFTER_IMPORT", false),
+		SeedJanitorEnabled: envBool("SEED_JANITOR_ENABLED", false),
 
 		MaxRetries:          envInt("MAX_RETRIES", 2),
 		RetryBackoffSeconds: envInt("RETRY_BACKOFF_SECONDS", 60),
