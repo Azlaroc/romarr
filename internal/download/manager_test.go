@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -874,5 +875,61 @@ func TestDDLSourcesRoundTrip(t *testing.T) {
 	}
 	if got[0]["name"] != "Myrient" {
 		t.Errorf("first source = %v", got[0])
+	}
+}
+
+func TestDownloadTorrentTargetFileAddMode(t *testing.T) {
+	// #256: a .torrent-URL add with a target goes in stopped (both 5.x
+	// "stopped" and 4.x "paused" keys); a magnet must add running or metadata
+	// never resolves.
+	cfg := newTestConfig(t)
+	cfg.QBURL = "configured"
+	jobs := newTestJobs(t)
+	qm := newQbitMock(t)
+	m := New(cfg, jobs, qm.client())
+
+	jobID, err := m.DownloadTorrent(TorrentSpec{
+		URL: "http://indexer.test/pack.torrent", Title: "Pack", Platform: "SNES",
+		PlatformSlug: "snes", TargetFile: "Pack/B.sfc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, _ := jobFromDB(t, jobs, jobID)
+	if got, _ := job["target_file"].(string); got != "Pack/B.sfc" {
+		t.Errorf("target_file = %q", got)
+	}
+	forms := func() []url.Values {
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		out := make([]url.Values, len(qm.addForms))
+		copy(out, qm.addForms)
+		return out
+	}()
+	if len(forms) != 1 {
+		t.Fatalf("addForms = %d, want 1", len(forms))
+	}
+	if forms[0].Get("stopped") != "true" || forms[0].Get("paused") != "true" {
+		t.Errorf("torrent-URL target add not stopped: %v", forms[0])
+	}
+
+	if _, err := m.DownloadTorrent(TorrentSpec{
+		URL: "magnet:?xt=urn:btih:" + strings.Repeat("99", 20), Title: "Pack2",
+		Platform: "SNES", PlatformSlug: "snes", TargetFile: "Pack2/C.sfc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	forms = func() []url.Values {
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		out := make([]url.Values, len(qm.addForms))
+		copy(out, qm.addForms)
+		return out
+	}()
+	if len(forms) != 2 {
+		t.Fatalf("addForms = %d, want 2", len(forms))
+	}
+	if forms[1].Has("stopped") || forms[1].Has("paused") {
+		t.Errorf("magnet target add must run for metadata: %v", forms[1])
 	}
 }

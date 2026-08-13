@@ -3,6 +3,8 @@ package download
 import (
 	"fmt"
 	"log/slog"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -227,9 +229,26 @@ func (w *Watcher) driveJob(jobID string, data map[string]interface{}, byHash, by
 		}
 	}
 
+	// Selective download (#256): once metadata exists, prio-0 everything but
+	// the target BEFORE the completion gate can fire — an instantly-seeded
+	// torrent must never import the whole pack because selection hadn't run.
+	if target, _ := data["target_file"].(string); target != "" {
+		if done, _ := data["selection_done"].(bool); !done {
+			if t.State == "metaDL" {
+				return hash // magnet metadata still resolving
+			}
+			files := w.mgr.QB().GetTorrentFiles(t.Hash)
+			if len(files) == 0 {
+				return hash // file list not available yet
+			}
+			w.selectTargetFile(jobID, t, target, files)
+			return hash // (re)selection this tick; completion evaluates next tick
+		}
+	}
+
 	status, _ := data["status"].(string)
 	if status == "downloading" {
-		if torrentComplete(t) {
+		if w.jobComplete(data, t) {
 			jobs.UpdateMulti(jobID, map[string]interface{}{
 				"status": "scanning",
 				"detail": "Download complete. Scanning...",
@@ -246,10 +265,93 @@ func (w *Watcher) driveJob(jobID string, data map[string]interface{}, byHash, by
 
 	// scanning/importing persisted but no import goroutine running — a
 	// restart interrupted the import; relaunch it.
-	if torrentComplete(t) {
+	if w.jobComplete(data, t) {
 		w.launchImport(jobID, t)
 	}
 	return hash
+}
+
+// jobComplete is the per-job completion gate: the torrent-level gate, plus —
+// for a plucked job — the target file itself at 100% (belt-and-braces on top
+// of amount_left, which qBittorrent already excludes prio-0 files from).
+func (w *Watcher) jobComplete(data map[string]interface{}, t *qbit.Torrent) bool {
+	if !torrentComplete(t) {
+		return false
+	}
+	resolved, _ := data["target_file_resolved"].(string)
+	if resolved == "" {
+		return true
+	}
+	idx := int(int64Value(data["target_index"]))
+	for _, f := range w.mgr.QB().GetTorrentFiles(t.Hash) {
+		if f.Index == idx {
+			return f.Progress >= 1.0
+		}
+	}
+	return false
+}
+
+// selectTargetFile matches the wanted file inside the torrent — exact
+// in-torrent path first, then case-insensitive basename — sets every other
+// file to priority 0, persists the resolved selection, and (re)starts the
+// torrent. A miss falls back to the whole pack (target cleared) rather than
+// wedging the job.
+func (w *Watcher) selectTargetFile(jobID string, t *qbit.Torrent, target string, files []qbit.TorrentFile) {
+	jobs := w.mgr.Jobs()
+
+	match := -1
+	for i := range files {
+		if files[i].Name == target {
+			match = i
+			break
+		}
+	}
+	if match < 0 {
+		want := strings.ToLower(path.Base(filepath.ToSlash(target)))
+		for i := range files {
+			if strings.ToLower(path.Base(filepath.ToSlash(files[i].Name))) == want {
+				match = i
+				break
+			}
+		}
+	}
+
+	fallback := func(reason string) {
+		slog.Warn("watcher: selective download fell back to whole pack",
+			"job", jobID, "target", target, "reason", reason)
+		jobs.UpdateMulti(jobID, map[string]interface{}{
+			"target_file":    "",
+			"selection_done": true,
+			"detail":         "Target file not isolatable - downloading whole pack",
+		})
+		w.mgr.QB().StartTorrents(t.Hash)
+	}
+
+	if match < 0 {
+		fallback("target not in torrent file list")
+		return
+	}
+
+	var others []int
+	for i := range files {
+		if i != match {
+			others = append(others, files[i].Index)
+		}
+	}
+	if !w.mgr.QB().SetFilePriority(t.Hash, others, 0) {
+		fallback("filePrio rejected (older qBittorrent?)")
+		return
+	}
+
+	jobs.UpdateMulti(jobID, map[string]interface{}{
+		"target_index":         files[match].Index,
+		"target_file_resolved": files[match].Name,
+		"selection_done":       true,
+		"detail":               fmt.Sprintf("Selective download: %s", path.Base(filepath.ToSlash(files[match].Name))),
+	})
+	w.mgr.QB().StartTorrents(t.Hash)
+	slog.Info("watcher: selective download armed",
+		"job", jobID, "target", files[match].Name, "excluded", len(others))
 }
 
 // launchImport starts the import goroutine unless one is already running for
@@ -298,6 +400,14 @@ func (w *Watcher) janitor(torrents []qbit.Torrent, items []struct {
 	importedHashes := make(map[string]string)
 	for _, item := range items {
 		if int64Value(item.Data["imported_at"]) <= 0 {
+			continue
+		}
+		// A plucked pack stays harvestable by the operator only: the same pack
+		// may be plucked again for a different title later (#256).
+		if tf, _ := item.Data["target_file"].(string); tf != "" {
+			continue
+		}
+		if tfr, _ := item.Data["target_file_resolved"].(string); tfr != "" {
 			continue
 		}
 		if h, _ := item.Data["torrent_hash"].(string); h != "" {

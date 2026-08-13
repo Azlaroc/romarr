@@ -659,6 +659,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		Platform:     req.Platform,
 		PlatformSlug: req.PlatformSlug,
 		IsPC:         req.IsPC,
+		TargetFile:   req.TargetFile,
 	})
 	if err != nil {
 		writeError(w, 400, err.Error())
