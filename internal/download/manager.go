@@ -131,7 +131,7 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 
 	jobID := newJobID()
 	tag := "gamarr-" + jobID
-	m.jobs.Set(jobID, map[string]interface{}{
+	jobData := map[string]interface{}{
 		"status":        "downloading",
 		"title":         spec.Title,
 		"platform":      spec.Platform,
@@ -144,7 +144,11 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 		"torrent_hash":  hash,
 		"qb_tag":        tag,
 		"started_at":    time.Now().Unix(),
-	})
+	}
+	if spec.TargetFile != "" {
+		jobData["target_file"] = spec.TargetFile
+	}
+	m.jobs.Set(jobID, jobData)
 
 	// A duplicate add silently no-ops in qBittorrent — the tag would never
 	// appear and association would time out — so adopt an existing torrent.
@@ -156,10 +160,16 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 		}
 	}
 
+	// Selective download (#256): a .torrent-URL add goes in stopped so no
+	// unwanted pack bytes download before the watcher prio-0s the rest.
+	// Magnets always add running — a stopped magnet never fetches metadata via
+	// DHT — and accept the brief head start before selection.
+	stopped := spec.TargetFile != "" && !strings.HasPrefix(strings.ToLower(spec.URL), "magnet:")
 	if !m.qb.AddTorrentOpts(spec.URL, qbit.AddOptions{
 		SavePath: m.cfg.QBSavePath,
 		Category: m.cfg.QBCategory,
 		Tags:     tag,
+		Stopped:  stopped,
 	}) {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "error",
@@ -269,6 +279,26 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 		})
 		slog.Error("content path not found", "path", contentPath)
 		return
+	}
+
+	// Selective download (#256): the import narrows to the plucked file — the
+	// pack's prio-0 neighbors (partial .!qB spillover included) never get
+	// scanned, copied, or tracked.
+	if resolved, _ := job["target_file_resolved"].(string); resolved != "" {
+		savePath := torrent.SavePath
+		if savePath == "" {
+			savePath = m.cfg.QBSavePath
+		}
+		target := filepath.Join(savePath, filepath.FromSlash(resolved))
+		if !pathExists(target) {
+			m.jobs.UpdateMulti(jobID, map[string]interface{}{
+				"status": "error",
+				"error":  fmt.Sprintf("Plucked file not found at %s", target),
+			})
+			slog.Error("target file not found", "path", target)
+			return
+		}
+		contentPath = target
 	}
 
 	// Layer 2: ClamAV — a read-only scan, safe on the seeding payload. An

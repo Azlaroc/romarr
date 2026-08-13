@@ -322,6 +322,7 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 			Platform:     body.Platform,
 			PlatformSlug: body.PlatformSlug,
 			IsPC:         body.IsPC,
+			TargetFile:   body.TargetFile,
 		})
 		if dlErr != nil {
 			writeError(w, http.StatusBadRequest, dlErr.Error())

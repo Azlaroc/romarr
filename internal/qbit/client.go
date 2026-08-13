@@ -37,7 +37,14 @@ type Torrent struct {
 
 // TorrentFile represents a file within a torrent.
 type TorrentFile struct {
-	Name string `json:"name"`
+	// Index is the file's ID for torrents/filePrio (WebAPI >= 2.8.2). Older
+	// servers omit it; GetTorrentFiles falls back to slice position, which is
+	// the same ordering those servers use for filePrio ids.
+	Index    int     `json:"index"`
+	Name     string  `json:"name"`
+	Size     int64   `json:"size"`
+	Priority int     `json:"priority"`
+	Progress float64 `json:"progress"`
 }
 
 // Client is a qBittorrent API client with session-based cookie auth.
@@ -257,7 +264,93 @@ func (c *Client) GetTorrentFiles(hash string) []TorrentFile {
 	}
 	var files []TorrentFile
 	json.NewDecoder(resp.Body).Decode(&files)
+	return normalizeFileIndexes(files)
+}
+
+// normalizeFileIndexes backfills Index with slice position when the server
+// sent none (pre-2.8.2 WebAPI reports every index as 0) — slice order is the
+// id ordering those servers expect for filePrio.
+func normalizeFileIndexes(files []TorrentFile) []TorrentFile {
+	if len(files) < 2 {
+		return files
+	}
+	for _, f := range files {
+		if f.Index != 0 {
+			return files
+		}
+	}
+	for i := range files {
+		files[i].Index = i
+	}
 	return files
+}
+
+// SetFilePriority sets the download priority for files within a torrent
+// (POST /api/v2/torrents/filePrio). priority 0 = do not download. indexes are
+// TorrentFile.Index values, sent as the pipe-joined id list.
+func (c *Client) SetFilePriority(hash string, indexes []int, priority int) bool {
+	if len(indexes) == 0 {
+		return true
+	}
+	ids := make([]string, len(indexes))
+	for i, idx := range indexes {
+		ids[i] = fmt.Sprintf("%d", idx)
+	}
+	data := url.Values{
+		"hash":     {hash},
+		"id":       {strings.Join(ids, "|")},
+		"priority": {fmt.Sprintf("%d", priority)},
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ensureAuth()
+	return c.postOK("/api/v2/torrents/filePrio", data)
+}
+
+// StopTorrents stops (pauses) torrents by pipe-joined hash list. qBittorrent
+// 5.x renamed pause→stop; a 404 falls back to the 4.x endpoint.
+func (c *Client) StopTorrents(hashes string) bool {
+	data := url.Values{"hashes": {hashes}}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ensureAuth()
+	if c.postOK("/api/v2/torrents/stop", data) {
+		return true
+	}
+	return c.postOK("/api/v2/torrents/pause", data)
+}
+
+// StartTorrents starts (resumes) torrents by pipe-joined hash list. 5.x
+// renamed resume→start; a 404 falls back to the 4.x endpoint.
+func (c *Client) StartTorrents(hashes string) bool {
+	data := url.Values{"hashes": {hashes}}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ensureAuth()
+	if c.postOK("/api/v2/torrents/start", data) {
+		return true
+	}
+	return c.postOK("/api/v2/torrents/resume", data)
+}
+
+// postOK posts a form and reports 2xx, retrying once through a relogin on 403.
+// Callers hold c.mu.
+func (c *Client) postOK(path string, data url.Values) bool {
+	resp, err := c.client.PostForm(c.baseURL+path, data)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	if resp.StatusCode == 403 {
+		c.login()
+		resp2, err := c.client.PostForm(c.baseURL+path, data)
+		if err != nil {
+			return false
+		}
+		resp2.Body.Close()
+		return is2xx(resp2.StatusCode)
+	}
+	return is2xx(resp.StatusCode)
 }
 
 // DeleteTorrent deletes a torrent from qBittorrent.

@@ -39,10 +39,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # instantly complete-and-seeding, materializing a real payload under the app's
 # incoming dir so the completion watcher can import it. The app fixture fills
 # in "incoming" before the binary boots. Keyed by lowercase infohash.
-QBIT_STATE = {"incoming": None, "torrents": {}}
+# "file_prio" records every torrents/filePrio call for journey assertions.
+QBIT_STATE = {"incoming": None, "torrents": {}, "file_prio": []}
 
 BTIH_RE = re.compile(r"xt=urn:btih:([0-9a-fA-F]{40})")
 QBIT_PAYLOAD = b"QBIT-E2E-ROM" * 64
+
+# A multi-file pack torrent (#256 selective download): adding a torrent with
+# this display name materializes a 3-file loose pack instead of a single ROM.
+QBIT_PACK_NAME = "GB Pack Vol 1 E2E"
+QBIT_PACK_FILES = [
+    "Alleyway (World).gb",
+    "Baseball (World).gb",
+    "Catrap (USA).gb",
+]
 
 # archive.org collection item the stub serves for the "gb" platform.
 IA_GB_ITEM = "nointro-gb-e2e"
@@ -195,14 +205,28 @@ class _StubHandler(BaseHTTPRequestHandler):
                     name = urllib.parse.unquote_plus(dn.group(1))
                 content = Path(QBIT_STATE["incoming"]) / name
                 content.mkdir(parents=True, exist_ok=True)
-                (content / f"{name}.gb").write_bytes(QBIT_PAYLOAD)
+                if name == QBIT_PACK_NAME:
+                    fnames = QBIT_PACK_FILES
+                else:
+                    fnames = [f"{name}.gb"]
+                files = []
+                for i, fn in enumerate(fnames):
+                    (content / fn).write_bytes(QBIT_PAYLOAD)
+                    files.append({
+                        "index": i,
+                        "name": f"{name}/{fn}",
+                        "size": len(QBIT_PAYLOAD),
+                        "priority": 1,
+                        "progress": 1.0,
+                    })
+                stopped = form.get("stopped", form.get("paused", ["false"]))[0] == "true"
                 QBIT_STATE["torrents"][h] = {
                     "name": name,
                     "hash": h,
                     "progress": 1.0,
                     "amount_left": 0,
-                    "state": "uploading",
-                    "total_size": len(QBIT_PAYLOAD),
+                    "state": "stoppedUP" if stopped else "uploading",
+                    "total_size": len(QBIT_PAYLOAD) * len(fnames),
                     "dlspeed": 0,
                     "eta": 0,
                     "save_path": str(QBIT_STATE["incoming"]),
@@ -210,8 +234,35 @@ class _StubHandler(BaseHTTPRequestHandler):
                     "category": form.get("category", [""])[0],
                     "tags": form.get("tags", [""])[0],
                     "ratio": 0.0,
+                    "files": files,
                 }
             self._send(200, b"Ok.", "text/plain")
+        elif path == "/api/v2/torrents/filePrio":
+            form = urllib.parse.parse_qs(body)
+            h = form.get("hash", [""])[0].lower()
+            ids = [int(i) for i in form.get("id", [""])[0].split("|") if i != ""]
+            prio = int(form.get("priority", ["1"])[0])
+            QBIT_STATE["file_prio"].append({"hash": h, "ids": ids, "priority": prio})
+            t = QBIT_STATE["torrents"].get(h)
+            if t:
+                for f in t.get("files", []):
+                    if f["index"] in ids:
+                        f["priority"] = prio
+            self._send(200, b"", "text/plain")
+        elif path in ("/api/v2/torrents/stop", "/api/v2/torrents/pause"):
+            form = urllib.parse.parse_qs(body)
+            for h in form.get("hashes", [""])[0].split("|"):
+                t = QBIT_STATE["torrents"].get(h.lower())
+                if t:
+                    t["state"] = "stoppedUP" if t["progress"] >= 1.0 else "stoppedDL"
+            self._send(200, b"", "text/plain")
+        elif path in ("/api/v2/torrents/start", "/api/v2/torrents/resume"):
+            form = urllib.parse.parse_qs(body)
+            for h in form.get("hashes", [""])[0].split("|"):
+                t = QBIT_STATE["torrents"].get(h.lower())
+                if t:
+                    t["state"] = "uploading" if t["progress"] >= 1.0 else "downloading"
+            self._send(200, b"", "text/plain")
         elif path == "/api/v2/torrents/delete":
             form = urllib.parse.parse_qs(body)
             for h in form.get("hashes", [""])[0].split("|"):
@@ -240,7 +291,7 @@ class _StubHandler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs, urlparse
             h = parse_qs(urlparse(self.path).query).get("hash", [""])[0].lower()
             t = QBIT_STATE["torrents"].get(h)
-            files = [{"name": f"{t['name']}/{t['name']}.gb"}] if t else []
+            files = t.get("files", []) if t else []
             self._send(200, json.dumps(files).encode(), "application/json")
         # ── Prowlarr ──────────────────────────────────────────────────────
         elif path == "/api/v1/search":

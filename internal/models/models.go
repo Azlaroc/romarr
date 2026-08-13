@@ -96,6 +96,13 @@ type DownloadRequest struct {
 	// sources that expose no hash (torrent/Vimm).
 	MD5  string `json:"md5,omitempty"`
 	SHA1 string `json:"sha1,omitempty"`
+
+	// TargetFile names one file to pluck out of a multi-file (pack) torrent —
+	// an exact in-torrent path or a bare filename (#256). Every other file is
+	// set to priority 0 and only the target is imported. Empty = whole content.
+	// Torrent protocol only; supplied by API callers now, by the F4 selector
+	// later.
+	TargetFile string `json:"target_file,omitempty"`
 }
 
 // DDLSource represents a custom direct-download source.

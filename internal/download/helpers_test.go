@@ -65,14 +65,18 @@ type qbitMock struct {
 	files    []qbit.TorrentFile
 	loginOK  bool
 	addOK    bool
+	prioOK   bool
 	addCalls int
 	addForms []url.Values
 	deleted  []string
+	filePrio []url.Values
+	started  []string
+	stopped  []string
 }
 
 func newQbitMock(t *testing.T) *qbitMock {
 	t.Helper()
-	q := &qbitMock{loginOK: true, addOK: true}
+	q := &qbitMock{loginOK: true, addOK: true, prioOK: true}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		q.mu.Lock()
@@ -135,6 +139,32 @@ func newQbitMock(t *testing.T) *qbitMock {
 		q.mu.Unlock()
 		w.WriteHeader(200)
 	})
+	mux.HandleFunc("/api/v2/torrents/filePrio", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		q.mu.Lock()
+		q.filePrio = append(q.filePrio, r.PostForm)
+		ok := q.prioOK
+		q.mu.Unlock()
+		if !ok {
+			w.WriteHeader(409)
+			return
+		}
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("/api/v2/torrents/start", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		q.mu.Lock()
+		q.started = append(q.started, r.Form.Get("hashes"))
+		q.mu.Unlock()
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("/api/v2/torrents/stop", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		q.mu.Lock()
+		q.stopped = append(q.stopped, r.Form.Get("hashes"))
+		q.mu.Unlock()
+		w.WriteHeader(200)
+	})
 	q.srv = httptest.NewServer(mux)
 	t.Cleanup(q.srv.Close)
 	return q
@@ -168,6 +198,22 @@ func (q *qbitMock) addCallCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.addCalls
+}
+
+func (q *qbitMock) filePrioCalls() []url.Values {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := make([]url.Values, len(q.filePrio))
+	copy(out, q.filePrio)
+	return out
+}
+
+func (q *qbitMock) startedHashes() []string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := make([]string, len(q.started))
+	copy(out, q.started)
+	return out
 }
 
 func tagListContains(tags, want string) bool {
