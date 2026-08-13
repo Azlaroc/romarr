@@ -11,9 +11,20 @@ import (
 
 // ScanLibraryDirs scans vault and ROM directories to populate the library.
 // Clears previous scan entries and rescans from scratch for accuracy.
+//
+// When the RomM sync is configured it owns the ROM side of the library
+// (source='romm' rows, extension-list free), so only the PC vault is walked
+// and only vault scan rows are cleared — the sync's full reconcile retires
+// any legacy ROM scan rows.
 func (m *Manager) ScanLibraryDirs() {
+	rommOwned := m.cfg.HasRomMAPI() && m.cfg.RomMSyncEnabled
+
 	// Clear previous scan entries so we always reflect current disk state
-	m.jobs.ClearScanEntries()
+	if rommOwned {
+		m.jobs.ClearVaultScanEntries()
+	} else {
+		m.jobs.ClearScanEntries()
+	}
 	total := 0
 
 	// Scan PC games vault — each top-level entry is one game (no recursion)
@@ -22,8 +33,8 @@ func (m *Manager) ScanLibraryDirs() {
 		total += n
 	}
 
-	// Scan ROM platform directories
-	if m.cfg.GamesRomsPath != "" {
+	// Scan ROM platform directories (legacy fallback when no RomM sync)
+	if !rommOwned && m.cfg.GamesRomsPath != "" {
 		entries, err := os.ReadDir(m.cfg.GamesRomsPath)
 		if err == nil {
 			for _, e := range entries {
@@ -135,6 +146,11 @@ func (m *Manager) scanDir(dir, platform, platformSlug string, isPC bool) int {
 func (m *Manager) addLibraryEntry(fp, name, platform, platformSlug string, isPC bool) int {
 	sourceID := "scan:" + fp
 	if m.jobs.LibraryHasSourceID(sourceID) {
+		return 0
+	}
+	// A download import (torrent:/ddl:/nzb: source_id) may already track this
+	// exact path; re-adding it under scan: would double-count the file.
+	if m.jobs.LibraryHasFilePath(fp) {
 		return 0
 	}
 

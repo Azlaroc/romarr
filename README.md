@@ -227,6 +227,9 @@ Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SA
 | `ROMM_URL` | | RomM server URL (also the API base for the RomM integration) |
 | `ROMM_API_USER` | | RomM API username (read access; enables the RomM integration) |
 | `ROMM_API_PASS` | | RomM API password |
+| `ROMM_SYNC_ENABLED` | `true` | Let RomM own the ROM library view (requires the RomM API credentials). `GAMES_ROMS_PATH` must be the directory RomM scans as its roms folder |
+| `ROMM_SYNC_INTERVAL` | `1800` | Seconds between incremental RomM syncs (a full reconcile runs at startup and daily) |
+| `ROMM_EXCLUDE_PLATFORMS` | | Comma-separated RomM fs_slugs to skip when syncing |
 
 ### Notifications
 

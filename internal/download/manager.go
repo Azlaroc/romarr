@@ -359,8 +359,9 @@ func (m *Manager) organizeGame(jobID string, torrent *qbit.Torrent, platf, platS
 		slog.Info("PC game organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
 		// platSlug arrives from the download request; keep it a single path
-		// component so it cannot climb out of the ROM library root.
-		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platSlug))
+		// component so it cannot climb out of the ROM library root. The
+		// directory name is RomM's fs_slug so RomM catalogs what lands here.
+		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platform.ToRommFSSlug(platSlug)))
 		os.MkdirAll(destDir, 0755)
 		dest := filepath.Join(destDir, sanitizeFilename(filepath.Base(contentPath)))
 		if err := moveContent(contentPath, dest); err != nil {
@@ -803,7 +804,7 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 					"title", sanitizeLog(title), "platform", platSlug)
 			}
 		}
-		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platSlug))
+		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platform.ToRommFSSlug(platSlug)))
 		os.MkdirAll(destDir, 0755)
 		dest := filepath.Join(destDir, filename)
 		if err := moveFile(fp, dest); err != nil {
