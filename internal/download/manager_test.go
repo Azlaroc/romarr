@@ -1,13 +1,11 @@
 package download
 
 import (
-	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -143,6 +141,10 @@ func TestDownloadTorrentQBitFullFlow(t *testing.T) {
 	}
 	if !jobs.LibraryHasSourceID("torrent:hash-full-flow") {
 		t.Error("library item not tracked")
+	}
+	items := jobs.RecentLibraryItems(1)
+	if len(items) != 1 || items[0].FileSize <= 0 {
+		t.Errorf("library file_size not populated: %+v", items)
 	}
 	if got := qm.deletedHashes(); got[0] != "hash-full-flow" {
 		t.Errorf("deleted hash = %q, want hash-full-flow", got[0])
@@ -860,106 +862,4 @@ func TestDDLSourcesRoundTrip(t *testing.T) {
 	if got[0]["name"] != "Myrient" {
 		t.Errorf("first source = %v", got[0])
 	}
-}
-
-func TestExtractArchives(t *testing.T) {
-	t.Run("corrupt archive removed and skipped", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFileT(t, filepath.Join(dir, "broken.zip"), []byte("this is not a zip"))
-		extracted := extractArchives(dir)
-		if len(extracted) != 0 {
-			t.Errorf("extracted = %v, want none for corrupt archive", extracted)
-		}
-		if pathExists(filepath.Join(dir, "broken.zip.extracted")) {
-			t.Error("failed extraction dir should be cleaned up")
-		}
-	})
-
-	t.Run("already extracted archive skipped", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFileT(t, filepath.Join(dir, "done.zip"), []byte("junk"))
-		if err := os.MkdirAll(filepath.Join(dir, "done.zip.extracted"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if extracted := extractArchives(dir); len(extracted) != 0 {
-			t.Errorf("extracted = %v, want none (already extracted)", extracted)
-		}
-	})
-
-	t.Run("recurses into subdirectories", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFileT(t, filepath.Join(dir, "sub", "inner.rar"), []byte("not a rar"))
-		// Should not panic and should not extract anything (unrar fails/missing).
-		if extracted := extractArchives(dir); len(extracted) != 0 {
-			t.Errorf("extracted = %v, want none", extracted)
-		}
-	})
-
-	t.Run("valid zip extracted when 7z available", func(t *testing.T) {
-		if _, err := exec.LookPath("7z"); err != nil {
-			t.Skip("7z not installed")
-		}
-		dir := t.TempDir()
-		zipPath := filepath.Join(dir, "good.zip")
-		f, err := os.Create(zipPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		zw := zip.NewWriter(f)
-		w, _ := zw.Create("inside.txt")
-		w.Write([]byte("hello"))
-		zw.Close()
-		f.Close()
-
-		extracted := extractArchives(dir)
-		if len(extracted) != 1 {
-			t.Fatalf("extracted = %v, want 1", extracted)
-		}
-		if !pathExists(filepath.Join(dir, "good.zip.extracted", "inside.txt")) {
-			t.Error("extracted file missing")
-		}
-	})
-}
-
-func TestMaybeExtractArchives(t *testing.T) {
-	t.Run("disabled is a no-op", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		m := New(cfg, jobs, nil)
-		dir := t.TempDir()
-		writeFileT(t, filepath.Join(dir, "a.zip"), []byte("junk"))
-		jobID := newJobID()
-		jobs.Set(jobID, map[string]interface{}{"status": "completed", "detail": "Moved"})
-
-		m.maybeExtractArchives(jobID, dir)
-
-		job, _ := jobs.Get(jobID)
-		if detail, _ := job["detail"].(string); detail != "Moved" {
-			t.Errorf("detail changed when extraction disabled: %q", detail)
-		}
-	})
-
-	t.Run("enabled with missing dest returns", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		m := New(cfg, jobs, nil)
-		m.SaveSettings(&Settings{ExtractArchives: true})
-		m.maybeExtractArchives("nojob", filepath.Join(t.TempDir(), "ghost"))
-	})
-
-	t.Run("enabled with file dest scans parent dir", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		m := New(cfg, jobs, nil)
-		m.SaveSettings(&Settings{ExtractArchives: true})
-		dir := t.TempDir()
-		fp := filepath.Join(dir, "rom.sfc")
-		writeFileT(t, fp, []byte("rom"))
-		writeFileT(t, filepath.Join(dir, "bad.zip"), []byte("junk"))
-		// Corrupt zip fails extraction; the call must not panic or alter the job.
-		m.maybeExtractArchives("nojob", fp)
-		if pathExists(filepath.Join(dir, "bad.zip.extracted")) {
-			t.Error("failed extraction dir left behind")
-		}
-	})
 }

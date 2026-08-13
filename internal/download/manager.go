@@ -358,33 +358,17 @@ func (m *Manager) organizeGame(jobID string, torrent *qbit.Torrent, platf, platS
 		m.jobs.LogActivity("download_completed", torrentName, "Organized to GameVault", jobID, nil)
 		slog.Info("PC game organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
-		// platSlug arrives from the download request; keep it a single path
-		// component so it cannot climb out of the ROM library root. The
-		// directory name is RomM's fs_slug so RomM catalogs what lands here.
-		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platform.ToRommFSSlug(platSlug)))
-		os.MkdirAll(destDir, 0755)
-		dest := filepath.Join(destDir, sanitizeFilename(filepath.Base(contentPath)))
-		if err := moveContent(contentPath, dest); err != nil {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-			})
+		if _, err := m.fulfillLocalROM(contentPath, fulfillMeta{
+			JobID:        jobID,
+			Title:        torrentName,
+			Platform:     platf,
+			PlatformSlug: platSlug,
+			Source:       "torrent",
+			SourceClient: "prowlarr",
+			SourceID:     "torrent:" + torrentHash,
+		}); err != nil {
 			return
 		}
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": fmt.Sprintf("Moved to RomM (%s)", platf),
-		})
-		// F5 normalize (DAT 1G1R rename + multi-disc .m3u): reconciles the tracked
-		// path to the canonical name. No-op unless enabled; never blocks import.
-		finalPath := m.MaybeNormalize(jobID, dest, platSlug)
-		writeMetadataSidecar(finalPath, torrentName, platf, platSlug, isPC, "torrent")
-		m.TrackInLibrary(torrentName, platf, platSlug, isPC, finalPath, 0, "torrent", "prowlarr", "torrent:"+torrentHash)
-		m.jobs.LogActivity("download_completed", torrentName, fmt.Sprintf("Organized to %s", platf), jobID, nil)
-		slog.Info("ROM organized", "name", sanitizeLog(torrentName), "dest", sanitizeLog(finalPath))
-
-		// Experimental: extract archives. Runs on the original moved path; when a
-		// single file was renamed by normalize this is a stat-miss no-op, and for
-		// a directory the path is unchanged, so extraction still works.
-		m.maybeExtractArchives(jobID, dest)
 	} else {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed", "detail": "Downloaded (unknown platform, left in staging)",
@@ -793,59 +777,18 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 		m.jobs.LogActivity("download_completed", title, "DDL to GameVault", jobID, nil)
 		slog.Info("DDL PC game organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
-		// Authenticate the download before any destructive convert: fp still
-		// matches the source hash here — before it is moved/extracted/renamed —
-		// and we only pay the hash when a convert is actually eligible.
-		convertHashStatus := ""
-		if m.LoadSettings().ConvertROMs && normalize.FormatPolicy(platSlug) == "chd" {
-			convertHashStatus = verifyDownloadHash(fp, md5, sha1)
-			if convertHashStatus == "mismatch" {
-				slog.Warn("download hash mismatch; convert will be skipped",
-					"title", sanitizeLog(title), "platform", platSlug)
-			}
-		}
-		destDir := filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platform.ToRommFSSlug(platSlug)))
-		os.MkdirAll(destDir, 0755)
-		dest := filepath.Join(destDir, filename)
-		if err := moveFile(fp, dest); err != nil {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-			})
+		if _, err := m.fulfillLocalROM(fp, fulfillMeta{
+			JobID:        jobID,
+			Title:        title,
+			Platform:     platf,
+			PlatformSlug: platSlug,
+			Source:       "ddl",
+			SourceClient: "ddl",
+			MD5:          md5,
+			SHA1:         sha1,
+		}); err != nil {
 			return
 		}
-
-		// If extraction is enabled and this is an archive, unpack it into a
-		// clean game-named directory (not a "<name>.zip.extracted" wrapper),
-		// remove the consumed archive, and point the library at the extracted
-		// content so file_path/file_size reflect the real ROM rather than the
-		// archive that no longer exists. Extraction failure is non-fatal: keep
-		// the archive and track that instead.
-		finalPath := dest
-		detail := fmt.Sprintf("Moved to RomM (%s)", platf)
-		if m.LoadSettings().ExtractArchives && isExtractableArchive(dest) {
-			if outDir, err := extractToGameDir(dest); err == nil {
-				os.Remove(dest)
-				finalPath = outDir
-				detail = fmt.Sprintf("Moved to RomM (%s) (extracted)", platf)
-			} else {
-				slog.Warn("archive extraction failed; keeping archive",
-					"archive", sanitizeLog(filename), "error", err)
-			}
-		}
-
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": detail,
-		})
-		// F5 normalize (DAT 1G1R rename + multi-disc .m3u) on the clean, extracted
-		// path. No-op unless enabled; never blocks import.
-		finalPath = m.MaybeNormalize(jobID, finalPath, platSlug)
-		// F5 convert (disc systems → CHD, verify before replacing the source).
-		// No-op unless enabled; never blocks import.
-		finalPath = m.MaybeConvert(jobID, finalPath, platSlug, convertHashStatus)
-		writeMetadataSidecar(finalPath, title, platf, platSlug, isPC, "ddl")
-		m.TrackInLibrary(title, platf, platSlug, isPC, finalPath, contentSize(finalPath), "ddl", "ddl", "ddl:"+finalPath)
-		m.jobs.LogActivity("download_completed", title, fmt.Sprintf("DDL to %s", platf), jobID, nil)
-		slog.Info("DDL ROM organized", "file", sanitizeLog(filename), "dest", sanitizeLog(finalPath))
 	} else {
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
 			"status": "completed", "detail": "Downloaded (unknown platform, left in staging)",
@@ -942,30 +885,6 @@ func (m *Manager) RecoverOrphanedTorrents() {
 	}
 }
 
-func (m *Manager) maybeExtractArchives(jobID, dest string) {
-	settings := m.LoadSettings()
-	if !settings.ExtractArchives {
-		return
-	}
-	target := dest
-	fi, err := os.Stat(dest)
-	if err != nil {
-		return
-	}
-	if !fi.IsDir() {
-		target = filepath.Dir(dest)
-	}
-	extracted := extractArchives(target)
-	if len(extracted) > 0 {
-		job, ok := m.jobs.Get(jobID)
-		if ok {
-			detail, _ := job["detail"].(string)
-			m.jobs.Update(jobID, "detail", fmt.Sprintf("%s (extracted %d archive(s))", detail, len(extracted)))
-		}
-		slog.Info("extracted archives", "count", len(extracted))
-	}
-}
-
 // MaybeNormalize runs the F5 normalize step (DAT 1G1R rename + multi-disc .m3u)
 // over a freshly-organized ROM path when the NormalizeROMs setting is on, and
 // returns the path to track — unchanged when the step is disabled, the binary
@@ -1032,49 +951,6 @@ func verifyDownloadHash(fp, expectedMD5, expectedSHA1 string) string {
 		return "mismatch"
 	}
 	return "ok"
-}
-
-func extractArchives(directory string) []string {
-	var extracted []string
-	patterns := []string{"*.rar", "*.RAR", "*.zip", "*.ZIP", "*.7z"}
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(filepath.Join(directory, pattern))
-		for _, archive := range matches {
-			extractDir := archive + ".extracted"
-			if pathExists(extractDir) {
-				continue
-			}
-			os.MkdirAll(extractDir, 0755)
-			ext := strings.ToLower(filepath.Ext(archive))
-
-			var cmd *exec.Cmd
-			if ext == ".rar" {
-				cmd = exec.Command("unrar", "x", "-o+", "-y", archive, extractDir+"/")
-			} else {
-				cmd = exec.Command("7z", "x", fmt.Sprintf("-o%s", extractDir), "-y", archive)
-			}
-			if err := cmd.Run(); err != nil {
-				slog.Warn("extraction failed", "archive", sanitizeLog(filepath.Base(archive)), "error", err)
-				os.RemoveAll(extractDir)
-				continue
-			}
-			extracted = append(extracted, archive)
-			slog.Info("extracted archive", "name", sanitizeLog(filepath.Base(archive)))
-		}
-	}
-
-	// Recurse into subdirectories
-	entries, _ := os.ReadDir(directory)
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasSuffix(e.Name(), ".extracted") {
-			sub, err := safeChild(directory, e.Name())
-			if err != nil {
-				continue
-			}
-			extracted = append(extracted, extractArchives(sub)...)
-		}
-	}
-	return extracted
 }
 
 // isExtractableArchive reports whether path has an archive extension the

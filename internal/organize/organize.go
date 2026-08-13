@@ -82,7 +82,10 @@ func (p *Pipeline) organizePC(sourcePath string) (string, error) {
 }
 
 func (p *Pipeline) organizeROM(sourcePath, platformSlug string) (string, error) {
-	destDir := filepath.Join(p.cfg.GamesRomsPath, platform.ToRommFSSlug(platformSlug))
+	// The fs_slug must be a single local path component (mirrors
+	// download.romDestDir — a divergent layout here would give manual imports
+	// a path the RomM sync can't adopt) and must not climb out of the library.
+	destDir := filepath.Join(p.cfg.GamesRomsPath, sanitizeSlug(platform.ToRommFSSlug(platformSlug)))
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return sourcePath, err
 	}
@@ -101,6 +104,18 @@ func (p *Pipeline) organizeROM(sourcePath, platformSlug string) (string, error) 
 
 	slog.Info("ROM organized", "source", sourcePath, "dest", dest, "platform", platformSlug)
 	return dest, nil
+}
+
+// sanitizeSlug reduces an externally supplied platform slug to a single safe
+// path component: no separators, no traversal (mirrors download.sanitizeFilename
+// so the two organize paths cannot diverge on the on-disk layout).
+func sanitizeSlug(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = strings.TrimSpace(filepath.Base(name))
+	if name == "" || name == "." || !filepath.IsLocal(name) {
+		return "download"
+	}
+	return name
 }
 
 // DetectPlatform tries to detect the platform from a file extension.
