@@ -25,6 +25,27 @@
       }
     },
     "schemas": {
+      "QualityProfile": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "id": {"type": "integer", "format": "int64"},
+          "name": {"type": "string", "maxLength": 100},
+          "platform_slug": {"type": "string", "maxLength": 50, "description": "Platform this profile overrides; empty string = global profile. Unique across profiles when non-empty."},
+          "is_default": {"type": "boolean", "description": "Marks the global fallback profile. Setting it clears the flag on other profiles."},
+          "region_priority": {"type": "array", "items": {"type": "string"}, "description": "Ordered region preference, best first (lowered No-Intro/Redump tokens, e.g. usa, world, europe, japan)."},
+          "format_preference": {"type": "array", "items": {"type": "string"}, "description": "Ordered format preference, best first. Tokens: chd, cue, iso, gdi, zip, 7z, raw."},
+          "prefer_1g1r": {"type": "boolean", "description": "Prefer verified dumps and latest revisions (one game, one ROM)."},
+          "allow_proto": {"type": "boolean", "description": "Allow (Proto)/(Beta)/(Sample) releases."},
+          "allow_demo": {"type": "boolean", "description": "Allow (Demo) releases."},
+          "allow_bios": {"type": "boolean", "description": "Allow [BIOS] releases."},
+          "source_ranking": {"type": "array", "items": {"type": "string"}, "description": "Ordered source preference, best first."},
+          "preferred_size_min": {"type": "integer", "format": "int64", "description": "Size-sanity floor in bytes; 0 = built-in per-platform default."},
+          "preferred_size_max": {"type": "integer", "format": "int64", "description": "Size-sanity ceiling in bytes; 0 = built-in per-platform default."},
+          "upgrade_allowed": {"type": "boolean", "description": "Reserved for the upgrade loop; not consumed yet."},
+          "cutoff_source": {"type": "string", "description": "Reserved for the upgrade loop; not consumed yet."}
+        }
+      },
       "Error": {
         "type": "object",
         "required": ["success", "error"],
@@ -96,6 +117,47 @@
   },
   "security": [{"apiKey": []}, {"session": []}],
   "paths": {
+    "/api/quality-profiles": {
+      "get": {
+        "summary": "List quality profiles",
+        "description": "Per-platform selection policies (region/format priority, 1G1R flags, source ranking, size bounds).",
+        "responses": {
+          "200": {
+            "description": "Profiles",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean"}, "profiles": {"type": "array", "items": {"$ref": "#/components/schemas/QualityProfile"}}}}}}
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a quality profile",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QualityProfile"}}}},
+        "responses": {
+          "201": {"description": "Created"},
+          "400": {"description": "Validation error (unknown region/format token, missing name)"},
+          "409": {"description": "Another profile already claims the platform_slug"}
+        }
+      }
+    },
+    "/api/quality-profiles/{id}": {
+      "put": {
+        "summary": "Replace a quality profile",
+        "description": "Full-body replace: omitted fields are zeroed.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QualityProfile"}}}},
+        "responses": {
+          "200": {"description": "Updated"},
+          "400": {"description": "Validation error"},
+          "409": {"description": "Another profile already claims the platform_slug"}
+        }
+      },
+      "delete": {
+        "summary": "Delete a quality profile",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
+        "responses": {
+          "200": {"description": "Deleted"}
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Health check",
