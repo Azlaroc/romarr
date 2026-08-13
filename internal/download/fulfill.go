@@ -31,6 +31,11 @@ type fulfillMeta struct {
 	SourceClient string // "ddl" | "prowlarr" | "sabnzbd" | "nzbget"
 	SourceID     string // fixed library source_id; "" derives Source+":"+finalPath
 	MD5, SHA1    string // expected content hashes; both empty => verify skipped
+	// DiscSet marks this payload as one member of a multi-disc group: it
+	// lands inside the shared DiscSet.Dir game directory and the pipeline
+	// tail (normalize/convert/m3u/sidecar/track) is deferred to the set
+	// barrier (maybeFinalizeDiscSet) instead of running per member.
+	DiscSet DiscSet
 }
 
 // fulfillLocalROM is the one ROM fulfillment pipeline behind every download
@@ -55,6 +60,11 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	}
 
 	destDir := m.romDestDir(meta.PlatformSlug)
+	if meta.DiscSet.valid() {
+		// Set members converge one level deeper, into the shared game dir.
+		// romDestDir itself stays the single platform-path authority.
+		destDir = filepath.Join(destDir, sanitizeFilename(meta.DiscSet.Dir))
+	}
 	os.MkdirAll(destDir, 0755)
 	dest := filepath.Join(destDir, sanitizeFilename(filepath.Base(stagingPath)))
 	if stagingPath != dest {
@@ -106,6 +116,33 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 		if extracted > 0 {
 			detail += " (extracted)"
 		}
+	}
+
+	// Disc-set member: STOP here. The tail (normalize/convert/m3u/sidecar/
+	// library row) runs once over the whole set dir when the last member
+	// lands — running it per member would DAT-rename and convert siblings
+	// mid-flight and mint one library row per disc.
+	if meta.DiscSet.valid() {
+		// An extracted archive (or a directory payload) landed as its own
+		// subdir inside the set dir. Flatten it so every disc's .cue sits at
+		// the set dir's top level — that is the layout the m3u writer groups.
+		if fi, err := os.Stat(finalPath); err == nil && fi.IsDir() && filepath.Dir(finalPath) == destDir {
+			finalPath = flattenSetMemberDir(finalPath, destDir)
+		}
+		if meta.JobID != "" {
+			m.jobs.UpdateMulti(meta.JobID, map[string]interface{}{
+				"status": "completed",
+				"detail": fmt.Sprintf("Disc %d of %d imported; awaiting set",
+					meta.DiscSet.Index, meta.DiscSet.Total),
+				"set_member_done":     true,
+				"imported_path":       finalPath,
+				"convert_hash_status": convertHashStatus,
+			})
+		}
+		slog.Info("disc-set member imported", "set", meta.DiscSet.ID,
+			"disc", meta.DiscSet.Index, "of", meta.DiscSet.Total, "dest", sanitizeLog(finalPath))
+		m.maybeFinalizeDiscSet(meta.DiscSet.ID)
+		return finalPath, nil
 	}
 
 	if meta.JobID != "" {

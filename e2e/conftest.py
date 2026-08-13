@@ -65,6 +65,23 @@ GB_FILES = [
     "Wario Land - Super Mario Land 3 (World).zip",
 ]
 
+# archive.org item for the "psx" platform: a Redump-named 3-disc set (F4
+# disc-set journey) plus a single-disc title.
+IA_PSX_ITEM = "redump-psx-e2e"
+
+PSX_FILES = [
+    "Final Fantasy VII (USA) (Disc 1).zip",
+    "Final Fantasy VII (USA) (Disc 2).zip",
+    "Final Fantasy VII (USA) (Disc 3).zip",
+    "Wipeout XL (USA).zip",
+]
+
+# item -> (files, inner ROM extension) the stub serves.
+IA_ITEMS = {
+    IA_GB_ITEM: (GB_FILES, ".gb"),
+    IA_PSX_ITEM: (PSX_FILES, ".bin"),
+}
+
 # Prowlarr fixture releases: one obviously-good seeded release and one
 # zero-seeder release so the UI renders both shapes.
 PROWLARR_RELEASES = [
@@ -141,23 +158,24 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _rom_zip(name: str) -> bytes:
-    """A small but genuine ZIP containing a fake .gb ROM. Deterministic bytes
+def _rom_zip(name: str, ext: str = ".gb") -> bytes:
+    """A small but genuine ZIP containing a fake ROM entry. Deterministic bytes
     (zipfile stamps writestr entries with a fixed 1980 date), so the md5/sha1/
     size published in the metadata below stay stable."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(name.replace(".zip", ".gb"), b"GAMARR-E2E-ROM" * 64)
+        z.writestr(name.replace(".zip", ext), b"GAMARR-E2E-ROM" * 64)
     return buf.getvalue()
 
 
-def _ia_metadata() -> bytes:
-    """An archive.org /metadata/<item> document for the gb item: one files[]
-    entry per GB_FILES, carrying real size/md5/sha1 (archive.org encodes size
-    as a string) so the driver parses exactly the prod shape."""
+def _ia_metadata(item: str) -> bytes:
+    """An archive.org /metadata/<item> document: one files[] entry per fixture
+    file, carrying real size/md5/sha1 (archive.org encodes size as a string)
+    so the driver parses exactly the prod shape."""
+    names, ext = IA_ITEMS[item]
     files = []
-    for n in GB_FILES:
-        b = _rom_zip(n)
+    for n in names:
+        b = _rom_zip(n, ext)
         files.append({
             "name": n,
             "source": "original",
@@ -167,7 +185,7 @@ def _ia_metadata() -> bytes:
             "sha1": hashlib.sha1(b).hexdigest(),
         })
     return json.dumps(
-        {"server": "stub", "dir": f"/{IA_GB_ITEM}", "files": files}
+        {"server": "stub", "dir": f"/{item}", "files": files}
     ).encode()
 
 
@@ -325,12 +343,18 @@ class _StubHandler(BaseHTTPRequestHandler):
             }
             self._send(200, json.dumps(body).encode(), "application/json")
         # ── archive.org: metadata listing + per-file downloads ────────────
-        elif path == f"/metadata/{IA_GB_ITEM}":
-            self._send(200, _ia_metadata(), "application/json")
-        elif path.startswith(f"/download/{IA_GB_ITEM}/"):
-            name = urllib.parse.unquote(path.split(f"/download/{IA_GB_ITEM}/", 1)[1])
-            if name in GB_FILES:
-                self._send(200, _rom_zip(name), "application/zip")
+        elif path.startswith("/metadata/") and path.split("/metadata/", 1)[1] in IA_ITEMS:
+            self._send(200, _ia_metadata(path.split("/metadata/", 1)[1]), "application/json")
+        elif (
+            path.startswith("/download/")
+            and len(path.split("/", 3)) == 4
+            and path.split("/", 3)[2] in IA_ITEMS
+        ):
+            item = path.split("/", 3)[2]
+            names, ext = IA_ITEMS[item]
+            name = urllib.parse.unquote(path.split(f"/download/{item}/", 1)[1])
+            if name in names:
+                self._send(200, _rom_zip(name, ext), "application/zip")
             else:
                 self._send(404, b"no such file", "text/plain")
         else:
@@ -373,7 +397,7 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         "version": 1,
         "archiveorg": {
             "base_url": stub_server,
-            "items": {"gb": IA_GB_ITEM},
+            "items": {"gb": IA_GB_ITEM, "psx": IA_PSX_ITEM},
         },
         "vimm": {"base_url": dead, "platform_systems": {}},
     }

@@ -286,13 +286,19 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 
 	var jobID string
 
+	set, setErr := discSetFromRequest(&body)
+	if setErr != nil {
+		writeError(w, http.StatusBadRequest, setErr.Error())
+		return
+	}
+
 	if body.SourceType == "ddl" {
 		if body.DownloadURL == "" && body.VimmID == "" {
 			writeError(w, http.StatusBadRequest, "No download URL")
 			return
 		}
 		jobID = s.mgr.DownloadDDL(body.DownloadURL, body.VimmID, body.Title,
-			body.Platform, body.PlatformSlug, body.IsPC, body.MD5, body.SHA1)
+			body.Platform, body.PlatformSlug, body.IsPC, body.MD5, body.SHA1, set)
 	} else if body.DownloadProtocol == "nzb" {
 		if body.DownloadURL == "" {
 			writeError(w, http.StatusBadRequest, "No NZB URL")
@@ -300,7 +306,7 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 		}
 		var dlErr error
 		jobID, dlErr = s.mgr.DownloadNZB(s.sab, body.DownloadURL, body.Title,
-			body.Platform, body.PlatformSlug, body.IsPC)
+			body.Platform, body.PlatformSlug, body.IsPC, set)
 		if dlErr != nil {
 			writeError(w, http.StatusBadRequest, dlErr.Error())
 			return
@@ -323,6 +329,7 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 			PlatformSlug: body.PlatformSlug,
 			IsPC:         body.IsPC,
 			TargetFile:   body.TargetFile,
+			DiscSet:      set,
 		})
 		if dlErr != nil {
 			writeError(w, http.StatusBadRequest, dlErr.Error())

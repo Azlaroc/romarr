@@ -12,20 +12,25 @@ import (
 )
 
 // DownloadNZB starts a Usenet/NZB download. SABnzbd is preferred when both
-// clients are configured to preserve the existing behavior.
-func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
+// clients are configured to preserve the existing behavior. The optional
+// trailing DiscSet (at most one) marks a disc-set member (F4).
+func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool, set ...DiscSet) (string, error) {
+	var ds DiscSet
+	if len(set) > 0 {
+		ds = set[0]
+	}
 	if sab != nil {
-		return m.downloadSABnzbd(sab, nzbURL, title, platf, platSlug, isPC)
+		return m.downloadSABnzbd(sab, nzbURL, title, platf, platSlug, isPC, ds)
 	}
 	if m.nzbget != nil {
-		return m.downloadNZBGet(m.nzbget, nzbURL, title, platf, platSlug, isPC)
+		return m.downloadNZBGet(m.nzbget, nzbURL, title, platf, platSlug, isPC, ds)
 	}
 	return "", fmt.Errorf("usenet download client not configured")
 }
 
-func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
+func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool, set DiscSet) (string, error) {
 	jobID := newJobID()
-	m.jobs.Set(jobID, map[string]interface{}{
+	jobData := map[string]interface{}{
 		"status":        "downloading",
 		"title":         title,
 		"platform":      platf,
@@ -35,7 +40,9 @@ func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, pla
 		"detail":        "Sending to SABnzbd...",
 		"source_type":   "nzb",
 		"source_client": "sabnzbd",
-	})
+	}
+	applyDiscSetJobData(jobData, set)
+	m.jobs.Set(jobID, jobData)
 	m.jobs.LogActivity("download_started", title, "NZB via SABnzbd", jobID, nil)
 
 	nzoID, err := sab.AddNZBByURL(nzbURL, title, m.cfg.SABnzbdCategory)
@@ -52,9 +59,9 @@ func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, pla
 	return jobID, nil
 }
 
-func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, platSlug string, isPC bool) (string, error) {
+func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, platSlug string, isPC bool, set DiscSet) (string, error) {
 	jobID := newJobID()
-	m.jobs.Set(jobID, map[string]interface{}{
+	jobData := map[string]interface{}{
 		"status":        "downloading",
 		"title":         title,
 		"platform":      platf,
@@ -64,7 +71,9 @@ func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, pl
 		"detail":        "Sending to NZBGet...",
 		"source_type":   "nzb",
 		"source_client": "nzbget",
-	})
+	}
+	applyDiscSetJobData(jobData, set)
+	m.jobs.Set(jobID, jobData)
 	m.jobs.LogActivity("download_started", title, "NZB via NZBGet", jobID, nil)
 
 	nzbID, err := client.AddNZBByURL(nzbURL, title, m.cfg.NZBGetCategory)
@@ -323,6 +332,10 @@ func (m *Manager) failNZBOrganize(jobID string) {
 // ID, so re-entering after a restart is safe.
 func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string, isPC bool, sourceClient string) {
 	if !isPC && platSlug != "" {
+		var set DiscSet
+		if job, ok := m.jobs.Get(jobID); ok {
+			set = discSetFromJob(job)
+		}
 		_, _ = m.fulfillLocalROM(path, fulfillMeta{
 			JobID:        jobID,
 			Title:        title,
@@ -330,6 +343,7 @@ func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string
 			PlatformSlug: platSlug,
 			Source:       "nzb",
 			SourceClient: sourceClient,
+			DiscSet:      set,
 		})
 		return
 	}
