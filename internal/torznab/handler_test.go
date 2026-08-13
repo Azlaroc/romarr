@@ -100,7 +100,7 @@ func TestHandler_Search_RunsSearchFunc(t *testing.T) {
 				GUID:         "deadbeef-guid",
 				Platform:     "NES",
 				PlatformSlug: "nes",
-				SourceType:   "torrent",
+				SourceType:   "indexer",
 			},
 		}
 	}

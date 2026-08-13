@@ -58,7 +58,7 @@ func (s *Server) searchForTorznab(ctx context.Context, query, platformSlug strin
 	// targets torrent-only release artefacts like NFO/SFV/sample dirs).
 	var torrentResults, ddlResults []*models.SearchResult
 	for _, r := range allResults {
-		if r.SourceType == "torrent" {
+		if r.SourceType == "indexer" {
 			torrentResults = append(torrentResults, r)
 		} else {
 			ddlResults = append(ddlResults, r)

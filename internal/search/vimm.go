@@ -1,7 +1,6 @@
 package search
 
 import (
-	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -41,12 +40,7 @@ func SearchVimm(reg *sources.Registry, query string, platformSlug string) []*mod
 	}
 	systemFromFilter := reg.Vimm.PlatformSystems[platformSlug]
 
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
+	client := &http.Client{Timeout: 15 * time.Second}
 	req, _ := http.NewRequest("GET", reg.Vimm.BaseURL+"?"+params.Encode(), nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 

@@ -124,7 +124,7 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 			PlatformSlug:     detected.Slug,
 			IsPC:             detected.IsPC,
 			Age:              jsonInt(item, "age"),
-			SourceType:       "torrent",
+			SourceType:       "indexer",
 			DownloadProtocol: downloadProtocol,
 			SafetyWarnings:   []string{},
 		})

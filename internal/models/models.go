@@ -18,7 +18,7 @@ type SearchResult struct {
 	PlatformSlug     string   `json:"platform_slug"`
 	IsPC             bool     `json:"is_pc"`
 	Age              int      `json:"age"`
-	SourceType       string   `json:"source_type"`                 // "torrent" or "ddl"
+	SourceType       string   `json:"source_type"`                 // acquisition path: "indexer", "ddl", "scan", "import", or "csv"
 	DownloadProtocol string   `json:"download_protocol,omitempty"` // "torrent" or "nzb"
 	SafetyScore      int      `json:"safety_score"`
 	SafetyWarnings   []string `json:"safety_warnings"`
