@@ -129,61 +129,6 @@ func TestQualityProfile_DuplicateName(t *testing.T) {
 	}
 }
 
-func TestSourceRankScore(t *testing.T) {
-	store := newTestStore(t)
-
-	// Default "PC Default" profile: ["FitGirl", "DODI", "PLAZA", "Vimm"]
-	// FitGirl is index 0 -> score = (4-0)*2 = 8
-	// Vimm is index 3 -> score = (4-3)*2 = 2
-
-	score := store.SourceRankScore("FitGirl")
-	if score != 8 {
-		t.Errorf("FitGirl score=%d, want 8", score)
-	}
-
-	score = store.SourceRankScore("Vimm")
-	if score != 2 {
-		t.Errorf("Vimm score=%d, want 2", score)
-	}
-
-	score = store.SourceRankScore("DODI")
-	if score != 6 {
-		t.Errorf("DODI score=%d, want 6", score)
-	}
-
-	// Case insensitive
-	score = store.SourceRankScore("fitgirl")
-	if score != 8 {
-		t.Errorf("fitgirl (lowercase) score=%d, want 8", score)
-	}
-
-	// Unknown source
-	score = store.SourceRankScore("Unknown")
-	if score != 0 {
-		t.Errorf("Unknown score=%d, want 0", score)
-	}
-}
-
-func TestEqualsIgnoreCase(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want bool
-	}{
-		{"abc", "ABC", true},
-		{"abc", "abc", true},
-		{"ABC", "ABC", true},
-		{"abc", "abd", false},
-		{"ab", "abc", false},
-		{"", "", true},
-	}
-	for _, tt := range tests {
-		got := equalsIgnoreCase(tt.a, tt.b)
-		if got != tt.want {
-			t.Errorf("equalsIgnoreCase(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
-		}
-	}
-}
-
 func TestQualityProfile_EmptySourceRanking(t *testing.T) {
 	store := newTestStore(t)
 

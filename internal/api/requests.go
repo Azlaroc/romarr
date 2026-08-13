@@ -15,6 +15,7 @@ import (
 	"gamarr/internal/download"
 	"gamarr/internal/models"
 	"gamarr/internal/search"
+	"gamarr/internal/selection"
 )
 
 // handleCreateRequest handles POST /api/requests.
@@ -219,21 +220,22 @@ func (s *Server) handleSearchRequest(w http.ResponseWriter, r *http.Request) {
 	query := req.Title
 	platformFilter := req.PlatformSlug
 
-	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, platformFilter)
-
-	// Filter and sort
-	var torrentResults, ddlResults []*models.SearchResult
-	for _, r := range allResults {
-		if r.SourceType == "indexer" {
-			torrentResults = append(torrentResults, r)
-		} else {
-			ddlResults = append(ddlResults, r)
-		}
+	slug := platformFilter
+	if slug == "all" {
+		slug = ""
 	}
-	filtered := search.FilterGameResults(torrentResults, query)
-	var results []*models.SearchResult
-	results = append(results, filtered...)
-	results = append(results, ddlResults...)
+	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug)
+
+	// Shared F4 preparation: gates, blocklist, release profiles, attrs,
+	// score, tier sort (also blanks a literal "all" platform filter, which
+	// this path previously passed through unblanked, and returns the results
+	// scored + sorted, which this path previously skipped entirely).
+	pl := &selection.Pipeline{
+		Blocklisted:     s.mgr.Jobs().IsBlocklisted,
+		ReleaseProfiles: s.mgr.Jobs().ApplyReleaseProfiles,
+	}
+	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	results := pl.Prepare(allResults, query, platformFilter, prof)
 	if results == nil {
 		results = []*models.SearchResult{}
 	}

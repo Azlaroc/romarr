@@ -439,69 +439,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug)
 
-	// Filter torrent results, pass through DDL
-	var torrentResults, ddlResults []*models.SearchResult
-	for _, r := range allResults {
-		if r.SourceType == "indexer" {
-			torrentResults = append(torrentResults, r)
-		} else {
-			ddlResults = append(ddlResults, r)
-		}
+	// One shared preparation stage (F4): torrent gates, blocklist, release
+	// profiles, attrs parse, unified score, profile-tiered sort.
+	pl := &selection.Pipeline{
+		Blocklisted:     s.mgr.Jobs().IsBlocklisted,
+		ReleaseProfiles: s.mgr.Jobs().ApplyReleaseProfiles,
 	}
-	filtered := search.FilterGameResults(torrentResults, query)
-	var results []*models.SearchResult
-	results = append(results, filtered...)
-	results = append(results, ddlResults...)
+	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	results := pl.Prepare(allResults, query, platformFilter, prof)
 	if results == nil {
 		results = []*models.SearchResult{}
-	}
-
-	// Filter blocklisted results
-	var nonBlocked []*models.SearchResult
-	for _, r := range results {
-		if !s.mgr.Jobs().IsBlocklisted(r.DownloadURL, r.InfoHash) {
-			nonBlocked = append(nonBlocked, r)
-		}
-	}
-	results = nonBlocked
-	if results == nil {
-		results = []*models.SearchResult{}
-	}
-
-	// Apply release profile scoring and filtering
-	var profileFiltered []*models.SearchResult
-	for _, r := range results {
-		adjustment, exclude := s.mgr.Jobs().ApplyReleaseProfiles(r.Title)
-		if exclude {
-			continue
-		}
-		r.Score += adjustment
-		profileFiltered = append(profileFiltered, r)
-	}
-	results = profileFiltered
-	if results == nil {
-		results = []*models.SearchResult{}
-	}
-
-	// Apply search scoring
-	results = search.ScoreResults(results, query, platformFilter)
-
-	// Apply quality profile source ranking boost
-	for _, r := range results {
-		boost := s.mgr.Jobs().SourceRankScore(r.Indexer)
-		r.Score += boost
-	}
-
-	// Sort by score descending
-	sort.SliceStable(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	// Annotate with parsed release-name attributes (display metadata; the F4
-	// selector will rank on these — ordering is untouched here).
-	for _, r := range results {
-		attrs := selection.Parse(r.Title)
-		r.Attrs = &attrs
 	}
 
 	// Cross-reference with library for duplicate detection
