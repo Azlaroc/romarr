@@ -83,7 +83,9 @@ func (s *JobStore) loadAll() {
 			continue
 		}
 		status, _ := data["status"].(string)
-		if status == "downloading" || status == "scanning" || status == "organizing" {
+		inFlight := status == "downloading" || status == "scanning" ||
+			status == "organizing" || status == "importing"
+		if inFlight && !recoverableInFlight(data) {
 			data["status"] = "interrupted"
 			data["error"] = "Interrupted by restart"
 			stale++
@@ -93,6 +95,33 @@ func (s *JobStore) loadAll() {
 	if len(s.cache) > 0 {
 		slog.Info("restored jobs", "count", len(s.cache), "interrupted", stale)
 	}
+}
+
+// recoverableInFlight reports whether an in-flight job survives a restart:
+// torrent jobs persist their infohash (or association tag) and the completion
+// watcher re-drives them from stored state; NZBGet jobs persist an nzb_id the
+// NZB recovery reconnects to. Everything else (DDL workers, SABnzbd with no
+// persisted nzo id) dies with the process and is marked interrupted.
+func recoverableInFlight(data map[string]interface{}) bool {
+	if st, _ := data["source_type"].(string); st == "torrent" {
+		if h, _ := data["torrent_hash"].(string); h != "" {
+			return true
+		}
+		if tag, _ := data["qb_tag"].(string); tag != "" {
+			return true
+		}
+	}
+	if client, _ := data["source_client"].(string); client == "nzbget" {
+		switch v := data["nzb_id"].(type) {
+		case float64:
+			return v > 0
+		case int64:
+			return v > 0
+		case int:
+			return v > 0
+		}
+	}
+	return false
 }
 
 // copyJob returns a copy of a job map. Job values are scalars (strings,

@@ -26,6 +26,13 @@ type Torrent struct {
 	ETA         int     `json:"eta"`
 	SavePath    string  `json:"save_path"`
 	ContentPath string  `json:"content_path"`
+	// AmountLeft is the bytes still to download. Unlike Progress (a rounded
+	// float), amount_left == 0 is an exact completion signal.
+	AmountLeft int64  `json:"amount_left"`
+	Category   string `json:"category"`
+	// Tags is qBittorrent's comma-separated tag list for the torrent.
+	Tags  string  `json:"tags"`
+	Ratio float64 `json:"ratio"`
 }
 
 // TorrentFile represents a file within a torrent.
@@ -128,16 +135,41 @@ func (c *Client) ensureAuth() {
 	}
 }
 
-// AddTorrent adds a torrent to qBittorrent.
-func (c *Client) AddTorrent(torrentURL, title, savePath, category string) bool {
+// AddOptions are the optional parameters for adding a torrent.
+type AddOptions struct {
+	SavePath string
+	Category string
+	// Tags is a comma-separated tag list applied at add time (WebAPI >= 2.8.3).
+	Tags string
+	// Stopped adds the torrent without starting it. Sent as BOTH stopped=true
+	// (qBittorrent >= 5.x naming) and paused=true (4.x naming) — qBittorrent
+	// ignores unknown form keys, so one request covers both versions.
+	Stopped bool
+}
+
+// AddTorrent adds a torrent to qBittorrent. The title parameter is unused
+// (kept for call-site compatibility).
+func (c *Client) AddTorrent(torrentURL, _, savePath, category string) bool {
+	return c.AddTorrentOpts(torrentURL, AddOptions{SavePath: savePath, Category: category})
+}
+
+// AddTorrentOpts adds a torrent with explicit options.
+func (c *Client) AddTorrentOpts(torrentURL string, o AddOptions) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ensureAuth()
 
 	data := url.Values{
 		"urls":     {torrentURL},
-		"savepath": {savePath},
-		"category": {category},
+		"savepath": {o.SavePath},
+		"category": {o.Category},
+	}
+	if o.Tags != "" {
+		data.Set("tags", o.Tags)
+	}
+	if o.Stopped {
+		data.Set("stopped", "true")
+		data.Set("paused", "true")
 	}
 	resp, err := c.client.PostForm(c.baseURL+"/api/v2/torrents/add", data)
 	if err != nil {
@@ -161,13 +193,30 @@ func (c *Client) AddTorrent(torrentURL, title, savePath, category string) bool {
 
 // GetTorrents returns torrents, optionally filtered by category.
 func (c *Client) GetTorrents(category string) []Torrent {
+	return c.GetTorrentsFiltered(category, "", "")
+}
+
+// GetTorrentsFiltered returns torrents matching the given filters. Any filter
+// may be empty. tag filtering needs WebAPI >= 2.8.3 (qBittorrent 4.3.x);
+// hashes takes a "|"-separated infohash list (WebAPI >= 2.0).
+func (c *Client) GetTorrentsFiltered(category, tag, hashes string) []Torrent {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ensureAuth()
 
-	u := c.baseURL + "/api/v2/torrents/info"
+	q := url.Values{}
 	if category != "" {
-		u += "?category=" + url.QueryEscape(category)
+		q.Set("category", category)
+	}
+	if tag != "" {
+		q.Set("tag", tag)
+	}
+	if hashes != "" {
+		q.Set("hashes", hashes)
+	}
+	u := c.baseURL + "/api/v2/torrents/info"
+	if enc := q.Encode(); enc != "" {
+		u += "?" + enc
 	}
 	torrents, err := c.doGetJSON(u)
 	if err != nil {

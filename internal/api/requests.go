@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"gamarr/internal/db"
+	"gamarr/internal/download"
 	"gamarr/internal/models"
 	"gamarr/internal/search"
 )
@@ -314,8 +315,14 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 			url = fmt.Sprintf("magnet:?xt=urn:btih:%s", body.InfoHash)
 		}
 		var dlErr error
-		jobID, dlErr = s.mgr.DownloadTorrent(url, body.Title,
-			body.Platform, body.PlatformSlug, body.IsPC)
+		jobID, dlErr = s.mgr.DownloadTorrent(download.TorrentSpec{
+			URL:          url,
+			InfoHash:     body.InfoHash,
+			Title:        body.Title,
+			Platform:     body.Platform,
+			PlatformSlug: body.PlatformSlug,
+			IsPC:         body.IsPC,
+		})
 		if dlErr != nil {
 			writeError(w, http.StatusBadRequest, dlErr.Error())
 			return

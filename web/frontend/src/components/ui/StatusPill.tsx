@@ -8,6 +8,7 @@ const map: Record<string, { color: BadgeColor; label: string }> = {
   stalled: { color: 'orange', label: 'Stalled' },
   scanning: { color: 'purple', label: 'Scanning' },
   organizing: { color: 'yellow', label: 'Organizing' },
+  importing: { color: 'yellow', label: 'Importing' },
   completed: { color: 'emerald', label: 'Completed' },
   completed_unorganized: { color: 'yellow', label: 'Needs organize' },
   interrupted: { color: 'orange', label: 'Interrupted' },
@@ -20,4 +21,4 @@ export function StatusPill({ status }: { status: string }) {
   return <Badge color={s.color}>{s.label}</Badge>
 }
 
-export const ACTIVE_STATUSES = ['downloading', 'stalled', 'metadata', 'organizing', 'scanning', 'queued']
+export const ACTIVE_STATUSES = ['downloading', 'stalled', 'metadata', 'organizing', 'importing', 'scanning', 'queued']

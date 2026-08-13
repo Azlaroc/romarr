@@ -652,7 +652,14 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		url = fmt.Sprintf("magnet:?xt=urn:btih:%s", req.InfoHash)
 	}
 
-	jobID, err := s.mgr.DownloadTorrent(url, req.Title, req.Platform, req.PlatformSlug, req.IsPC)
+	jobID, err := s.mgr.DownloadTorrent(download.TorrentSpec{
+		URL:          url,
+		InfoHash:     req.InfoHash,
+		Title:        req.Title,
+		Platform:     req.Platform,
+		PlatformSlug: req.PlatformSlug,
+		IsPC:         req.IsPC,
+	})
 	if err != nil {
 		writeError(w, 400, err.Error())
 		return
@@ -693,19 +700,32 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		progress := float64(int(t.Progress*1000)) / 10.0
 		speed := search.HumanSize(t.DLSpeed) + "/s"
 
-		// Try to match to a job
+		// Match to a job: by persisted infohash first (authoritative), then
+		// the legacy fuzzy title match for pre-migration jobs.
 		var matchedJob struct {
 			ID   string
 			Data map[string]interface{}
 		}
 		found := false
 		for _, item := range jobs.Items() {
-			jTitle, _ := item.Data["title"].(string)
-			if strings.Contains(strings.ToLower(t.Name), strings.ToLower(jTitle)) ||
-				strings.Contains(strings.ToLower(jTitle), strings.ToLower(t.Name)) {
+			if jh, _ := item.Data["torrent_hash"].(string); jh != "" && strings.EqualFold(jh, t.Hash) {
 				matchedJob = item
 				found = true
 				break
+			}
+		}
+		if !found {
+			for _, item := range jobs.Items() {
+				jTitle, _ := item.Data["title"].(string)
+				if jTitle == "" {
+					continue
+				}
+				if strings.Contains(strings.ToLower(t.Name), strings.ToLower(jTitle)) ||
+					strings.Contains(strings.ToLower(jTitle), strings.ToLower(t.Name)) {
+					matchedJob = item
+					found = true
+					break
+				}
 			}
 		}
 

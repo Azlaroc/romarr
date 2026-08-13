@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -33,6 +34,15 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Stateful qBittorrent stub (F3): torrents/add registers a torrent that is
+# instantly complete-and-seeding, materializing a real payload under the app's
+# incoming dir so the completion watcher can import it. The app fixture fills
+# in "incoming" before the binary boots. Keyed by lowercase infohash.
+QBIT_STATE = {"incoming": None, "torrents": {}}
+
+BTIH_RE = re.compile(r"xt=urn:btih:([0-9a-fA-F]{40})")
+QBIT_PAYLOAD = b"QBIT-E2E-ROM" * 64
 
 # archive.org collection item the stub serves for the "gb" platform.
 IA_GB_ITEM = "nointro-gb-e2e"
@@ -166,15 +176,47 @@ class _StubHandler(BaseHTTPRequestHandler):
         want = "Basic " + base64.b64encode(f"{ROMM_USER}:{ROMM_PASS}".encode()).decode()
         return self.headers.get("Authorization") == want
 
-    # ── qBittorrent ────────────────────────────────────────────────────────
+    # ── qBittorrent (stateful) ─────────────────────────────────────────────
     def do_POST(self):  # noqa: N802 (http.server API)
-        self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)).decode("utf-8", "replace")
         path = self.path.split("?")[0]
         if path == "/api/v2/auth/login":
             # Real qBittorrent 5.x behavior: HTTP 200 + "Ok." on success.
             self._send(200, b"Ok.", "text/plain")
         elif path == "/api/v2/torrents/add":
+            form = urllib.parse.parse_qs(body)
+            urls = form.get("urls", [""])[0]
+            m = BTIH_RE.search(urls)
+            if m and QBIT_STATE["incoming"]:
+                h = m.group(1).lower()
+                name = f"Stub Torrent {h[:8]}"
+                dn = re.search(r"dn=([^&]+)", urls)
+                if dn:
+                    name = urllib.parse.unquote_plus(dn.group(1))
+                content = Path(QBIT_STATE["incoming"]) / name
+                content.mkdir(parents=True, exist_ok=True)
+                (content / f"{name}.gb").write_bytes(QBIT_PAYLOAD)
+                QBIT_STATE["torrents"][h] = {
+                    "name": name,
+                    "hash": h,
+                    "progress": 1.0,
+                    "amount_left": 0,
+                    "state": "uploading",
+                    "total_size": len(QBIT_PAYLOAD),
+                    "dlspeed": 0,
+                    "eta": 0,
+                    "save_path": str(QBIT_STATE["incoming"]),
+                    "content_path": str(content),
+                    "category": form.get("category", [""])[0],
+                    "tags": form.get("tags", [""])[0],
+                    "ratio": 0.0,
+                }
             self._send(200, b"Ok.", "text/plain")
+        elif path == "/api/v2/torrents/delete":
+            form = urllib.parse.parse_qs(body)
+            for h in form.get("hashes", [""])[0].split("|"):
+                QBIT_STATE["torrents"].pop(h.lower(), None)
+            self._send(200, b"", "text/plain")
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -182,7 +224,24 @@ class _StubHandler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
 
         if path == "/api/v2/torrents/info":
-            self._send(200, b"[]", "application/json")
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            ts = list(QBIT_STATE["torrents"].values())
+            if q.get("hashes", [""])[0]:
+                want = set(q["hashes"][0].lower().split("|"))
+                ts = [t for t in ts if t["hash"] in want]
+            if q.get("tag", [""])[0]:
+                tag = q["tag"][0]
+                ts = [t for t in ts if tag in [x.strip() for x in (t.get("tags") or "").split(",")]]
+            if q.get("category", [""])[0]:
+                ts = [t for t in ts if t.get("category") == q["category"][0]]
+            self._send(200, json.dumps(ts).encode(), "application/json")
+        elif path == "/api/v2/torrents/files":
+            from urllib.parse import parse_qs, urlparse
+            h = parse_qs(urlparse(self.path).query).get("hash", [""])[0].lower()
+            t = QBIT_STATE["torrents"].get(h)
+            files = [{"name": f"{t['name']}/{t['name']}.gb"}] if t else []
+            self._send(200, json.dumps(files).encode(), "application/json")
         # ── Prowlarr ──────────────────────────────────────────────────────
         elif path == "/api/v1/search":
             q = ""
@@ -291,6 +350,8 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         # DDL staging dir — defaults to /data/incoming/ which won't exist on
         # a dev box; without this the pipeline dies as a bare "Download failed".
         "QB_SAVE_PATH": str(incoming),
+        # Fast watcher ticks so the torrent journey completes in seconds.
+        "WATCHER_INTERVAL": "2",
         "PROWLARR_URL": stub_server,
         "PROWLARR_API_KEY": "e2e-stub-key",
         # RomM ownership sync: boot triggers an immediate full sync against
@@ -299,6 +360,7 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         "ROMM_API_USER": ROMM_USER,
         "ROMM_API_PASS": ROMM_PASS,
     }
+    QBIT_STATE["incoming"] = str(incoming)
     log = open(data / "gamarr.log", "w")
     proc = subprocess.Popen([str(gamarr_binary)], env=env, stdout=log, stderr=log)
 
