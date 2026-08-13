@@ -15,6 +15,7 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
+	"gamarr/internal/selection"
 	"gamarr/internal/webhook"
 )
 
@@ -30,7 +31,7 @@ func newTestStore(t *testing.T) *db.JobStore {
 
 func noopSearch(query, platformSlug string) []*models.SearchResult { return nil }
 
-func noopDownload(result *models.SearchResult) (string, error) { return "", nil }
+func noopDownload(g selection.Grab) (string, error) { return "", nil }
 
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Helper()
@@ -161,8 +162,8 @@ func TestRunAutoDownload(t *testing.T) {
 	}
 
 	var downloaded *models.SearchResult
-	downloadFn := func(r *models.SearchResult) (string, error) {
-		downloaded = r
+	downloadFn := func(g selection.Grab) (string, error) {
+		downloaded = g.Result
 		return "job-123", nil
 	}
 
@@ -233,7 +234,7 @@ func TestRunScoreBelowThreshold(t *testing.T) {
 		return []*models.SearchResult{{Title: "Obscure Game", Platform: "N64", Score: 90}}
 	}
 	var downloads int64
-	downloadFn := func(r *models.SearchResult) (string, error) {
+	downloadFn := func(g selection.Grab) (string, error) {
 		atomic.AddInt64(&downloads, 1)
 		return "job-x", nil
 	}
@@ -272,7 +273,7 @@ func TestRunDownloadError(t *testing.T) {
 	searchFn := func(q, p string) []*models.SearchResult {
 		return []*models.SearchResult{{Title: "Broken Game", Platform: "PC", Score: 99}}
 	}
-	downloadFn := func(r *models.SearchResult) (string, error) {
+	downloadFn := func(g selection.Grab) (string, error) {
 		return "", errors.New("no seeders")
 	}
 
@@ -469,28 +470,169 @@ func TestItoa(t *testing.T) {
 	}
 }
 
-func TestNormalizeTitle(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"simple", "Super Mario World", "super mario world"},
-		{"trims whitespace", "  Zelda  ", "zelda"},
-		{"strips usa suffix", "Chrono Trigger (USA)", "chrono trigger"},
-		{"strips europe suffix", "F-Zero (Europe)", "fzero"},
-		{"strips japan suffix", "Mother 3 (Japan)", "mother 3"},
-		{"strips world suffix", "Tetris (World)", "tetris"},
-		{"strips bang tag", "Metroid [!]", "metroid"},
-		{"drops punctuation", "Pokémon: Red-Blue!", "pokmon redblue"},
-		{"keeps digits", "Final Fantasy 7", "final fantasy 7"},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NormalizeTitle(tt.in); got != tt.want {
-				t.Errorf("NormalizeTitle(%q) = %q, want %q", tt.in, got, tt.want)
-			}
+// prep mirrors the real searchFn contract: results arrive parsed + scored.
+func prep(score int, sourceType string, titles ...string) []*models.SearchResult {
+	var out []*models.SearchResult
+	for _, title := range titles {
+		attrs := selection.Parse(title)
+		out = append(out, &models.SearchResult{
+			Title: title, Platform: "PS1", PlatformSlug: "psx",
+			SourceType: sourceType, Score: score, MD5: "d41d8cd98f00b204e9800998ecf8427e",
+			Attrs: &attrs,
 		})
+	}
+	return out
+}
+
+func TestOffModeKeepsDeleteAtGrab(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddWishlistItem("Wipeout XL", "PS1", "psx"); err != nil {
+		t.Fatal(err)
+	}
+	var grabs []selection.Grab
+	downloadFn := func(g selection.Grab) (string, error) {
+		grabs = append(grabs, g)
+		return "job-1", nil
+	}
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "off"}
+	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+		return prep(90, "ddl", "Wipeout XL (USA).zip")
+	}, downloadFn, nil)
+	s.run()
+
+	if len(grabs) != 1 || grabs[0].Result.Title != "Wipeout XL (USA).zip" || grabs[0].DiscSetID != "" {
+		t.Fatalf("off mode grabs = %+v, want one bare legacy grab", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (off mode deletes at grab)", len(items))
+	}
+}
+
+func TestEnforceGrabSetDispatchesAllMembersAndKeepsWishlistRow(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddWishlistItem("Final Fantasy VII", "PS1", "psx"); err != nil {
+		t.Fatal(err)
+	}
+	var grabs []selection.Grab
+	downloadFn := func(g selection.Grab) (string, error) {
+		grabs = append(grabs, g)
+		return "job-" + itoa(len(grabs)), nil
+	}
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+		return prep(85, "ddl",
+			"Final Fantasy VII (USA) (Disc 1).zip",
+			"Final Fantasy VII (USA) (Disc 2).zip",
+			"Final Fantasy VII (USA) (Disc 3).zip")
+	}, downloadFn, nil)
+	s.run()
+
+	if len(grabs) != 3 {
+		t.Fatalf("dispatched %d grabs, want 3 set members", len(grabs))
+	}
+	setID := grabs[0].DiscSetID
+	if setID == "" {
+		t.Fatal("set members carry no DiscSetID")
+	}
+	for i, g := range grabs {
+		if g.DiscSetID != setID || g.DiscIndex != i+1 || g.DiscTotal != 3 ||
+			g.SetDir != "Final Fantasy VII (USA)" {
+			t.Errorf("grab %d = %+v, want shared set stamps", i, g)
+		}
+	}
+	if items := store.GetWishlist(); len(items) != 1 {
+		t.Errorf("wishlist has %d items, want 1 (enforce keeps the row until owned)", len(items))
+	}
+	if status := s.Status(); status["auto_downloads"] != 3 {
+		t.Errorf("auto_downloads = %v, want 3", status["auto_downloads"])
+	}
+}
+
+func TestEnforceOwnedSkipDeletesWishlistRow(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	// The live Kirby finding: tagged library title, bare wishlist title —
+	// neither exact-title nor extension-stripping matching hits; the bare
+	// ownership key must.
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)", Platform: "GB",
+		PlatformSlug: "gb", FilePath: "/roms/gb/kdl2", Source: "romm", SourceType: "romm",
+		SourceID: "romm:999", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddWishlistItem("Kirby's Dream Land 2", "GB", "gb"); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+		return prep(90, "ddl", "Kirby's Dream Land 2 (USA, Europe).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (owned)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (owned deletes the row)", len(items))
+	}
+}
+
+func TestEnforceActiveGrabSkipsWhileSetInFlight(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddWishlistItem("Final Fantasy VII", "PS1", "psx"); err != nil {
+		t.Fatal(err)
+	}
+	// A completed-but-unfinalized set member counts as in flight; so would a
+	// plain downloading job.
+	store.Set("job-d1", map[string]interface{}{
+		"status": "completed", "title": "Final Fantasy VII (USA) (Disc 1)",
+		"platform_slug": "psx", "disc_set_id": "set-abc", "set_member_done": true,
+	})
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+		return prep(90, "ddl", "Final Fantasy VII (USA) (Disc 1).zip",
+			"Final Fantasy VII (USA) (Disc 2).zip", "Final Fantasy VII (USA) (Disc 3).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (set in flight)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 1 {
+		t.Errorf("wishlist has %d items, want 1 (kept while in flight)", len(items))
+	}
+}
+
+func TestOwnershipKeys(t *testing.T) {
+	t.Parallel()
+	keys := ownershipKeys("Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)")
+	found := false
+	for _, k := range keys {
+		if k == "kirby's dream land 2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ownershipKeys missing bare key, got %v", keys)
+	}
+	// Vimm titles carry a trailing "(SystemName)" parenthetical.
+	keys = ownershipKeys("Kirby's Dream Land 2 (GB)")
+	found = false
+	for _, k := range keys {
+		if k == "kirby's dream land 2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ownershipKeys missing bare key for Vimm system tag, got %v", keys)
+	}
+	if got := ownershipKeys("(Weird) [Tags]"); len(got) == 0 {
+		t.Errorf("all-tag title produced no keys at all: %v", got)
 	}
 }
