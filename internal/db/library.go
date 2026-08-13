@@ -430,7 +430,7 @@ func (s *JobStore) findLibraryBySearchKey(key, platformSlug string) *LibraryItem
 		return nil
 	}
 	row := s.db.QueryRow(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE json_extract(metadata, '$.romm.search_key') = ? AND platform_slug = ? LIMIT 1",
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') = ? AND platform_slug = ? LIMIT 1",
 		key, platformSlug,
 	)
 	var item LibraryItem
@@ -460,7 +460,7 @@ func NormalizeTitleKey(title string) string {
 // GetAllLibraryTitles returns a map of normalized "title|platform_slug" to LibraryItem for bulk lookups.
 // RomM-synced rows are additionally keyed by their fs-name search key.
 func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(metadata, '$.romm.search_key') FROM library_items")
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') FROM library_items")
 	if err != nil {
 		return nil
 	}

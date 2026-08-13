@@ -190,6 +190,27 @@ func collapseSpaces(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// BareTitle returns the release title with its trailing extension and EVERY
+// parenthetical/bracket token removed — classified or not — collapsed to the
+// No-Intro base name. This is the ownership-identity key: a library row
+// "Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)" and a wishlist entry
+// "Kirby's Dream Land 2" meet here, as do Vimm titles carrying a trailing
+// "(GB)" system parenthetical. CleanTitle is NOT enough for that — it keeps
+// unclassified tags like "(SGB Enhanced)" by design. Deliberately coarse:
+// two same-named releases differing only in tags count as one owned game,
+// which is exactly the skip-if-owned semantic.
+func BareTitle(title string) string {
+	name := strings.TrimSpace(title)
+	if ext := trailingExtension(name); ext != "" {
+		name = name[:len(name)-len(ext)]
+	}
+	var all []span
+	for _, m := range tokenRe.FindAllStringSubmatchIndex(name, -1) {
+		all = append(all, span{m[0], m[1]})
+	}
+	return collapseSpaces(removeSpans(name, all))
+}
+
 // StripDiscToken returns the release title with its "(Disc N…)" token and
 // trailing extension removed, original case preserved and whitespace
 // collapsed — the shared directory name a disc set converges into

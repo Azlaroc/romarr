@@ -169,13 +169,16 @@ func main() {
 		return results
 	}
 
-	downloadFn := func(result *models.SearchResult) (string, error) {
+	downloadFn := func(g selection.Grab) (string, error) {
+		result := g.Result
+		// Zero-value DiscSet for single grabs — the job plumbing ignores it.
+		set := download.DiscSet{ID: g.DiscSetID, Index: g.DiscIndex, Total: g.DiscTotal, Dir: g.SetDir}
 		if result.SourceType == "ddl" {
-			jobID := mgr.DownloadDDL(result.DownloadURL, result.VimmID, result.Title, result.Platform, result.PlatformSlug, result.IsPC, result.MD5, result.SHA1)
+			jobID := mgr.DownloadDDL(result.DownloadURL, result.VimmID, result.Title, result.Platform, result.PlatformSlug, result.IsPC, result.MD5, result.SHA1, set)
 			return jobID, nil
 		}
 		if result.DownloadProtocol == "nzb" {
-			return mgr.DownloadNZB(sab, result.DownloadURL, result.Title, result.Platform, result.PlatformSlug, result.IsPC)
+			return mgr.DownloadNZB(sab, result.DownloadURL, result.Title, result.Platform, result.PlatformSlug, result.IsPC, set)
 		}
 		url := result.DownloadURL
 		if url == "" {
@@ -191,6 +194,8 @@ func main() {
 			Platform:     result.Platform,
 			PlatformSlug: result.PlatformSlug,
 			IsPC:         result.IsPC,
+			TargetFile:   g.TargetFile,
+			DiscSet:      set,
 		})
 	}
 

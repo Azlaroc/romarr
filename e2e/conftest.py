@@ -63,6 +63,11 @@ GB_FILES = [
     "Tetris (World) (Rev 1).zip",
     "Tetris Attack (USA, Europe) (SGB Enhanced).zip",
     "Wario Land - Super Mario Land 3 (World).zip",
+    # 1G1R fixture family (F4 PR-5 selector journey): same game, three dumps —
+    # the selector must pick World+Rev 1 over base-rev World and Europe.
+    "Kirby's Dream Land (World).zip",
+    "Kirby's Dream Land (World) (Rev 1).zip",
+    "Kirby's Dream Land (Europe).zip",
 ]
 
 # archive.org item for the "psx" platform: a Redump-named 3-disc set (F4
@@ -74,6 +79,10 @@ PSX_FILES = [
     "Final Fantasy VII (USA) (Disc 2).zip",
     "Final Fantasy VII (USA) (Disc 3).zip",
     "Wipeout XL (USA).zip",
+    # Second disc set for the selector journey — FF7 is already imported by
+    # the PR-4 discset journey, so the enforce scheduler needs a fresh set.
+    "Chrono Cross (USA) (Disc 1).zip",
+    "Chrono Cross (USA) (Disc 2).zip",
 ]
 
 # item -> (files, inner ROM extension) the stub serves.
@@ -434,6 +443,9 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         "ROMM_URL": stub_server,
         "ROMM_API_USER": ROMM_USER,
         "ROMM_API_PASS": ROMM_PASS,
+        # F4 selector: enforce mode drives the scheduler in the selector
+        # journey; harmless elsewhere (nothing else triggers a scheduler run).
+        "SELECTOR_MODE": "enforce",
     }
     QBIT_STATE["incoming"] = str(incoming)
     log = open(data / "gamarr.log", "w")
