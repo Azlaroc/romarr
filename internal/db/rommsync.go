@@ -38,6 +38,21 @@ func (s *JobStore) SyncRommItems(items []RommSyncItem, fullReconcile bool) (adde
 		}
 	}()
 
+	if fullReconcile {
+		// Retire the legacy fs-scanner's ROM rows BEFORE the upsert loop:
+		// left in place they would satisfy the path-collision check below and
+		// swallow the very roms this sync is supposed to own (the first
+		// cutover sync did exactly that). Vault rows are is_pc=1 and kept.
+		res, perr := tx.Exec("DELETE FROM library_items WHERE source = 'scan' AND is_pc = 0")
+		if perr != nil {
+			err = perr
+			return 0, 0, 0, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			removed += int(n)
+		}
+	}
+
 	seen := make(map[string]struct{}, len(items))
 	for i := range items {
 		it := &items[i].Item
@@ -75,15 +90,26 @@ func (s *JobStore) SyncRommItems(items []RommSyncItem, fullReconcile bool) (adde
 			updated++
 		case sql.ErrNoRows:
 			// Adopt: an import row (torrent/ddl/nzb/manual) already tracks
-			// this file — do not create a duplicate ownership row.
+			// this file — do not create a duplicate ownership row. Legacy
+			// scan rows deliberately do NOT count as owners: they are the
+			// rows this sync replaces, so displace them instead (covers
+			// incremental runs before the first full reconcile).
 			var pathOwners int
 			if err = tx.QueryRow(
-				"SELECT COUNT(*) FROM library_items WHERE file_path = ? AND source != 'romm'", it.FilePath,
+				"SELECT COUNT(*) FROM library_items WHERE file_path = ? AND source NOT IN ('romm', 'scan')", it.FilePath,
 			).Scan(&pathOwners); err != nil {
 				return 0, 0, 0, err
 			}
 			if pathOwners > 0 {
 				continue
+			}
+			res, derr := tx.Exec("DELETE FROM library_items WHERE file_path = ? AND source = 'scan' AND is_pc = 0", it.FilePath)
+			if derr != nil {
+				err = derr
+				return 0, 0, 0, err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				removed += int(n)
 			}
 			_, err = tx.Exec(
 				`INSERT INTO library_items (title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata)
@@ -122,16 +148,6 @@ func (s *JobStore) SyncRommItems(items []RommSyncItem, fullReconcile bool) (adde
 				return 0, 0, 0, err
 			}
 			removed++
-		}
-
-		// Retire the legacy fs-scanner's ROM rows: RomM owns this view now.
-		res, perr := tx.Exec("DELETE FROM library_items WHERE source = 'scan' AND is_pc = 0")
-		if perr != nil {
-			err = perr
-			return 0, 0, 0, err
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
-			removed += int(n)
 		}
 	}
 

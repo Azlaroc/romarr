@@ -119,6 +119,41 @@ func TestSyncRommItemsMissingFromFS(t *testing.T) {
 	}
 }
 
+// Regression for the first cutover sync in production: a legacy fs-scan row
+// on the SAME path as an incoming rom must be displaced, not treated as an
+// adoption owner — the original ordering adopted against 6,091 scan rows and
+// then purged them, leaving those roms with no row at all.
+func TestSyncRommItemsLegacyScanPathCollision(t *testing.T) {
+	for _, full := range []bool{true, false} {
+		store := newTestStore(t)
+		store.AddLibraryItem(&LibraryItem{
+			Title: "Old Scan Name", PlatformSlug: "nes", IsPC: false,
+			FilePath: "/roms/nes/Duck Tales (USA).nes",
+			Source:   "scan", SourceType: "scan", SourceID: "scan:/roms/nes/Duck Tales (USA).nes",
+			Metadata: "{}",
+		})
+
+		it := rommItem(77, "DuckTales", "nes", "/roms/nes/Duck Tales (USA).nes", 99)
+		added, _, removed, err := store.SyncRommItems([]RommSyncItem{it}, full)
+		if err != nil {
+			t.Fatalf("full=%v sync: %v", full, err)
+		}
+		if added != 1 {
+			t.Errorf("full=%v added=%d, want 1 (scan row must not swallow the rom)", full, added)
+		}
+		if removed != 1 {
+			t.Errorf("full=%v removed=%d, want 1 (the displaced scan row)", full, removed)
+		}
+		if total := store.LibraryTotal(); total != 1 {
+			t.Errorf("full=%v total=%d, want 1", full, total)
+		}
+		item := store.FindLibraryByTitle("DuckTales", "nes")
+		if item == nil || item.Source != "romm" {
+			t.Errorf("full=%v rom row wrong: %+v", full, item)
+		}
+	}
+}
+
 func TestSyncRommItemsLegacyPurgeKeepsVaultRows(t *testing.T) {
 	store := newTestStore(t)
 	store.AddLibraryItem(&LibraryItem{Title: "Old ROM scan", Source: "scan", IsPC: false, PlatformSlug: "nes", Metadata: "{}"})
