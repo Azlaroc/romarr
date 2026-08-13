@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gamarr/internal/config"
@@ -570,10 +571,48 @@ func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug
 	m.organizeDDLFile(jobID, filepath_, title, platf, platSlug, isPC, md5, sha1)
 }
 
+// ddlStallTimeout aborts a DDL transfer only when NO bytes have flowed for
+// this long. A whole-request http.Client.Timeout is wrong for streaming
+// downloads: a PSX-sized disc at archive.org speeds runs well past any fixed
+// cap (the old 5-minute cap killed every transfer that outlived it), while a
+// genuinely dead connection stops producing bytes and trips this instead.
+const ddlStallTimeout = 3 * time.Minute
+
 func (m *Manager) downloadDDL(dlURL, destPath, jobID string) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	req, _ := http.NewRequest("GET", dlURL, nil)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 60 * time.Second
+	client := &http.Client{Transport: tr}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", dlURL, nil)
 	req.Header.Set("User-Agent", "Gamarr/1.0")
+
+	// Stall watchdog: cancel the request context when progress freezes for
+	// ddlStallTimeout. progress is written by the read loop below.
+	var progress atomic.Int64
+	watchdogDone := make(chan struct{})
+	defer close(watchdogDone)
+	go func() {
+		last, lastAt := int64(0), time.Now()
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-watchdogDone:
+				return
+			case <-t.C:
+				if cur := progress.Load(); cur != last {
+					last, lastAt = cur, time.Now()
+				} else if time.Since(lastAt) > ddlStallTimeout {
+					slog.Warn("DDL transfer stalled; aborting", "url", sanitizeLog(dlURL),
+						"stalled_at", search.HumanSize(cur))
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -631,6 +670,7 @@ func (m *Manager) downloadDDL(dlURL, destPath, jobID string) (string, error) {
 				break
 			}
 			downloaded += int64(n)
+			progress.Store(downloaded)
 			if time.Since(lastUpdate) > 2*time.Second && total > 0 {
 				pct := float64(downloaded) / float64(total) * 100
 				m.jobs.Update(jobID, "detail",
