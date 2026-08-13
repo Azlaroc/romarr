@@ -28,6 +28,7 @@ import (
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
+	"gamarr/internal/selection"
 	"gamarr/internal/torznab"
 	"gamarr/web"
 )
@@ -495,6 +496,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
+
+	// Annotate with parsed release-name attributes (display metadata; the F4
+	// selector will rank on these — ordering is untouched here).
+	for _, r := range results {
+		attrs := selection.Parse(r.Title)
+		r.Attrs = &attrs
+	}
 
 	// Cross-reference with library for duplicate detection
 	libraryMap := s.mgr.Jobs().GetAllLibraryTitles()
