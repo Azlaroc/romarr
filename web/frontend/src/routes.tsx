@@ -6,6 +6,7 @@ import { Queue } from './routes/activity/Queue'
 import { History } from './routes/activity/History'
 import { Blocklist } from './routes/activity/Blocklist'
 import { Wishlist } from './routes/wanted/Wishlist'
+import { Requests } from './routes/wanted/Requests'
 import { Settings } from './routes/settings/Settings'
 import { Profiles } from './routes/settings/Profiles'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
@@ -23,7 +24,9 @@ export const router = createBrowserRouter([
       { path: 'activity/queue', element: <Queue /> },
       { path: 'activity/history', element: <History /> },
       { path: 'activity/blocklist', element: <Blocklist /> },
-      { path: 'wanted', element: <Wishlist /> },
+      { path: 'wanted', element: <Navigate to="/wanted/wishlist" replace /> },
+      { path: 'wanted/wishlist', element: <Wishlist /> },
+      { path: 'wanted/requests', element: <Requests /> },
       { path: 'settings', element: <Navigate to="/settings/general" replace /> },
       { path: 'settings/general', element: <Settings /> },
       { path: 'settings/profiles', element: <Profiles /> },

@@ -16,8 +16,8 @@ export interface NavItem {
   children?: NavChild[]
 }
 
-// PR-A information architecture plus the PR-C sub-sections. Calendar,
-// Requests, History, System, and Play Log arrive in PR-D..G.
+// PR-A information architecture plus the PR-C..E sub-sections. Calendar,
+// System, and Play Log arrive in PR-F..G.
 export const NAV: NavItem[] = [
   { to: '/', label: 'Library', icon: Gamepad2, end: true },
   { to: '/add', label: 'Add New', icon: Plus },
@@ -32,7 +32,15 @@ export const NAV: NavItem[] = [
       { to: '/activity/blocklist', label: 'Blocklist' },
     ],
   },
-  { to: '/wanted', label: 'Wanted', icon: Heart },
+  {
+    to: '/wanted',
+    label: 'Wanted',
+    icon: Heart,
+    children: [
+      { to: '/wanted/wishlist', label: 'Wishlist' },
+      { to: '/wanted/requests', label: 'Requests' },
+    ],
+  },
   {
     to: '/settings',
     label: 'Settings',

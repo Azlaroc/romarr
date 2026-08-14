@@ -29,6 +29,9 @@ import type {
   QualityProfile,
   ReleaseProfile,
   BlocklistItem,
+  GameRequest,
+  RequestsPage,
+  SearchResult as SearchResultType,
 } from './types'
 
 export const keys = {
@@ -46,6 +49,7 @@ export const keys = {
   qualityProfiles: ['quality-profiles'] as const,
   releaseProfiles: ['release-profiles'] as const,
   blocklist: ['blocklist'] as const,
+  requests: (status: string) => ['requests', status] as const,
 }
 
 // ---------- queries ----------
@@ -309,6 +313,70 @@ export function useTriggerAnalysis() {
   return useMutation({
     mutationFn: () => api.post('/api/monitor/analyze'),
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.monitor }), 600),
+  })
+}
+
+// ---------- requests ----------
+
+export function useRequests(status = '') {
+  return useQuery({
+    queryKey: keys.requests(status),
+    queryFn: () => api.get<RequestsPage>(`/api/requests${qs({ status })}`),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useCreateRequest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { title: string; platform: string; platform_slug: string; notes?: string }) =>
+      api.post<{ success: boolean; request: GameRequest }>('/api/requests', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  })
+}
+
+export function useUpdateRequest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { id: string; status?: string; notes?: string; admin_notes?: string }) =>
+      api.patch<{ success: boolean; request: GameRequest }>(`/api/requests/${v.id}`, {
+        status: v.status,
+        notes: v.notes,
+        admin_notes: v.admin_notes,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  })
+}
+
+export function useDeleteRequest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.del(`/api/requests/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  })
+}
+
+/** POST /search — returns tier-sorted results; render in order, never re-sort. */
+export function useRequestSearch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ success: boolean; results: SearchResultType[]; request: GameRequest }>(
+        `/api/requests/${id}/search`,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  })
+}
+
+export function useRequestDownload() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { id: string; body: Record<string, unknown> }) =>
+      api.post<{ success: boolean; job_id: string }>(`/api/requests/${v.id}/download`, v.body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['requests'] })
+      qc.invalidateQueries({ queryKey: keys.downloads })
+    },
   })
 }
 

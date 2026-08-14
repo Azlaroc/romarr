@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useActivity } from '../../api/queries'
+import { parseSelectorDecision } from '../../lib/selectorDecision'
 import type { ActivityEntry } from '../../api/types'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Badge } from '../../components/ui/Badge'
@@ -47,19 +48,15 @@ const EVENT_META: Record<string, { icon: LucideIcon; color: BadgeColor; label: s
 
 const PAGE_SIZE = 50 // fixed server-side
 
-/** `[mode] action: rest` — the flat selector_decision detail format. */
-const SELECTOR_RE = /^\[(\w+)\]\s+(\w+):\s*(.*)$/
-
 function SelectorDetail({ detail }: { detail: string }) {
-  const m = SELECTOR_RE.exec(detail)
+  const d = parseSelectorDecision(detail)
   // On regex miss render the raw detail — never hide it.
-  if (!m) return <span className="text-slate-500">{detail}</span>
-  const [, mode, action, rest] = m
+  if (!d) return <span className="text-slate-500">{detail}</span>
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
-      <Badge color={mode === 'enforce' ? 'accent' : 'slate'}>{mode}</Badge>
-      <Badge color={action.startsWith('grab') ? 'emerald' : 'slate'}>{action}</Badge>
-      <span className="text-slate-500">{rest}</span>
+      <Badge color={d.mode === 'enforce' ? 'accent' : 'slate'}>{d.mode}</Badge>
+      <Badge color={d.action.startsWith('grab') ? 'emerald' : 'slate'}>{d.action}</Badge>
+      <span className="text-slate-500">{d.rest}</span>
     </span>
   )
 }
