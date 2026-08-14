@@ -3,6 +3,7 @@ import App from './App'
 import { Library } from './routes/Library'
 import { AddNew } from './routes/AddNew'
 import { Queue } from './routes/activity/Queue'
+import { History } from './routes/activity/History'
 import { Blocklist } from './routes/activity/Blocklist'
 import { Wishlist } from './routes/wanted/Wishlist'
 import { Settings } from './routes/settings/Settings'
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
       { path: 'add', element: <AddNew /> },
       { path: 'activity', element: <Navigate to="/activity/queue" replace /> },
       { path: 'activity/queue', element: <Queue /> },
+      { path: 'activity/history', element: <History /> },
       { path: 'activity/blocklist', element: <Blocklist /> },
       { path: 'wanted', element: <Wishlist /> },
       { path: 'settings', element: <Navigate to="/settings/general" replace /> },

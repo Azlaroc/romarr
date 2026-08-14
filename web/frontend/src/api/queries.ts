@@ -20,7 +20,7 @@ import type {
   WishlistItem,
   SourceInfo,
   Stats,
-  ActivityEntry,
+  ActivityPage,
   MonitorStatus,
   Settings,
   AuthStatus,
@@ -39,7 +39,7 @@ export const keys = {
   wishlist: ['wishlist'] as const,
   sources: ['sources'] as const,
   stats: ['stats'] as const,
-  activity: ['activity'] as const,
+  activity: (page: number) => ['activity', page] as const,
   monitor: ['monitor'] as const,
   authStatus: ['auth-status'] as const,
   unread: ['notifications-unread'] as const,
@@ -116,10 +116,11 @@ export function useStats() {
   return useQuery({ queryKey: keys.stats, queryFn: () => api.get<Stats>('/api/stats') })
 }
 
-export function useActivity() {
+export function useActivity(page = 1) {
   return useQuery({
-    queryKey: keys.activity,
-    queryFn: async () => pickArray<ActivityEntry>(await api.get('/api/activity'), 'entries'),
+    queryKey: keys.activity(page),
+    queryFn: () => api.get<ActivityPage>(`/api/activity?page=${page}`),
+    placeholderData: keepPreviousData,
   })
 }
 

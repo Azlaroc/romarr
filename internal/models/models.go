@@ -101,6 +101,11 @@ type DownloadEntry struct {
 	Speed    string  `json:"speed,omitempty"`
 	ETA      int     `json:"eta,omitempty"`
 	Hash     string  `json:"hash,omitempty"`
+	// Disc-set membership, mirrored from the job blob so the queue UI can
+	// group members. Absent on non-set jobs and pure-torrent entries.
+	DiscSetID string `json:"disc_set_id,omitempty"`
+	DiscIndex int    `json:"disc_index,omitempty"`
+	DiscTotal int    `json:"disc_total,omitempty"`
 }
 
 // DownloadRequest is the POST body for /api/download.

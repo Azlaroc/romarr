@@ -634,6 +634,24 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
+// jobIntValue coerces a numeric job-blob value that arrives as int/int64 on a
+// fresh write but float64 after the blob round-trips through JSON on restart
+// (mirrors internal/download's int64Value).
+func jobIntValue(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
 func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 	downloads := make([]models.DownloadEntry, 0)
 
@@ -704,20 +722,24 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 			platf, _ := matchedJob.Data["platform"].(string)
 			errMsg, _ := matchedJob.Data["error"].(string)
 			detail, _ := matchedJob.Data["detail"].(string)
+			setID, _ := matchedJob.Data["disc_set_id"].(string)
 
 			downloads = append(downloads, models.DownloadEntry{
-				Type:     "job",
-				Title:    jTitle(matchedJob.Data),
-				Platform: platf,
-				Status:   displayStatus,
-				JobID:    matchedJob.ID,
-				Error:    errMsg,
-				Detail:   detail,
-				Progress: progress,
-				Size:     search.HumanSize(t.TotalSize),
-				Speed:    speed,
-				ETA:      t.ETA,
-				Hash:     t.Hash,
+				Type:      "job",
+				Title:     jTitle(matchedJob.Data),
+				Platform:  platf,
+				Status:    displayStatus,
+				JobID:     matchedJob.ID,
+				Error:     errMsg,
+				Detail:    detail,
+				Progress:  progress,
+				Size:      search.HumanSize(t.TotalSize),
+				Speed:     speed,
+				ETA:       t.ETA,
+				Hash:      t.Hash,
+				DiscSetID: setID,
+				DiscIndex: jobIntValue(matchedJob.Data["disc_index"]),
+				DiscTotal: jobIntValue(matchedJob.Data["disc_total"]),
 			})
 		} else {
 			status := t.State
@@ -746,15 +768,19 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		status, _ := item.Data["status"].(string)
 		errMsg, _ := item.Data["error"].(string)
 		detail, _ := item.Data["detail"].(string)
+		setID, _ := item.Data["disc_set_id"].(string)
 
 		downloads = append(downloads, models.DownloadEntry{
-			Type:     "job",
-			Title:    jTitle(item.Data),
-			Platform: platf,
-			Status:   status,
-			JobID:    item.ID,
-			Error:    errMsg,
-			Detail:   detail,
+			Type:      "job",
+			Title:     jTitle(item.Data),
+			Platform:  platf,
+			Status:    status,
+			JobID:     item.ID,
+			Error:     errMsg,
+			Detail:    detail,
+			DiscSetID: setID,
+			DiscIndex: jobIntValue(item.Data["disc_index"]),
+			DiscTotal: jobIntValue(item.Data["disc_total"]),
 		})
 	}
 

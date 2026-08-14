@@ -114,6 +114,26 @@ func TestDownloadEntry_JSON(t *testing.T) {
 	if decoded["progress"].(float64) != 45.5 {
 		t.Errorf("progress=%v", decoded["progress"])
 	}
+
+	// Disc-set fields are omitted when zero (protects non-set consumers)...
+	for _, key := range []string{"disc_set_id", "disc_index", "disc_total"} {
+		if _, exists := decoded[key]; exists {
+			t.Errorf("expected %s to be omitted when zero", key)
+		}
+	}
+
+	// ...and serialized when set.
+	set := DownloadEntry{Type: "job", Title: "FF7 Disc 1", Status: "completed",
+		DiscSetID: "set-abc", DiscIndex: 1, DiscTotal: 3}
+	data, _ = json.Marshal(set)
+	var setDecoded map[string]interface{}
+	json.Unmarshal(data, &setDecoded)
+	if setDecoded["disc_set_id"] != "set-abc" {
+		t.Errorf("disc_set_id=%v", setDecoded["disc_set_id"])
+	}
+	if setDecoded["disc_index"].(float64) != 1 || setDecoded["disc_total"].(float64) != 3 {
+		t.Errorf("disc_index=%v disc_total=%v", setDecoded["disc_index"], setDecoded["disc_total"])
+	}
 }
 
 func TestDDLSource_JSON(t *testing.T) {

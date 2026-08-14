@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   useSources,
   useStats,
@@ -213,9 +214,17 @@ const EVENT_COLOR: Record<string, string> = {
 }
 
 function RecentActivity() {
-  const { data: entries = [] } = useActivity()
+  const { data } = useActivity(1)
+  const entries = data?.entries ?? []
   return (
-    <Card title="Recent activity">
+    <Card
+      title="Recent activity"
+      action={
+        <Link to="/activity/history" className="text-xs font-medium text-accent-fg hover:text-accent-300">
+          View all →
+        </Link>
+      }
+    >
       {entries.length === 0 ? (
         <p className="text-sm text-slate-500">No activity yet.</p>
       ) : (

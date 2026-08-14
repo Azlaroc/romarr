@@ -28,6 +28,7 @@ export const NAV: NavItem[] = [
     badge: 'downloads',
     children: [
       { to: '/activity/queue', label: 'Queue' },
+      { to: '/activity/history', label: 'History' },
       { to: '/activity/blocklist', label: 'Blocklist' },
     ],
   },

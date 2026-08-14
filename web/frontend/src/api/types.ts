@@ -61,6 +61,10 @@ export interface DownloadItem {
   speed?: string
   detail?: string
   error?: string
+  // Disc-set membership (absent on non-set jobs and pure torrents).
+  disc_set_id?: string
+  disc_index?: number
+  disc_total?: number
 }
 
 export interface WishlistItem {
@@ -84,10 +88,19 @@ export interface Stats {
 }
 
 export interface ActivityEntry {
+  id?: number
   event_type: string
   title: string
   timestamp?: string
   detail?: string
+  job_id?: string
+}
+
+/** GET /api/activity envelope — server page size is fixed at 50. */
+export interface ActivityPage {
+  entries: ActivityEntry[]
+  total: number
+  page: number
 }
 
 export interface MonitorStatus {
