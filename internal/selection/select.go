@@ -183,8 +183,9 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// Rank set representatives against singles; candidates arrive
 	// tier-sorted from Prepare but set grouping changed the population, so
 	// re-rank here for correctness independent of input order.
+	qTokens := titleTokens(opts.Query)
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return buildRankKey(candidates[i].rep, prof).less(buildRankKey(candidates[j].rep, prof))
+		return buildRankKey(candidates[i].rep, prof, qTokens).less(buildRankKey(candidates[j].rep, prof, qTokens))
 	})
 	winner := candidates[0]
 

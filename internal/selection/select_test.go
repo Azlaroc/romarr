@@ -293,3 +293,48 @@ func TestPrepareBlocklistAndExclude(t *testing.T) {
 		t.Fatalf("prepared = %d, want 1 (blocklist + exclude drops)", len(out))
 	}
 }
+
+// #281 live-fire: with Prefer1G1R, the revision tier grabbed the sequel over
+// the queried game ("Spyro 2" → "Spyro - Year of the Dragon (Rev 1)"). Title
+// identity must outrank revision.
+func TestTitleRelevanceOutranksRevision(t *testing.T) {
+	right := mk("Spyro 2 - Ripto's Rage! (USA).zip", 90, withHash)
+	wrong := mk("Spyro - Year of the Dragon (USA) (Rev 1).zip", 90, withHash)
+	dec := Select([]*models.SearchResult{wrong, right}, SelectOpts{Query: "Spyro 2", MinScore: 0, Profile: romProfile()})
+	if dec.Grabs[0].Result != right {
+		t.Fatalf("winner = %q, want the queried game over the Rev 1 sequel", dec.Grabs[0].Result.Title)
+	}
+}
+
+// A token-exact clean title beats a covering superset even when the superset
+// carries a later revision and a higher score.
+func TestTitleExactBeatsSupersetRevision(t *testing.T) {
+	exact := mk("Spyro the Dragon (USA).zip", 80, withHash)
+	super := mk("Spyro - Year of the Dragon (USA) (Rev 1).zip", 95, withHash)
+	dec := Select([]*models.SearchResult{super, exact}, SelectOpts{Query: "Spyro the Dragon", MinScore: 0, Profile: romProfile()})
+	if dec.Grabs[0].Result != exact {
+		t.Fatalf("winner = %q, want the exact-title release", dec.Grabs[0].Result.Title)
+	}
+}
+
+// Identity sits above the hash tier: a hashless release of the queried game
+// beats a hash-carrying release of a different game.
+func TestTitleIdentityOutranksHash(t *testing.T) {
+	right := mk("Spyro the Dragon (USA)", 80)
+	wrong := mk("Spyro - Year of the Dragon (USA) (Rev 1).zip", 90, withHash)
+	dec := Select([]*models.SearchResult{wrong, right}, SelectOpts{Query: "Spyro the Dragon", MinScore: 0, Profile: romProfile()})
+	if dec.Grabs[0].Result != right {
+		t.Fatalf("winner = %q, want the queried game despite missing hashes", dec.Grabs[0].Result.Title)
+	}
+}
+
+// A query no candidate covers (numeral vs roman numeral) is neutral — every
+// candidate ties at the no-cover sentinel and ranking degrades to the quality
+// tiers; it must never reject.
+func TestTitleNoCoverNeutral(t *testing.T) {
+	ff7 := mk("Final Fantasy VII (USA).zip", 90, withHash)
+	dec := Select([]*models.SearchResult{ff7}, SelectOpts{Query: "Final Fantasy 7", MinScore: 0, Profile: romProfile()})
+	if dec.Action != ActionGrab || dec.Grabs[0].Result != ff7 {
+		t.Fatalf("action = %v, want grab of the sole candidate", dec.Action)
+	}
+}
