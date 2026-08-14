@@ -1,10 +1,11 @@
 """Settings → Profiles + Activity → Blocklist journeys (F6 PR-C).
 
 CRUD the per-platform quality/format profiles and release profiles through the
-UI, and drive the blocklist screen. Runs before every other journey (pytest
-collects alphabetically) and is state-neutral: everything it creates it also
-deletes, and it NEVER touches the seeded global default profile — that row is
-owned by test_zzz_selector_journey.py.
+UI, and drive the blocklist screen. Runs first: pytest groups the
+[chromium]-parametrized browser tests into one block ahead of the API-only
+journeys, and this file sorts first within that block. State-neutral:
+everything it creates it also deletes, and it NEVER touches the seeded global
+default profile — that row is owned by test_zzz_selector_journey.py.
 """
 import json
 import re

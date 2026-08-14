@@ -2,11 +2,14 @@
 profile in the UI, wishlist a title in the UI, and watch the enforce-mode
 scheduler grab it under that profile — queue → imported → library.
 
-Named test_zzzz_* so it runs after test_zzz_selector_journey.py: it relies on
-the wishlist being empty again and deliberately uses a gb-scoped profile so it
-never touches the global default row that test owns. Platform-exact resolution
-means the new profile — created through the UI — is the one the selector runs
-under for the gb grab.
+Ordering reality: pytest groups the [chromium]-parametrized browser tests into
+one block that runs BEFORE the unparametrized API-only test_z* journeys, so
+the zzzz prefix only sorts this last WITHIN the browser block — it still runs
+before test_zzz_selector_journey.py. It must therefore leave no state behind:
+a second enforce cycle removes its wishlist row via the owned check (which is
+also the lifecycle half of the acceptance), and the gb-scoped profile is
+deleted afterwards — a leftover platform-exact profile would shadow the global
+default row that test_zzz tunes for its own Kirby (gb) grab.
 """
 import json
 import time
@@ -41,6 +44,11 @@ def _wait(cond, timeout=45, step=0.5, msg="condition"):
             return result
         time.sleep(step)
     raise AssertionError(f"timed out waiting for {msg}")
+
+
+def _wishlist(base: str) -> list:
+    wl = _req(base, "/api/wishlist")
+    return wl if isinstance(wl, list) else wl.get("wishlist") or wl.get("items") or []
 
 
 def test_ui_profile_drives_enforce_grab(ui, app):
@@ -92,3 +100,18 @@ def test_ui_profile_drives_enforce_grab(ui, app):
             None,
         )
     assert _wait(_decision, msg="a selector_decision activity entry for Wario")
+
+    # 6. Lifecycle + state-neutral exit: a second cycle sees Wario owned and
+    #    removes the wishlist row (enforce's owned check) — leaving the
+    #    wishlist empty for the API-only journeys that run after this block.
+    _req(base, "/api/scheduler/run", "POST", {})
+    _wait(
+        lambda: (not any("Wario" in (w.get("title") or "") for w in _wishlist(base))) or None,
+        msg="owned check removing the Wario wishlist row",
+    )
+
+    # Delete the gb profile so it can't shadow the global default profile
+    # test_zzz_selector_journey.py tunes for its Kirby (gb) grab.
+    gb = next(p for p in _req(base, "/api/quality-profiles").get("profiles", [])
+              if p.get("name") == "GB E2E")
+    _req(base, f"/api/quality-profiles/{gb['id']}", "DELETE")
