@@ -1,4 +1,4 @@
-import { Gamepad2, Plus, Activity, Heart, Settings, type LucideIcon } from 'lucide-react'
+import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, Settings, type LucideIcon } from 'lucide-react'
 
 export interface NavChild {
   to: string
@@ -16,11 +16,12 @@ export interface NavItem {
   children?: NavChild[]
 }
 
-// PR-A information architecture plus the PR-C..E sub-sections. Calendar,
-// System, and Play Log arrive in PR-F..G.
+// PR-A information architecture plus the PR-C..F sub-sections. System
+// arrives in PR-G.
 export const NAV: NavItem[] = [
   { to: '/', label: 'Library', icon: Gamepad2, end: true },
   { to: '/add', label: 'Add New', icon: Plus },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   {
     to: '/activity',
     label: 'Activity',
@@ -41,6 +42,7 @@ export const NAV: NavItem[] = [
       { to: '/wanted/requests', label: 'Requests' },
     ],
   },
+  { to: '/playlog', label: 'Play Log', icon: Joystick },
   {
     to: '/settings',
     label: 'Settings',

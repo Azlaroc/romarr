@@ -32,6 +32,10 @@ import type {
   GameRequest,
   RequestsPage,
   SearchResult as SearchResultType,
+  CalendarEntry,
+  PlayHistoryEntry,
+  PlayHistoryStats,
+  AppNotification,
 } from './types'
 
 export const keys = {
@@ -50,6 +54,11 @@ export const keys = {
   releaseProfiles: ['release-profiles'] as const,
   blocklist: ['blocklist'] as const,
   requests: (status: string) => ['requests', status] as const,
+  calendar: ['calendar'] as const,
+  calendarRecent: ['calendar-recent'] as const,
+  playHistory: ['play-history'] as const,
+  playStats: ['play-stats'] as const,
+  notifications: ['notifications'] as const,
 }
 
 // ---------- queries ----------
@@ -376,6 +385,114 @@ export function useRequestDownload() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['requests'] })
       qc.invalidateQueries({ queryKey: keys.downloads })
+    },
+  })
+}
+
+// ---------- calendar ----------
+
+export function useCalendar() {
+  return useQuery({
+    queryKey: keys.calendar,
+    queryFn: async () => pickArray<CalendarEntry>(await api.get('/api/calendar'), 'entries'),
+  })
+}
+
+export function useCalendarRecent() {
+  return useQuery({
+    queryKey: keys.calendarRecent,
+    queryFn: async () => pickArray<CalendarEntry>(await api.get('/api/calendar/recent'), 'entries'),
+  })
+}
+
+// ---------- play log ----------
+
+export function usePlayHistory() {
+  return useQuery({
+    queryKey: keys.playHistory,
+    queryFn: async () => {
+      const data = await api.get<unknown>('/api/history')
+      return {
+        entries: pickArray<PlayHistoryEntry>(data, 'entries'),
+        total: pickNumber(data, 'total') ?? 0,
+      }
+    },
+  })
+}
+
+export function usePlayStats() {
+  return useQuery({
+    queryKey: keys.playStats,
+    queryFn: async () =>
+      (await api.get<{ success: boolean; stats: PlayHistoryStats }>('/api/history/stats')).stats,
+  })
+}
+
+export function useAddPlayHistory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { game_title: string; platform?: string; platform_slug?: string; rating?: number }) =>
+      api.post<{ success: boolean; id: number }>('/api/history', v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.playHistory })
+      qc.invalidateQueries({ queryKey: keys.playStats })
+    },
+  })
+}
+
+export function useUpdatePlayHistory() {
+  const qc = useQueryClient()
+  return useMutation({
+    // PATCH takes a sparse field map — only send what changed.
+    mutationFn: (v: { id: number; fields: Record<string, unknown> }) =>
+      api.patch(`/api/history/${v.id}`, v.fields),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.playHistory })
+      qc.invalidateQueries({ queryKey: keys.playStats })
+    },
+  })
+}
+
+export function useDeletePlayHistory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/history/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.playHistory })
+      qc.invalidateQueries({ queryKey: keys.playStats })
+    },
+  })
+}
+
+// ---------- notifications (bell panel) ----------
+
+export function useNotifications(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.notifications,
+    queryFn: async () =>
+      pickArray<AppNotification>(await api.get('/api/notifications'), 'notifications'),
+    enabled, // fetched only while the panel is open
+  })
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post(`/api/notifications/${id}/read`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.notifications })
+      qc.invalidateQueries({ queryKey: keys.unread })
+    },
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post('/api/notifications/read-all'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.notifications })
+      qc.invalidateQueries({ queryKey: keys.unread })
     },
   })
 }
