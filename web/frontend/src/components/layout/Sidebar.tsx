@@ -1,10 +1,13 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { NAV } from './nav'
 import { useDownloads } from '../../api/queries'
 import { ACTIVE_STATUSES } from '../ui/StatusPill'
 
+const slugify = (label: string) => label.toLowerCase().replace(/\s+/g, '-')
+
 export function Sidebar({ mobileOpen, onNavigate }: { mobileOpen: boolean; onNavigate: () => void }) {
   const { data: downloads } = useDownloads(15_000)
+  const { pathname } = useLocation()
   const activeCount = (downloads ?? []).filter((d) => ACTIVE_STATUSES.includes(d.status)).length
 
   return (
@@ -30,25 +33,46 @@ export function Sidebar({ mobileOpen, onNavigate }: { mobileOpen: boolean; onNav
           {NAV.map((item) => {
             const Icon = item.icon
             const badge = item.badge === 'downloads' && activeCount > 0 ? activeCount : null
+            const sectionActive = item.end ? pathname === item.to : pathname.startsWith(item.to)
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={onNavigate}
-                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive ? 'bg-accent-600/15 text-accent-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
-                  }`
-                }
-              >
-                <Icon className="h-[18px] w-[18px]" />
-                <span className="flex-1">{item.label}</span>
-                {badge != null && (
-                  <span className="rounded-full bg-accent-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badge}</span>
+              <div key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  onClick={onNavigate}
+                  data-testid={`nav-${slugify(item.label)}`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      isActive ? 'bg-accent-600/15 text-accent-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                    }`
+                  }
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  <span className="flex-1">{item.label}</span>
+                  {badge != null && (
+                    <span className="rounded-full bg-accent-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badge}</span>
+                  )}
+                </NavLink>
+                {item.children && sectionActive && (
+                  <div className="ml-4 mt-0.5 space-y-0.5 border-l border-slate-800 pl-3">
+                    {item.children.map((child) => (
+                      <NavLink
+                        key={child.to}
+                        to={child.to}
+                        onClick={onNavigate}
+                        data-testid={`nav-${slugify(item.label)}-${slugify(child.label)}`}
+                        className={({ isActive }) =>
+                          `block rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                            isActive ? 'text-accent-300' : 'text-slate-500 hover:text-slate-200'
+                          }`
+                        }
+                      >
+                        {child.label}
+                      </NavLink>
+                    ))}
+                  </div>
                 )}
-              </NavLink>
+              </div>
             )
           })}
         </nav>

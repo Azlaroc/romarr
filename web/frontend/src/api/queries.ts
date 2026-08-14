@@ -26,6 +26,9 @@ import type {
   AuthStatus,
   LoginResponse,
   TestResult,
+  QualityProfile,
+  ReleaseProfile,
+  BlocklistItem,
 } from './types'
 
 export const keys = {
@@ -40,6 +43,9 @@ export const keys = {
   monitor: ['monitor'] as const,
   authStatus: ['auth-status'] as const,
   unread: ['notifications-unread'] as const,
+  qualityProfiles: ['quality-profiles'] as const,
+  releaseProfiles: ['release-profiles'] as const,
+  blocklist: ['blocklist'] as const,
 }
 
 // ---------- queries ----------
@@ -138,6 +144,88 @@ export function useUnreadCount(pollMs = 20_000) {
     },
     refetchInterval: pollMs,
     retry: false,
+  })
+}
+
+// ---------- profiles + blocklist ----------
+
+export function useQualityProfiles() {
+  return useQuery({
+    queryKey: keys.qualityProfiles,
+    queryFn: async () => pickArray<QualityProfile>(await api.get('/api/quality-profiles'), 'profiles'),
+  })
+}
+
+export function useSaveQualityProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    // PUT is a full-body replace on the backend — always send the complete profile.
+    mutationFn: (p: QualityProfile) =>
+      p.id ? api.put(`/api/quality-profiles/${p.id}`, p) : api.post('/api/quality-profiles', p),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.qualityProfiles }),
+  })
+}
+
+export function useDeleteQualityProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/quality-profiles/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.qualityProfiles }),
+  })
+}
+
+export function useReleaseProfiles() {
+  return useQuery({
+    queryKey: keys.releaseProfiles,
+    queryFn: async () => pickArray<ReleaseProfile>(await api.get('/api/release-profiles'), 'profiles'),
+  })
+}
+
+export function useSaveReleaseProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (p: ReleaseProfile) =>
+      p.id ? api.put(`/api/release-profiles/${p.id}`, p) : api.post('/api/release-profiles', p),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.releaseProfiles }),
+  })
+}
+
+export function useDeleteReleaseProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/release-profiles/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.releaseProfiles }),
+  })
+}
+
+export function useBlocklist() {
+  return useQuery({
+    queryKey: keys.blocklist,
+    queryFn: async () => {
+      const data = await api.get<unknown>('/api/blocklist')
+      return {
+        items: pickArray<BlocklistItem>(data, 'items'),
+        total: pickNumber(data, 'total') ?? 0,
+      }
+    },
+    // No realtime backend — poll so entries appear without a manual reload.
+    refetchInterval: 5000,
+  })
+}
+
+export function useDeleteBlocklistEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/blocklist/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.blocklist }),
+  })
+}
+
+export function useClearBlocklist() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.del<{ success: boolean; deleted?: number }>('/api/blocklist/clear'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.blocklist }),
   })
 }
 

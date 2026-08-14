@@ -1,0 +1,29 @@
+interface Props {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  hint?: string
+  disabled?: boolean
+  // Allow data-* passthrough (e.g. data-testid) on this custom component.
+  [key: `data-${string}`]: unknown
+}
+
+/** Labelled checkbox toggle, styled like the PR-A Settings option row. */
+export function Toggle({ checked, onChange, label, hint, disabled, ...rest }: Props) {
+  return (
+    <label className={`flex items-start gap-3 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        className="mt-0.5 h-4 w-4 rounded accent-accent-500"
+        {...rest}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-slate-200">{label}</span>
+        {hint && <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>}
+      </span>
+    </label>
+  )
+}
