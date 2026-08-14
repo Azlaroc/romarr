@@ -1,19 +1,21 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   useSources,
-  useStats,
   useSettings,
   useSaveSetting,
-  useMonitor,
-  useTriggerAnalysis,
-  useActivity,
   useTestConnection,
+  useTotpDisable,
+  useTotpSetup,
+  useTotpStatus,
+  useTotpVerify,
 } from '../../api/queries'
+import { isUnauthorized } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { Input } from '../../components/ui/Input'
 import { useToast } from '../../components/ui/Toast'
 
 const TEST_SERVICES = [
@@ -33,10 +35,8 @@ export function Settings() {
       <div className="space-y-6">
         <ConnectionTests />
         <SearchSources />
-        <CollectionStats />
         <Options />
-        <AiMonitor />
-        <RecentActivity />
+        <Security />
       </div>
     </>
   )
@@ -108,43 +108,6 @@ function SearchSources() {
   )
 }
 
-function CollectionStats() {
-  const { data } = useStats()
-  const platforms = data?.platforms ?? {}
-  const max = Math.max(1, ...Object.values(platforms))
-  const sorted = Object.entries(platforms).sort((a, b) => b[1] - a[1])
-
-  return (
-    <Card title="Collection stats">
-      <div data-testid="settings-stats" className="mb-4 grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-slate-800 p-3 text-center">
-          <div className="text-2xl font-bold text-accent-400">{data?.library_total ?? 0}</div>
-          <div className="mt-1 text-xs text-slate-500">Library items</div>
-        </div>
-        <div className="rounded-lg bg-slate-800 p-3 text-center">
-          <div className="text-2xl font-bold text-slate-300">{data?.total_jobs ?? 0}</div>
-          <div className="mt-1 text-xs text-slate-500">Total jobs</div>
-        </div>
-      </div>
-      {sorted.length === 0 ? (
-        <p className="text-sm text-slate-500">No library data yet.</p>
-      ) : (
-        sorted.map(([slug, count]) => (
-          <div key={slug} className="mb-2">
-            <div className="mb-0.5 flex justify-between text-xs">
-              <span className="text-slate-300">{slug}</span>
-              <span className="text-slate-500">{count}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-slate-800">
-              <div className="h-1.5 rounded-full bg-accent-500" style={{ width: `${Math.round((count / max) * 100)}%` }} />
-            </div>
-          </div>
-        ))
-      )}
-    </Card>
-  )
-}
-
 function Options() {
   const { data } = useSettings()
   const save = useSaveSetting()
@@ -178,66 +141,135 @@ function Options() {
   )
 }
 
-function AiMonitor() {
-  const { data } = useMonitor()
-  const analyze = useTriggerAnalysis()
+/** TOTP self-service — the API requires a real session user (401 in open mode / API-key auth). */
+function Security() {
+  const { data: status, error } = useTotpStatus()
+  const setup = useTotpSetup()
+  const verify = useTotpVerify()
+  const disable = useTotpDisable()
   const { toast } = useToast()
 
+  const [pending, setPending] = useState<{ secret: string; url: string; backup_codes: string[] } | null>(null)
+  const [code, setCode] = useState('')
+  const [disabling, setDisabling] = useState(false)
+  const [disableCode, setDisableCode] = useState('')
+
+  if (isUnauthorized(error)) {
+    return (
+      <Card title="Security">
+        <p className="text-sm text-slate-500" data-testid="totp-signin-note">
+          Sign in with a user account to manage two-factor authentication.
+        </p>
+      </Card>
+    )
+  }
+
+  const startSetup = async () => {
+    try {
+      const res = await setup.mutateAsync()
+      setPending({ secret: res.secret, url: res.url, backup_codes: res.backup_codes })
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Setup failed', 'error')
+    }
+  }
+
+  const confirmVerify = async () => {
+    try {
+      await verify.mutateAsync(code)
+      toast('Two-factor authentication enabled', 'success')
+      setPending(null)
+      setCode('')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Invalid code', 'error')
+    }
+  }
+
+  const confirmDisable = async () => {
+    try {
+      await disable.mutateAsync(disableCode)
+      toast('Two-factor authentication disabled', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Invalid code', 'error')
+    } finally {
+      setDisabling(false)
+      setDisableCode('')
+    }
+  }
+
   return (
-    <Card
-      title="AI monitor"
-      action={
-        <Button size="sm" variant="secondary" onClick={() => { analyze.mutate(); toast('Analysis triggered', 'success') }}>
-          Analyze now
-        </Button>
-      }
-    >
-      <div className="space-y-3" data-testid="monitor-info">
-        <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${data?.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-          <span className="text-sm text-slate-300">
-            {data?.enabled ? `Active · ${data.provider ?? ''} ${data.model ? `(${data.model})` : ''}` : 'Disabled'}
-          </span>
+    <Card title="Security">
+      <div className="space-y-3" data-testid="totp-card">
+        <div className="flex items-center gap-2 text-sm text-slate-300">
+          <span className={`h-2 w-2 rounded-full ${status?.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+          Two-factor authentication {status?.enabled ? 'enabled' : 'disabled'}
         </div>
-        <div className="rounded-lg bg-slate-800 p-3 text-sm text-slate-400">{data?.diagnosis || '—'}</div>
-      </div>
-    </Card>
-  )
-}
 
-const EVENT_COLOR: Record<string, string> = {
-  download_started: 'text-blue-400',
-  download_completed: 'text-emerald-400',
-  download_failed: 'text-red-400',
-  import_completed: 'text-purple-400',
-  download_retried: 'text-yellow-400',
-}
+        {!status?.enabled && !pending && (
+          <Button size="sm" variant="secondary" onClick={startSetup} disabled={setup.isPending} data-testid="totp-setup">
+            Set up TOTP
+          </Button>
+        )}
 
-function RecentActivity() {
-  const { data } = useActivity(1)
-  const entries = data?.entries ?? []
-  return (
-    <Card
-      title="Recent activity"
-      action={
-        <Link to="/activity/history" className="text-xs font-medium text-accent-fg hover:text-accent-300">
-          View all →
-        </Link>
-      }
-    >
-      {entries.length === 0 ? (
-        <p className="text-sm text-slate-500">No activity yet.</p>
-      ) : (
-        <div className="max-h-64 space-y-1 overflow-y-auto" data-testid="activity-log">
-          {entries.slice(0, 25).map((e, i) => (
-            <div key={i} className="flex gap-2 border-b border-slate-800/50 py-1.5 text-xs">
-              <span className="flex-shrink-0 text-slate-600">{e.timestamp?.split('T')[1]?.slice(0, 5) ?? ''}</span>
-              <span className={`flex-shrink-0 font-medium ${EVENT_COLOR[e.event_type] ?? 'text-slate-400'}`}>{e.event_type}</span>
-              <span className="truncate text-slate-400">{e.title}</span>
+        {pending && (
+          <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-800/40 p-3">
+            <p className="text-xs text-slate-400">
+              Add this secret to your authenticator app (or open the otpauth link), then confirm with a code.
+            </p>
+            <div className="space-y-1 text-xs">
+              <div>
+                <span className="text-slate-500">Secret: </span>
+                <code className="break-all text-accent-fg" data-testid="totp-secret">{pending.secret}</code>
+              </div>
+              <div>
+                <span className="text-slate-500">URI: </span>
+                <code className="break-all text-slate-300">{pending.url}</code>
+              </div>
+              <div>
+                <span className="text-slate-500">Backup codes: </span>
+                <code className="break-all text-slate-300">{pending.backup_codes.join(' ')}</code>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+            <div className="flex items-end gap-2">
+              <Input
+                label="Code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="123456"
+                className="max-w-32"
+                data-testid="totp-code"
+              />
+              <Button size="sm" onClick={confirmVerify} disabled={verify.isPending || !code.trim()} data-testid="totp-verify">
+                Verify & enable
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {status?.enabled && (
+          <Button size="sm" variant="danger" onClick={() => setDisabling(true)} data-testid="totp-disable">
+            Disable TOTP
+          </Button>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={disabling}
+        title="Disable two-factor authentication"
+        message={
+          <div className="space-y-3">
+            <p>Enter a current TOTP code to confirm.</p>
+            <Input value={disableCode} onChange={(e) => setDisableCode(e.target.value)} placeholder="123456" data-testid="totp-disable-code" />
+          </div>
+        }
+        confirmLabel="Disable"
+        danger
+        busy={disable.isPending}
+        onConfirm={confirmDisable}
+        onCancel={() => {
+          setDisabling(false)
+          setDisableCode('')
+        }}
+      />
     </Card>
   )
 }

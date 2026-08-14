@@ -188,9 +188,10 @@ def test_settings_connection_tests(ui):
         re.compile("connected", re.I), timeout=SLOW_MS)
 
 
-def test_settings_shows_sources_and_stats(ui):
+def test_settings_shows_sources(ui):
+    # Collection stats moved to System -> Status in PR-G (asserted in
+    # test_system_journey.py); Settings keeps the sources card.
     page = ui["page"]
     _nav(page, "settings", "Settings")
     expect(page.get_by_test_id("settings-sources")).to_contain_text(
         re.compile("vimm", re.I), timeout=SLOW_MS)
-    expect(page.get_by_test_id("settings-stats")).to_be_visible(timeout=SLOW_MS)

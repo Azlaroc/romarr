@@ -13,6 +13,11 @@ import { Settings } from './routes/settings/Settings'
 import { Profiles } from './routes/settings/Profiles'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
 import { ReleaseProfileEditor } from './routes/settings/ReleaseProfileEditor'
+import { SystemStatus } from './routes/system/Status'
+import { Tasks } from './routes/system/Tasks'
+import { Users } from './routes/system/Users'
+import { Backup } from './routes/system/Backup'
+import { Monitor } from './routes/system/Monitor'
 import { NotFound } from './routes/NotFound'
 
 export const router = createBrowserRouter([
@@ -38,6 +43,12 @@ export const router = createBrowserRouter([
       { path: 'settings/profiles/quality/:id', element: <QualityProfileEditor /> },
       { path: 'settings/profiles/release/new', element: <ReleaseProfileEditor /> },
       { path: 'settings/profiles/release/:id', element: <ReleaseProfileEditor /> },
+      { path: 'system', element: <Navigate to="/system/status" replace /> },
+      { path: 'system/status', element: <SystemStatus /> },
+      { path: 'system/tasks', element: <Tasks /> },
+      { path: 'system/users', element: <Users /> },
+      { path: 'system/backup', element: <Backup /> },
+      { path: 'system/monitor', element: <Monitor /> },
       { path: '*', element: <NotFound /> },
     ],
   },

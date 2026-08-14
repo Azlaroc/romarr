@@ -8,7 +8,7 @@ import {
   keepPreviousData,
   type UseQueryResult,
 } from '@tanstack/react-query'
-import { api, qs } from './client'
+import { api, ApiError, qs } from './client'
 import { pickArray, pickNumber } from './unwrap'
 import type {
   AppConfig,
@@ -36,6 +36,13 @@ import type {
   PlayHistoryEntry,
   PlayHistoryStats,
   AppNotification,
+  AdminDashboard,
+  SchedulerStatus,
+  LibrarySyncStatus,
+  SafeUser,
+  InviteCode,
+  BackupInfo,
+  TotpSetupResponse,
 } from './types'
 
 export const keys = {
@@ -59,6 +66,13 @@ export const keys = {
   playHistory: ['play-history'] as const,
   playStats: ['play-stats'] as const,
   notifications: ['notifications'] as const,
+  dashboard: ['admin-dashboard'] as const,
+  scheduler: ['scheduler-status'] as const,
+  syncStatus: ['sync-status'] as const,
+  users: ['users'] as const,
+  invites: ['invites'] as const,
+  backups: ['backups'] as const,
+  totpStatus: ['totp-status'] as const,
 }
 
 // ---------- queries ----------
@@ -519,4 +533,164 @@ export function useRegister() {
 
 export function useLogout() {
   return useMutation({ mutationFn: () => api.post('/api/logout') })
+}
+
+// ---------- system section (PR-G) ----------
+
+export function useDashboard() {
+  return useQuery({
+    queryKey: keys.dashboard,
+    queryFn: () => api.get<AdminDashboard>('/api/admin/dashboard'),
+    retry: false,
+  })
+}
+
+export function useSchedulerStatus() {
+  return useQuery({
+    queryKey: keys.scheduler,
+    queryFn: () => api.get<SchedulerStatus>('/api/scheduler/status'),
+    refetchInterval: 15_000,
+  })
+}
+
+export function useRunScheduler() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean; message?: string }>('/api/scheduler/run'),
+    // Fire-and-forget on the backend — give the cycle a beat before refetching.
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.scheduler }), 2000),
+  })
+}
+
+export function useSyncStatus() {
+  return useQuery({
+    queryKey: keys.syncStatus,
+    queryFn: () => api.get<LibrarySyncStatus>('/api/library/sync/status'),
+  })
+}
+
+export function useTriggerSync() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (full: boolean) =>
+      api.post<{ success: boolean; error?: string; message?: string }>(`/api/library/sync${full ? '?full=true' : ''}`),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.syncStatus }), 2000),
+  })
+}
+
+export function useUsers() {
+  return useQuery({
+    queryKey: keys.users,
+    // In open mode there are zero users and the backend serializes null — coerce.
+    queryFn: async () => pickArray<SafeUser>(await api.get('/api/users'), 'users'),
+    retry: false,
+  })
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { id: number; role?: string; password?: string }) =>
+      api.patch<{ success: boolean }>(`/api/users/${v.id}`, { role: v.role, password: v.password }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.users }),
+  })
+}
+
+export function useDeleteUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del<{ success: boolean }>(`/api/users/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.users }),
+  })
+}
+
+export function useInvites() {
+  return useQuery({
+    queryKey: keys.invites,
+    queryFn: async () => pickArray<InviteCode>(await api.get('/api/invites'), 'invites'),
+    retry: false,
+  })
+}
+
+export function useCreateInvite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { role?: string; max_uses?: number; expiry_seconds?: number }) =>
+      api.post<{ success: boolean; id: number; code: string; role: string; max_uses: number }>('/api/invites', v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invites }),
+  })
+}
+
+export function useDeleteInvite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del<{ success: boolean }>(`/api/invites/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invites }),
+  })
+}
+
+export function useBackups() {
+  return useQuery({
+    queryKey: keys.backups,
+    queryFn: async () => pickArray<BackupInfo>(await api.get('/api/backup/list'), 'backups'),
+    retry: false,
+  })
+}
+
+export function useRestoreBackup() {
+  const qc = useQueryClient()
+  return useMutation({
+    // POST /api/restore takes the raw ZIP bytes as the request body (not multipart).
+    mutationFn: async (file: File) => {
+      const res = await fetch('/api/restore', { method: 'POST', body: file, credentials: 'include' })
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; restored?: string[]; error?: string }
+      if (!res.ok) throw new ApiError(res.status, data.error ?? `${res.status} restore failed`)
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries(),
+  })
+}
+
+export function useMonitorAction() {
+  const qc = useQueryClient()
+  const invalidate = () => qc.invalidateQueries({ queryKey: keys.monitor })
+  return {
+    approve: useMutation({
+      mutationFn: (id: string) => api.post<{ success: boolean; message?: string }>(`/api/monitor/actions/${id}/approve`),
+      onSuccess: invalidate,
+    }),
+    dismiss: useMutation({
+      mutationFn: (id: string) => api.post<{ success: boolean }>(`/api/monitor/actions/${id}/dismiss`),
+      onSuccess: invalidate,
+    }),
+  }
+}
+
+// TOTP self-service — all routes 401 without a real session user (open mode).
+export function useTotpStatus() {
+  return useQuery({
+    queryKey: keys.totpStatus,
+    queryFn: () => api.get<{ enabled: boolean }>('/api/totp/status'),
+    retry: false,
+  })
+}
+
+export function useTotpSetup() {
+  return useMutation({ mutationFn: () => api.post<TotpSetupResponse>('/api/totp/setup') })
+}
+
+export function useTotpVerify() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (code: string) => api.post<{ success: boolean }>('/api/totp/verify', { code }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.totpStatus }),
+  })
+}
+
+export function useTotpDisable() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (code: string) => api.post<{ success: boolean }>('/api/totp/disable', { code }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.totpStatus }),
+  })
 }

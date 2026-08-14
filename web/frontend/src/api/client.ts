@@ -54,7 +54,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   // Never fire the global handler for the status probe itself — the gate reads
   // it directly and a 401 there is meaningful, not a session-expiry event.
-  if (res.status === 401 && path !== '/api/auth/status') {
+  // Same for the TOTP routes: they are session-user-only and 401 by design in
+  // open mode while the rest of the app runs as anonymous admin — bouncing to
+  // the auth gate would hijack the whole shell. The Security card handles
+  // their 401s locally (isUnauthorized).
+  if (res.status === 401 && path !== '/api/auth/status' && !path.startsWith('/api/totp/')) {
     onUnauthorized?.()
   }
 
@@ -87,4 +91,14 @@ export const qs = (params: Record<string, string | number | undefined>): string 
   }
   const s = p.toString()
   return s ? `?${s}` : ''
+}
+
+/** True when the error is an admin-gated 403 from the API. */
+export function isForbidden(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 403
+}
+
+/** True when the error is a 401 (no session user — e.g. TOTP routes in open mode). */
+export function isUnauthorized(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 401
 }

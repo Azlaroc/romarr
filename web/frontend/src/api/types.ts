@@ -108,6 +108,10 @@ export interface MonitorStatus {
   provider?: string
   model?: string
   diagnosis?: string
+  auto_fix?: boolean
+  interval?: number
+  pending_actions?: MonitorAction[]
+  action_history?: MonitorAction[]
 }
 
 export interface AppConfig {
@@ -267,4 +271,79 @@ export interface AppNotification {
   message?: string
   read: boolean
   created_at?: string // RFC3339 (Go time.Time)
+}
+
+// ---------- system section (PR-G) ----------
+
+/** Sanitized user row from GET /api/users (admin). */
+export interface SafeUser {
+  id: number
+  username: string
+  role: string
+  created_at: string // RFC3339
+  last_login?: string
+}
+
+export interface InviteCode {
+  id: number
+  code: string
+  created_by?: number
+  role: string
+  max_uses: number
+  uses: number
+  created_at?: string
+  expires_at?: number // unix seconds
+}
+
+export interface AdminDashboard {
+  library_stats?: Record<string, number>
+  library_total?: number
+  active_downloads?: number
+  sources_health?: { name: string; label: string; status: string }[]
+  total_users?: number
+  system?: { version?: string; uptime?: string; go_version?: string }
+}
+
+/** GET /api/scheduler/status — degraded nil-scheduler shape is {enabled:false, error}. */
+export interface SchedulerStatus {
+  enabled: boolean
+  error?: string
+  interval_hours?: number
+  auto_download?: boolean
+  min_score?: number
+  selector_mode?: string
+  running?: boolean
+  last_run?: string // RFC3339; zero value = "0001-01-01T00:00:00Z"
+  last_results?: number
+  auto_downloads?: number
+}
+
+export interface LibrarySyncStatus {
+  enabled?: boolean
+  running?: boolean
+  last_sync?: string
+  last_error?: string
+  [k: string]: unknown
+}
+
+export interface BackupInfo {
+  name: string
+  filename: string
+  size: number
+  created_at: string // RFC3339
+}
+
+export interface MonitorAction {
+  id: string
+  action: string
+  description?: string
+  risk?: string
+  params?: unknown
+}
+
+export interface TotpSetupResponse {
+  success: boolean
+  secret: string
+  url: string
+  backup_codes: string[]
 }

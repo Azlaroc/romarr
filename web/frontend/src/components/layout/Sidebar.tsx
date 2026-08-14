@@ -35,7 +35,7 @@ export function Sidebar({ mobileOpen, onNavigate }: { mobileOpen: boolean; onNav
             const badge = item.badge === 'downloads' && activeCount > 0 ? activeCount : null
             const sectionActive = item.end ? pathname === item.to : pathname.startsWith(item.to)
             return (
-              <div key={item.to}>
+              <div key={item.to} className={item.divider ? 'mt-4 border-t border-slate-800 pt-4' : undefined}>
                 <NavLink
                   to={item.to}
                   end={item.end}
