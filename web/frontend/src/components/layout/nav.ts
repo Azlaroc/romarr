@@ -1,4 +1,4 @@
-import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, Settings, type LucideIcon } from 'lucide-react'
+import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, Settings, Wrench, type LucideIcon } from 'lucide-react'
 
 export interface NavChild {
   to: string
@@ -14,10 +14,11 @@ export interface NavItem {
   badge?: 'downloads'
   /** Sub-pages, rendered indented while the parent section is active. */
   children?: NavChild[]
+  /** Visual divider above this entry (System sits apart, arr-style). */
+  divider?: boolean
 }
 
-// PR-A information architecture plus the PR-C..F sub-sections. System
-// arrives in PR-G.
+// The full arr information architecture (PR-A shell + PR-C..G sections).
 export const NAV: NavItem[] = [
   { to: '/', label: 'Library', icon: Gamepad2, end: true },
   { to: '/add', label: 'Add New', icon: Plus },
@@ -50,6 +51,19 @@ export const NAV: NavItem[] = [
     children: [
       { to: '/settings/general', label: 'General' },
       { to: '/settings/profiles', label: 'Profiles' },
+    ],
+  },
+  {
+    to: '/system',
+    label: 'System',
+    icon: Wrench,
+    divider: true,
+    children: [
+      { to: '/system/status', label: 'Status' },
+      { to: '/system/tasks', label: 'Tasks' },
+      { to: '/system/users', label: 'Users' },
+      { to: '/system/backup', label: 'Backup' },
+      { to: '/system/monitor', label: 'Monitor' },
     ],
   },
 ]

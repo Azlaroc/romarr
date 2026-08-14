@@ -88,3 +88,13 @@ export const qs = (params: Record<string, string | number | undefined>): string 
   const s = p.toString()
   return s ? `?${s}` : ''
 }
+
+/** True when the error is an admin-gated 403 from the API. */
+export function isForbidden(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 403
+}
+
+/** True when the error is a 401 (no session user — e.g. TOTP routes in open mode). */
+export function isUnauthorized(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 401
+}
