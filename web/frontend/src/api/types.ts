@@ -113,6 +113,7 @@ export interface MonitorStatus {
 export interface AppConfig {
   romm_url?: string
   gamevault_url?: string
+  rawg?: { configured?: boolean }
   [k: string]: unknown
 }
 
@@ -222,4 +223,48 @@ export interface GameRequest {
 export interface RequestsPage {
   requests: GameRequest[]
   total: number
+}
+
+/** GET /api/calendar[.../recent] entry (RAWG-backed; empty without RAWG_API_KEY). */
+export interface CalendarEntry {
+  id: number
+  name: string
+  release_date: string // "YYYY-MM-DD" — render verbatim
+  platforms?: string[]
+  background_image?: string
+  rating?: number
+  on_wishlist?: boolean
+}
+
+export interface PlayHistoryEntry {
+  id: number
+  user_id?: string
+  game_title: string
+  platform?: string
+  platform_slug?: string
+  started_at?: string // RFC3339 — render substrings only
+  finished_at?: string
+  rating?: number
+  notes?: string
+  hours_played?: number
+}
+
+export interface PlayHistoryStats {
+  games_this_month?: number
+  games_this_year?: number
+  games_total?: number
+  avg_rating?: number
+  total_hours?: number
+  by_platform?: Record<string, number>
+}
+
+/** models.Notification — name avoids clashing with the DOM Notification type. */
+export interface AppNotification {
+  id: number
+  user_id?: string
+  type?: string
+  title: string
+  message?: string
+  read: boolean
+  created_at?: string // RFC3339 (Go time.Time)
 }

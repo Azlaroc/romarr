@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import App from './App'
 import { Library } from './routes/Library'
 import { AddNew } from './routes/AddNew'
+import { Calendar } from './routes/Calendar'
+import { PlayLog } from './routes/PlayLog'
 import { Queue } from './routes/activity/Queue'
 import { History } from './routes/activity/History'
 import { Blocklist } from './routes/activity/Blocklist'
@@ -20,6 +22,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Library /> },
       { path: 'add', element: <AddNew /> },
+      { path: 'calendar', element: <Calendar /> },
+      { path: 'playlog', element: <PlayLog /> },
       { path: 'activity', element: <Navigate to="/activity/queue" replace /> },
       { path: 'activity/queue', element: <Queue /> },
       { path: 'activity/history', element: <History /> },
