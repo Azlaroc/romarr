@@ -209,7 +209,7 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 	finalPath = m.MaybeConvert(lead.jobID, finalPath, platSlug, hashStatus)
 	writeMetadataSidecar(finalPath, title, platf, platSlug, false, source)
 	m.TrackInLibrary(title, platf, platSlug, false, finalPath,
-		contentSize(finalPath), source, sourceClient, "set:"+discSetID)
+		contentSize(finalPath), source, sourceClient, "set:"+discSetID, lead.jobID)
 
 	detail := fmt.Sprintf("Disc set complete (%d discs)", imported)
 	if degraded {

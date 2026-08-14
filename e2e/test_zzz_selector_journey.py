@@ -5,8 +5,9 @@ criteria, end to end through the REAL scheduler in enforce mode:
       complete disc set that converges into one game dir + one library row;
   (b) a wishlisted cart (Kirby's Dream Land, gb) grabs exactly the 1G1R
       pick — World region, highest revision — out of three candidate dumps;
-  (c) wishlist lifecycle: rows survive the grab and are removed by a later
-      cycle's owned check, with no duplicate grabs in between.
+  (c) wishlist lifecycle: each grab's import consumes its wishlist row at
+      import time (#280 — the scheduler_download job is joined back to the
+      wishlist title), and a later cycle re-grabs nothing.
 
 Named test_zzz_* so it runs after every other journey: it consumes the
 library/state those tests build (FF7 is already imported — which is exactly
@@ -107,12 +108,13 @@ def test_selector_enforce_grabs_1g1r_and_disc_sets(app, stub_server):
                         if "Kirby" in (it.get("title") or "")), None),
           msg="the Kirby library row")
 
-    # (c) Lifecycle: rows survived the grabs...
-    assert len(_wishlist(base)) == 2, "wishlist rows must survive enforce grabs"
+    # (c) Lifecycle (#280): each import consumed its wishlist row at import
+    # time — the release-derived library title may never match the wishlist
+    # title, so a later cycle's owned check can't be trusted to clean up.
+    _wait(lambda: len(_wishlist(base)) == 0 or None, msg="wishlist consumed at import")
     job_count = len(_jobs(base))
 
-    # ...and a later cycle sees both titles owned: rows deleted, nothing
-    # re-grabbed (owned check, backstopped by the active-grab check).
+    # A later cycle finds nothing to do and re-grabs nothing.
     _req(base, "/api/scheduler/run", "POST", {})
-    _wait(lambda: len(_wishlist(base)) == 0 or None, msg="wishlist emptied by owned check")
-    assert len(_jobs(base)) == job_count, "second cycle must not re-grab owned titles"
+    time.sleep(2)
+    assert len(_jobs(base)) == job_count, "second cycle must not re-grab imported titles"

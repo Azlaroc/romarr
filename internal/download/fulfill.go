@@ -163,7 +163,7 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 		sourceID = meta.Source + ":" + finalPath
 	}
 	m.TrackInLibrary(meta.Title, meta.Platform, meta.PlatformSlug, false, finalPath,
-		contentSize(finalPath), meta.Source, meta.SourceClient, sourceID)
+		contentSize(finalPath), meta.Source, meta.SourceClient, sourceID, meta.JobID)
 	if meta.JobID != "" {
 		m.jobs.LogActivity("download_completed", meta.Title, activityMessage(meta.Source, meta.Platform), meta.JobID, nil)
 	}
