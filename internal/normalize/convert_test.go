@@ -73,6 +73,10 @@ func TestConvertToCHD(t *testing.T) {
 		}
 		if !fileExists(filepath.Join(dir, "Some Game (USA).chd")) {
 			t.Error("expected Some Game (USA).chd")
+		} else if fi, err := os.Stat(filepath.Join(dir, "Some Game (USA).chd")); err == nil && fi.Mode().Perm() != 0o664 {
+			// rom-converto writes 0600; the convert step must loosen it so
+			// downstream consumers can read the library file.
+			t.Errorf("chd mode = %v, want 0664", fi.Mode().Perm())
 		}
 		if fileExists(filepath.Join(dir, "Some Game (USA).cue")) || fileExists(filepath.Join(dir, "Some Game (USA).bin")) {
 			t.Error("source cue/bin must be deleted only after a verified convert — here they should be gone")

@@ -238,6 +238,10 @@ func (n *Normalizer) Convert(ctx context.Context, artifactPath, platformSlug, ha
 			_ = os.Remove(chdPath)
 			continue
 		}
+		// rom-converto writes its output 0600; library files must be group/
+		// world-readable for downstream consumers (media-server byte-serving,
+		// backup users).
+		_ = os.Chmod(chdPath, 0o664)
 		removeSourceDisc(disc)
 		res.Converted++
 		if !fi.IsDir() {
@@ -255,6 +259,9 @@ func (n *Normalizer) Convert(ctx context.Context, artifactPath, platformSlug, ha
 			_ = os.Remove(m)
 		}
 		_ = n.cv.Playlist(ctx, artifactPath, converto.Options{PlaylistMode: "multiple", Quiet: true})
+		for _, m := range globM3U(artifactPath) {
+			_ = os.Chmod(m, 0o664)
+		}
 	}
 
 	slog.Info("converted to CHD", "platform", platformSlug, "count", res.Converted, "path", sanitizeLog(finalPath))
