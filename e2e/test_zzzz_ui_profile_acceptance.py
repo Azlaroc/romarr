@@ -102,23 +102,30 @@ def test_ui_profile_drives_enforce_grab(ui, app):
         )
     assert _wait(_decision, msg="a selector_decision activity entry for Wario")
 
-    # 5b. The wishlist row surfaces the selector outcome (PR-E status chip).
-    #     Tolerant on the label — the chip reflects whichever recent event the
-    #     activity join sees first; only its presence is the contract here.
-    _nav(page, "wanted", "Wanted")
-    wario_row = page.locator('[data-testid="wishlist"] > div', has_text="Wario Land").first
-    chip = wario_row.locator('[data-testid^="wish-status-"]')
-    expect(chip).to_be_visible(timeout=SLOW_MS)
-    expect(chip).to_contain_text(re.compile("Grabbed|Waiting|Owned|Skipped|Decision", re.I), timeout=SLOW_MS)
-
-    # 6. Lifecycle + state-neutral exit: a second cycle sees Wario owned and
-    #    removes the wishlist row (enforce's owned check) — leaving the
-    #    wishlist empty for the API-only journeys that run after this block.
-    _req(base, "/api/scheduler/run", "POST", {})
+    # 5b. Lifecycle (#280): the import consumed the wishlist row — the grab's
+    #     scheduler_download job is joined back to the wishlist title at
+    #     import time, so the row is gone without waiting for a later cycle's
+    #     owned check (which could never match a release-derived library
+    #     title like "CTR - Crash Team Racing" anyway). This supersedes the
+    #     PR-E chip-presence assert here: a consumed row leaves no chip.
     _wait(
         lambda: (not any("Wario" in (w.get("title") or "") for w in _wishlist(base))) or None,
-        msg="owned check removing the Wario wishlist row",
+        msg="import consuming the Wario wishlist row",
     )
+
+    def _fulfilled():
+        entries = _req(base, "/api/activity").get("entries", [])
+        return next(
+            (e for e in entries
+             if e.get("event_type") == "wishlist_fulfilled" and "Wario" in (e.get("title") or "")),
+            None,
+        )
+    assert _wait(_fulfilled, msg="a wishlist_fulfilled activity entry for Wario")
+
+    # 6. State-neutral exit: the wishlist UI no longer lists Wario — leaving
+    #    the wishlist empty for the API-only journeys that run after this block.
+    _nav(page, "wanted", "Wanted")
+    expect(page.get_by_test_id("wishlist")).not_to_contain_text("Wario Land", timeout=SLOW_MS)
 
     # Delete the gb profile so it can't shadow the global default profile
     # test_zzz_selector_journey.py tunes for its Kirby (gb) grab.

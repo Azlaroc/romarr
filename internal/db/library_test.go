@@ -293,3 +293,47 @@ func TestBoolToInt(t *testing.T) {
 		t.Error("boolToInt(false) should be 0")
 	}
 }
+
+// #280: a scheduler grab's import consumes its wishlist row via the
+// scheduler_download activity linkage — regardless of how the library row
+// ends up titled.
+func TestSchedulerDownloadTitleLinkage(t *testing.T) {
+	s := newTestStore(t)
+	s.LogActivity("scheduler_download", "Crash Team Racing",
+		"Auto-downloaded from wishlist search: CTR - Crash Team Racing (USA).zip", "job123", nil)
+	if got := s.SchedulerDownloadTitle("job123"); got != "Crash Team Racing" {
+		t.Fatalf("SchedulerDownloadTitle = %q, want the wishlist title", got)
+	}
+	if got := s.SchedulerDownloadTitle("nope"); got != "" {
+		t.Fatalf("unknown job = %q, want empty", got)
+	}
+	if got := s.SchedulerDownloadTitle(""); got != "" {
+		t.Fatalf("empty job id = %q, want empty", got)
+	}
+}
+
+func TestDeleteWishlistByTitle(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.AddWishlistItem("Crash Team Racing", "PS1", "psx"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddWishlistItem("Crash Team Racing", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddWishlistItem("Crash Team Racing", "GBA", "gba"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case-insensitive; a psx import removes the psx row AND the
+	// platform-less row, but never the gba row.
+	if n := s.DeleteWishlistByTitle("crash team racing", "psx"); n != 2 {
+		t.Fatalf("deleted %d rows, want 2 (psx + platform-less)", n)
+	}
+	left := s.GetWishlist()
+	if len(left) != 1 || left[0].PlatformSlug != "gba" {
+		t.Fatalf("remaining rows = %+v, want only the gba row", left)
+	}
+	if n := s.DeleteWishlistByTitle("", "psx"); n != 0 {
+		t.Fatalf("empty title deleted %d rows, want 0", n)
+	}
+}

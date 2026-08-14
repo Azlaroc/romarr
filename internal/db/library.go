@@ -305,6 +305,43 @@ func (s *JobStore) DeleteWishlistItem(id int64) error {
 	return err
 }
 
+// SchedulerDownloadTitle returns the wishlist title that drove jobID's grab —
+// the scheduler_download activity row logged at dispatch — or "" when the job
+// was not a scheduler grab (manual downloads, request searches).
+func (s *JobStore) SchedulerDownloadTitle(jobID string) string {
+	if jobID == "" {
+		return ""
+	}
+	var title string
+	err := s.db.QueryRow(
+		"SELECT title FROM activity_log WHERE event_type = 'scheduler_download' AND job_id = ? ORDER BY id DESC LIMIT 1",
+		jobID,
+	).Scan(&title)
+	if err != nil {
+		return ""
+	}
+	return title
+}
+
+// DeleteWishlistByTitle removes wishlist rows matching title case-insensitively
+// on the given platform (rows with a blank platform_slug match any platform;
+// a blank platformSlug argument matches every row with the title). Reports how
+// many rows were removed.
+func (s *JobStore) DeleteWishlistByTitle(title, platformSlug string) int {
+	if title == "" {
+		return 0
+	}
+	res, err := s.db.Exec(
+		"DELETE FROM wishlist WHERE LOWER(title) = LOWER(?) AND (platform_slug = ? OR platform_slug = '' OR ? = '')",
+		title, platformSlug, platformSlug,
+	)
+	if err != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
+}
+
 // ── Activity Log ───────────────────────────────────────────────────────────────
 
 // LogActivity writes an activity log entry.

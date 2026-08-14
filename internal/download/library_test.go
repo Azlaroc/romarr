@@ -217,7 +217,7 @@ func TestTrackInLibrary(t *testing.T) {
 	jobs := newTestJobs(t)
 	m := New(cfg, jobs, nil)
 
-	m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/roms/snes/g.sfc", 42, "torrent", "prowlarr", "torrent:abc")
+	m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/roms/snes/g.sfc", 42, "torrent", "prowlarr", "torrent:abc", "")
 
 	if !jobs.LibraryHasSourceID("torrent:abc") {
 		t.Fatal("library item not added")
@@ -248,7 +248,7 @@ func TestTrackInLibrary(t *testing.T) {
 
 	t.Run("duplicate source id ignored", func(t *testing.T) {
 		before := jobs.LibraryTotal()
-		m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/other", 1, "torrent", "prowlarr", "torrent:abc")
+		m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/other", 1, "torrent", "prowlarr", "torrent:abc", "")
 		if after := jobs.LibraryTotal(); after != before {
 			t.Errorf("library total = %d, want %d (dedup)", after, before)
 		}
@@ -297,4 +297,48 @@ func TestScanVaultSkipsHiddenAndSidecars(t *testing.T) {
 	if jobs.LibraryHasSourceID("scan:" + filepath.Join(dir, "Game.zip.gamarr.json")) {
 		t.Error("sidecar should be skipped")
 	}
+}
+
+// #280: a scheduler grab consumes its wishlist row at import time — TrackInLibrary
+// joins the job back to the scheduler_download activity's wishlist title, so the
+// release-derived library title ("CTR - Crash Team Racing (USA).zip") never has
+// to match the wishlist title ("Crash Team Racing").
+func TestTrackInLibraryConsumesWishlistRow(t *testing.T) {
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	m := New(cfg, jobs, nil)
+
+	if _, err := jobs.AddWishlistItem("Crash Team Racing", "PS1", "psx"); err != nil {
+		t.Fatal(err)
+	}
+	jobs.LogActivity("scheduler_download", "Crash Team Racing",
+		"Auto-downloaded from wishlist search: CTR - Crash Team Racing (USA).zip", "job-ctr", nil)
+
+	m.TrackInLibrary("CTR - Crash Team Racing (USA).zip", "PS1", "psx", false,
+		"/roms/psx/CTR - Crash Team Racing (USA)", 1, "ddl", "ddl", "ddl:/roms/psx/ctr", "job-ctr")
+
+	if left := jobs.GetWishlist(); len(left) != 0 {
+		t.Fatalf("wishlist = %+v, want the row consumed at import", left)
+	}
+	entries, _ := jobs.GetActivity(1, 50)
+	var fulfilled bool
+	for _, e := range entries {
+		if e.EventType == "wishlist_fulfilled" && e.Title == "Crash Team Racing" {
+			fulfilled = true
+		}
+	}
+	if !fulfilled {
+		t.Errorf("wishlist_fulfilled activity missing: %+v", entries)
+	}
+
+	t.Run("manual import leaves the wishlist alone", func(t *testing.T) {
+		if _, err := jobs.AddWishlistItem("Some Other Game", "PS1", "psx"); err != nil {
+			t.Fatal(err)
+		}
+		m.TrackInLibrary("Some Other Game (USA).zip", "PS1", "psx", false,
+			"/roms/psx/other", 1, "ddl", "ddl", "ddl:/roms/psx/other", "")
+		if left := jobs.GetWishlist(); len(left) != 1 {
+			t.Fatalf("wishlist = %+v, want the row untouched by a non-scheduler import", left)
+		}
+	})
 }

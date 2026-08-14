@@ -201,8 +201,10 @@ func containsGameFiles(dir string) bool {
 	return false
 }
 
-// TrackInLibrary adds a completed download to the library.
-func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID string) {
+// TrackInLibrary adds a completed download to the library. jobID is the
+// download job that produced the import ("" when none) — it links the
+// import_completed activity and lets a scheduler grab consume its wishlist row.
+func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID, jobID string) {
 	if m.jobs.LibraryHasSourceID(sourceID) {
 		return
 	}
@@ -222,7 +224,18 @@ func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool
 		slog.Warn("failed to add to library", "error", err)
 		return
 	}
-	m.jobs.LogActivity("import_completed", title, "Added to library: "+platform, "", &id)
+	m.jobs.LogActivity("import_completed", title, "Added to library: "+platform, jobID, &id)
+
+	// A scheduler grab consumes its wishlist row at import time. The
+	// later-cycle Owned check cannot be trusted for this: the library row is
+	// titled from the release ("CTR - Crash Team Racing (USA).zip"), which
+	// the wishlist title ("Crash Team Racing") may never match — leaving the
+	// row to re-grab the same release every cycle.
+	if wishTitle := m.jobs.SchedulerDownloadTitle(jobID); wishTitle != "" {
+		if n := m.jobs.DeleteWishlistByTitle(wishTitle, platformSlug); n > 0 {
+			m.jobs.LogActivity("wishlist_fulfilled", wishTitle, "Imported — removed from wishlist", jobID, nil)
+		}
+	}
 }
 
 func dirSize(path string) int64 {
