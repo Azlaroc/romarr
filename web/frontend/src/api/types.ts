@@ -134,3 +134,48 @@ export interface TestResult {
   error?: string
   message?: string
 }
+
+// Quality profiles are the one full-body-replace surface: PUT zeroes omitted
+// fields server-side, so every field is required here and the editors always
+// round-trip the complete object (including the reserved upgrade fields).
+export interface QualityProfile {
+  id: number
+  name: string
+  platform_slug: string // "" = global
+  is_default: boolean
+  region_priority: string[]
+  format_preference: string[]
+  prefer_1g1r: boolean
+  allow_proto: boolean
+  allow_demo: boolean
+  allow_bios: boolean
+  source_ranking: string[]
+  preferred_size_min: number // bytes, 0 = platform default
+  preferred_size_max: number // bytes, 0 = platform default
+  upgrade_allowed: boolean // reserved — stored but not read by the selector
+  cutoff_source: string // reserved — stored but not read by the selector
+}
+
+export interface PreferredWord {
+  word: string
+  score: number
+}
+
+export interface ReleaseProfile {
+  id: number
+  name: string
+  must_contain: string[]
+  must_not_contain: string[]
+  preferred: PreferredWord[]
+  enabled: boolean
+}
+
+export interface BlocklistItem {
+  id: number
+  title: string
+  source: string
+  download_url: string
+  info_hash: string
+  reason: string
+  created_at: string // SQLite datetime text ("2026-08-14 03:09:00"), NOT RFC3339
+}
