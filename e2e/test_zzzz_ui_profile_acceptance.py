@@ -12,6 +12,7 @@ deleted afterwards — a leftover platform-exact profile would shadow the global
 default row that test_zzz tunes for its own Kirby (gb) grab.
 """
 import json
+import re
 import time
 import urllib.request
 
@@ -100,6 +101,15 @@ def test_ui_profile_drives_enforce_grab(ui, app):
             None,
         )
     assert _wait(_decision, msg="a selector_decision activity entry for Wario")
+
+    # 5b. The wishlist row surfaces the selector outcome (PR-E status chip).
+    #     Tolerant on the label — the chip reflects whichever recent event the
+    #     activity join sees first; only its presence is the contract here.
+    _nav(page, "wanted", "Wanted")
+    wario_row = page.locator('[data-testid="wishlist"] > div', has_text="Wario Land").first
+    chip = wario_row.locator('[data-testid^="wish-status-"]')
+    expect(chip).to_be_visible(timeout=SLOW_MS)
+    expect(chip).to_contain_text(re.compile("Grabbed|Waiting|Owned|Skipped|Decision", re.I), timeout=SLOW_MS)
 
     # 6. Lifecycle + state-neutral exit: a second cycle sees Wario owned and
     #    removes the wishlist row (enforce's owned check) — leaving the
