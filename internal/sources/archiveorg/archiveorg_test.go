@@ -236,3 +236,24 @@ func titles(rs []driver.Release) []string {
 	}
 	return out
 }
+
+// The #281 wrong-grab: tokenize dropped the "2" from "Spyro 2", degenerating
+// the query to {spyro} and matching every Spyro game. Numeric single-char
+// tokens are identity and must survive; 1-char letter fragments stay noise.
+func TestTokenizeKeepsNumericSingles(t *testing.T) {
+	q := tokenize("Spyro 2")
+	if !q["spyro"] || !q["2"] || len(q) != 2 {
+		t.Fatalf("query tokens = %v, want {spyro 2}", q)
+	}
+	if s := tokenize("Ripto's Rage!"); s["s"] || !s["ripto"] || !s["rage"] {
+		t.Fatalf("tokens = %v, want ripto+rage without the possessive s", s)
+	}
+	right := tokenize("Spyro 2 - Ripto's Rage! (USA)")
+	wrong := tokenize("Spyro - Year of the Dragon (USA) (Rev 1)")
+	if !overlaps(q, right) {
+		t.Fatalf("query %v should match %v", q, right)
+	}
+	if overlaps(q, wrong) {
+		t.Fatalf("query %v must not match %v", q, wrong)
+	}
+}

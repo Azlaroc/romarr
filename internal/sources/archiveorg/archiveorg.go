@@ -337,11 +337,14 @@ func (d *Driver) Fetch(ctx context.Context, r driver.Release, destDir string) (s
 	return final, nil
 }
 
-// tokenize lowercases and splits into alnum words longer than 1 char.
+// tokenize lowercases and splits into alnum words. Single-character words
+// are kept only when numeric: the "2" in "Spyro 2" is identity and dropping
+// it made the query match every Spyro game (the #281 wrong-grab); the
+// possessive "s" in "Ripto's" stays noise.
 func tokenize(s string) map[string]bool {
 	out := map[string]bool{}
 	for _, w := range wordSplitRe.Split(strings.ToLower(s), -1) {
-		if len(w) > 1 {
+		if len(w) > 1 || (len(w) == 1 && w[0] >= '0' && w[0] <= '9') {
 			out[w] = true
 		}
 	}

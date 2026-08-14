@@ -2,6 +2,7 @@ package selection
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gamarr/internal/db"
@@ -68,10 +69,14 @@ func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
 
 // rankKey is the lexicographic comparison key: lower is better at every
 // position, compared left to right. The tier order is the selection policy:
-// verifiability outranks everything (a hash-carrying release feeds the
-// destructive-convert BEFORE gate; a hashless one cannot), then region,
-// format, 1G1R quality, source trust, and only then the fuzzy quality score.
+// title identity comes first — a release that isn't the queried game must
+// never beat one that is, whatever its hashes or revision (the "Spyro 2"
+// wishlist that grabbed "Spyro - Year of the Dragon (Rev 1)"). Then
+// verifiability (a hash-carrying release feeds the destructive-convert
+// BEFORE gate; a hashless one cannot), region, format, 1G1R quality, source
+// trust, and only then the fuzzy quality score.
 type rankKey struct {
+	titleSlop   int // extra clean-title tokens beyond the query; titleNoCover = query not covered
 	noHash      int // 0 = has MD5/SHA1
 	regionRank  int // index into profile RegionPriority; len = region-less/unmatched
 	formatRank  int // index into profile FormatPreference; len = unknown format
@@ -81,8 +86,52 @@ type rankKey struct {
 	negScore    int // -Score: higher quality score first
 }
 
-func buildRankKey(r *models.SearchResult, prof *db.QualityProfile) rankKey {
-	k := rankKey{negScore: -r.Score}
+// titleNoCover is the titleSlop sentinel for a candidate whose clean title
+// does not contain every query token. All non-covering candidates tie here
+// (and tie with every candidate when the query itself yields no tokens), so
+// ranking degrades to the quality tiers exactly as before — e.g. a "Final
+// Fantasy 7" query against "Final Fantasy VII" releases, where no candidate
+// covers the numeral.
+const titleNoCover = 1 << 20
+
+// titleTokens lowercases and splits into alnum words. Single-character
+// tokens are kept only when numeric — the "2" in "Spyro 2" is identity, the
+// possessive "s" in "Ripto's" is noise. Mirrors the archive.org driver's
+// query tokenizer.
+var titleSplitRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+func titleTokens(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range titleSplitRe.Split(strings.ToLower(s), -1) {
+		if len(w) > 1 || (len(w) == 1 && w[0] >= '0' && w[0] <= '9') {
+			out[w] = true
+		}
+	}
+	return out
+}
+
+// titleSlop scores how tightly a candidate's clean title fits the query: 0 =
+// token-exact, N = covers the query with N extra tokens, titleNoCover = does
+// not cover. Lower is better; an empty query is neutral (0 for everyone).
+func titleSlop(r *models.SearchResult, query map[string]bool) int {
+	if len(query) == 0 {
+		return 0
+	}
+	name := r.Title
+	if r.Attrs != nil && r.Attrs.CleanTitle != "" {
+		name = r.Attrs.CleanTitle
+	}
+	cand := titleTokens(name)
+	for w := range query {
+		if !cand[w] {
+			return titleNoCover
+		}
+	}
+	return len(cand) - len(query)
+}
+
+func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, query map[string]bool) rankKey {
+	k := rankKey{titleSlop: titleSlop(r, query), negScore: -r.Score}
 	if r.MD5 == "" && r.SHA1 == "" {
 		k.noHash = 1
 	}
@@ -117,6 +166,9 @@ func buildRankKey(r *models.SearchResult, prof *db.QualityProfile) rankKey {
 
 // less compares two rank keys lexicographically.
 func (k rankKey) less(o rankKey) bool {
+	if k.titleSlop != o.titleSlop {
+		return k.titleSlop < o.titleSlop
+	}
 	if k.noHash != o.noHash {
 		return k.noHash < o.noHash
 	}
