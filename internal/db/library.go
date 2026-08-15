@@ -523,6 +523,50 @@ func (s *JobStore) FindLibraryByHash(md5, sha1 string) *LibraryItem {
 	return &item
 }
 
+// LibraryHashIndex returns every stored library hash keyed "md5:<hex>" /
+// "sha1:<hex>" (lowercased), mapped to its row. Both hash families are
+// indexed independently — $.romm (DAT-style content hashes) and $.gamarr
+// (release-file hashes persisted at import) — since an archived release's
+// file hash and its inner rom's content hash never agree. One full-table
+// query, json_valid-guarded like FindLibraryByHash; callers snapshot it once
+// per scheduler cycle.
+func (s *JobStore) LibraryHashIndex() map[string]*LibraryItem {
+	const m = "CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END"
+	rows, err := s.db.Query(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, " +
+			"LOWER(json_extract(" + m + ", '$.romm.md5')), LOWER(json_extract(" + m + ", '$.gamarr.md5')), " +
+			"LOWER(json_extract(" + m + ", '$.romm.sha1')), LOWER(json_extract(" + m + ", '$.gamarr.sha1')) " +
+			"FROM library_items",
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	idx := map[string]*LibraryItem{}
+	for rows.Next() {
+		var item LibraryItem
+		var isPC int
+		var rm, gm, rs, gs sql.NullString
+		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+			&item.SourceID, &item.Metadata, &item.AddedAt, &rm, &gm, &rs, &gs); err != nil {
+			continue
+		}
+		item.IsPC = isPC != 0
+		for _, h := range []struct {
+			prefix string
+			v      sql.NullString
+		}{{"md5:", rm}, {"md5:", gm}, {"sha1:", rs}, {"sha1:", gs}} {
+			if h.v.Valid && h.v.String != "" {
+				if _, dup := idx[h.prefix+h.v.String]; !dup {
+					idx[h.prefix+h.v.String] = &item
+				}
+			}
+		}
+	}
+	return idx
+}
+
 // NormalizeTitleKey lowercases, trims and strips one trailing file extension
 // from a title, matching how the RomM sync builds search keys from fs names.
 func NormalizeTitleKey(title string) string {

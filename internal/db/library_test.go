@@ -371,3 +371,28 @@ func TestFindLibraryByHash(t *testing.T) {
 		t.Errorf("md5 input matched a sha1 field: %+v", it)
 	}
 }
+
+func TestLibraryHashIndex(t *testing.T) {
+	store := newTestStore(t)
+	store.AddLibraryItem(&LibraryItem{Title: "A", PlatformSlug: "snes", FilePath: "/a",
+		Source: "romm", SourceType: "romm", SourceID: "romm:a",
+		Metadata: `{"romm":{"md5":"AA11","sha1":"bb22"},"gamarr":{"md5":"dd44"}}`})
+	store.AddLibraryItem(&LibraryItem{Title: "B", PlatformSlug: "gb", FilePath: "/b",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:b", Metadata: "not json"})
+	store.AddLibraryItem(&LibraryItem{Title: "C", PlatformSlug: "nes", FilePath: "/c",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:c", Metadata: "{}"})
+
+	idx := store.LibraryHashIndex()
+	if it := idx["md5:aa11"]; it == nil || it.Title != "A" {
+		t.Errorf("md5 key (lowercased) = %+v, want A", it)
+	}
+	if it := idx["sha1:bb22"]; it == nil || it.Title != "A" {
+		t.Errorf("sha1 key = %+v, want A", it)
+	}
+	if it := idx["md5:dd44"]; it == nil || it.Title != "A" {
+		t.Errorf("$.gamarr md5 key = %+v, want A", it)
+	}
+	if len(idx) != 3 {
+		t.Errorf("idx has %d keys, want 3 (empty and malformed metadata skipped)", len(idx))
+	}
+}

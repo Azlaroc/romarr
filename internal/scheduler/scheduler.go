@@ -157,11 +157,13 @@ func (s *Scheduler) run() {
 		mode = "shadow"
 	}
 	var owned func(title, platformSlug string) *db.LibraryItem
+	var ownedByHash func(md5, sha1 string) *db.LibraryItem
 	if mode == "enforce" {
 		// One library snapshot per cycle: parsing 20k+ titles per wishlist
 		// item would be wasteful, and a cycle-stale index is fine — newly
 		// imported titles are caught by the ActiveGrab jobs check instead.
 		owned = s.buildOwnedIndex()
+		ownedByHash = s.buildHashIndex()
 	}
 
 	for i, item := range wishlist {
@@ -221,6 +223,7 @@ func (s *Scheduler) run() {
 		if mode == "enforce" {
 			opts.Owned = owned
 			opts.ActiveGrab = s.activeGrab
+			opts.OwnedByHash = ownedByHash
 		}
 		dec := selection.Select(results, opts)
 
@@ -384,6 +387,29 @@ func (s *Scheduler) buildOwnedIndex() func(title, platformSlug string) *db.Libra
 	return func(title, platformSlug string) *db.LibraryItem {
 		for _, k := range ownershipKeys(title) {
 			if it := idx[k+"|"+platformSlug]; it != nil {
+				return it
+			}
+		}
+		return nil
+	}
+}
+
+// buildHashIndex snapshots the library's stored hash identities once per
+// cycle for the selector's OwnedByHash seam. The Decision reason stays the
+// title-check's "owned" (same wishlist-fulfilled handling); the log line is
+// what distinguishes a hash skip from a title skip.
+func (s *Scheduler) buildHashIndex() func(md5, sha1 string) *db.LibraryItem {
+	idx := s.jobs.LibraryHashIndex()
+	return func(md5, sha1 string) *db.LibraryItem {
+		if v := strings.ToLower(strings.TrimSpace(md5)); v != "" {
+			if it := idx["md5:"+v]; it != nil {
+				slog.Info("scheduler: winner hash-owned", "md5", v, "library_id", it.ID, "owned_title", it.Title)
+				return it
+			}
+		}
+		if v := strings.ToLower(strings.TrimSpace(sha1)); v != "" {
+			if it := idx["sha1:"+v]; it != nil {
+				slog.Info("scheduler: winner hash-owned", "sha1", v, "library_id", it.ID, "owned_title", it.Title)
 				return it
 			}
 		}

@@ -636,3 +636,35 @@ func TestOwnershipKeys(t *testing.T) {
 		t.Errorf("all-tag title produced no keys at all: %v", got)
 	}
 }
+
+func TestEnforceHashOwnedSkipDeletesWishlistRow(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	// The live Hagane finding: the library title does NOT title-match the
+	// wishlist ("Hagane" vs "Hagane - The Final Conflict"), but the stored
+	// $.romm hash matches the winning release byte-for-byte — hash identity
+	// must mark the item fulfilled where title matching cannot.
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Hagane - The Final Conflict (U).zip", Platform: "SNES",
+		PlatformSlug: "snes", FilePath: "/roms/snes/hagane", Source: "romm", SourceType: "romm",
+		SourceID: "romm:777", Metadata: `{"romm":{"md5":"d41d8cd98f00b204e9800998ecf8427e"}}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddWishlistItem("Hagane", "SNES", "snes"); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+		return prep(90, "ddl", "Hagane - The Final Conflict (USA).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (hash-owned)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (hash-owned deletes the row)", len(items))
+	}
+}

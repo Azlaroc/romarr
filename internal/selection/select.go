@@ -75,6 +75,12 @@ type SelectOpts struct {
 	// ActiveGrab reports an in-flight job/set already downloading this
 	// title. Nil func disables the check (PR-5 wires it).
 	ActiveGrab func(title, platformSlug string) bool
+	// OwnedByHash returns the library item whose stored hash identity matches
+	// the given release hashes, or nil. Consulted for the ranked winner only:
+	// a winner byte-identical to a library item means the item is already
+	// fulfilled, regardless of how the titles compare. Nil func disables the
+	// check (wired on the scheduler's enforce path).
+	OwnedByHash func(md5, sha1 string) *db.LibraryItem
 }
 
 // Select picks the release(s) to grab from prepared candidates (Pipeline.
@@ -188,6 +194,17 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 		return buildRankKey(candidates[i].rep, prof, qTokens).less(buildRankKey(candidates[j].rep, prof, qTokens))
 	})
 	winner := candidates[0]
+
+	// A winner byte-identical to a library item means the item is already
+	// fulfilled — ownership is terminal, so it outranks the score gate. Only
+	// the winner is checked: filtering hash-owned candidates instead would
+	// promote a byte-different variant of a game already on disk. Disc sets
+	// are represented by disc 1 (sets carry no hashes today anyway).
+	if opts.OwnedByHash != nil && (winner.rep.MD5 != "" || winner.rep.SHA1 != "") {
+		if item := opts.OwnedByHash(winner.rep.MD5, winner.rep.SHA1); item != nil {
+			return Decision{Action: ActionSkip, Reason: "owned", Rejected: rejected}
+		}
+	}
 
 	if winner.rep.Score < opts.MinScore {
 		return Decision{
