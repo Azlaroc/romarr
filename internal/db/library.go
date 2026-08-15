@@ -523,6 +523,97 @@ func (s *JobStore) FindLibraryByHash(md5, sha1 string) *LibraryItem {
 	return &item
 }
 
+// pathSourceIDPrefixes are the source_id schemes derived from the file path;
+// a path change must rewrite these keys or later imports/scans at the new
+// path mint duplicate rows. RomM's "romm:<id>" identity is path-free.
+var pathSourceIDPrefixes = []string{"ddl:", "torrent:", "nzb:", "manual:", "scan:"}
+
+// UpdateLibraryItemPath updates a row's file_path after an on-disk rename
+// and, in the same transaction, rewrites a path-derived source_id whose
+// remainder equals the old path. Must run BEFORE any RomM rescan so the
+// sync's adopt-by-path check merges instead of duplicating.
+func (s *JobStore) UpdateLibraryItemPath(id int64, newPath string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin path update tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var oldPath, sourceID string
+	if err = tx.QueryRow("SELECT file_path, source_id FROM library_items WHERE id = ?", id).
+		Scan(&oldPath, &sourceID); err != nil {
+		return err
+	}
+	newSourceID := sourceID
+	for _, p := range pathSourceIDPrefixes {
+		if sourceID == p+oldPath {
+			newSourceID = p + newPath
+			break
+		}
+	}
+	if _, err = tx.Exec("UPDATE library_items SET file_path = ?, source_id = ? WHERE id = ?",
+		newPath, newSourceID, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// GetLibraryItemByFilePath returns the row tracking exactly this path, or
+// nil without error when none does (idx_library_file_path backed).
+func (s *JobStore) GetLibraryItemByFilePath(path string) *LibraryItem {
+	if path == "" {
+		return nil
+	}
+	row := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE file_path = ? LIMIT 1",
+		path,
+	)
+	var item LibraryItem
+	var isPC int
+	if err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+		&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+		return nil
+	}
+	item.IsPC = isPC != 0
+	return &item
+}
+
+// ListLibraryItemsForRename returns every non-PC library row in scope for a
+// bulk-rename pass — one platform slug, or all when slug is "". Ordered by
+// platform then path so batch progress reads coherently.
+func (s *JobStore) ListLibraryItemsForRename(platformSlug string) []LibraryItem {
+	query := "SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE is_pc = 0"
+	var args []interface{}
+	if platformSlug != "" {
+		query += " AND platform_slug = ?"
+		args = append(args, platformSlug)
+	}
+	query += " ORDER BY platform_slug, file_path"
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []LibraryItem
+	for rows.Next() {
+		var item LibraryItem
+		var isPC int
+		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+			&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+			continue
+		}
+		item.IsPC = isPC != 0
+		out = append(out, item)
+	}
+	return out
+}
+
 // LibraryHashIndex returns every stored library hash keyed "md5:<hex>" /
 // "sha1:<hex>" (lowercased), mapped to its row. Both hash families are
 // indexed independently — $.romm (DAT-style content hashes) and $.gamarr
