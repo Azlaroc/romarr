@@ -1,9 +1,10 @@
 """Bulk-rename smoke (runs first in the browser block — 'r' sorts before
-'s'ystem/'u'ser journeys — so the library is still empty).
+'s'ystem/'u'ser journeys).
 
-rom-converto is absent in the e2e harness, so only the empty-scope flow is
-exercised: screen renders, a preview over the empty library finishes with
-zero rows, and Apply stays disabled. State-neutral: no downloads, no users.
+The harness pre-seeds a handful of library rows, and rom-converto is absent
+in the e2e image — so every entry classifies as a skip: the preview must
+finish with nothing to rename and Apply stays disabled. State-neutral: no
+files are renamed (there is nothing plannable), no downloads, no users.
 """
 from playwright.sync_api import expect
 
@@ -21,6 +22,8 @@ def test_rename_screen_empty_preview(ui):
     expect(apply_btn).to_be_disabled()
 
     page.get_by_test_id("rename-preview-btn").click()
-    # Empty library → the run finishes immediately with nothing scanned.
-    expect(page.get_by_test_id("rename-status")).to_contain_text("0/0 scanned", timeout=SLOW_MS)
+    # rom-converto is absent → every seeded row skips; nothing is plannable.
+    status = page.get_by_test_id("rename-status")
+    expect(status).to_contain_text("finished", timeout=SLOW_MS)
+    expect(status).to_contain_text("0 to rename", timeout=SLOW_MS)
     expect(apply_btn).to_be_disabled()
