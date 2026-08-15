@@ -2,6 +2,7 @@ package download
 
 import (
 	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 )
@@ -217,7 +218,7 @@ func TestTrackInLibrary(t *testing.T) {
 	jobs := newTestJobs(t)
 	m := New(cfg, jobs, nil)
 
-	m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/roms/snes/g.sfc", 42, "torrent", "prowlarr", "torrent:abc", "")
+	m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/roms/snes/g.sfc", 42, "torrent", "prowlarr", "torrent:abc", "", "", "")
 
 	if !jobs.LibraryHasSourceID("torrent:abc") {
 		t.Fatal("library item not added")
@@ -248,7 +249,7 @@ func TestTrackInLibrary(t *testing.T) {
 
 	t.Run("duplicate source id ignored", func(t *testing.T) {
 		before := jobs.LibraryTotal()
-		m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/other", 1, "torrent", "prowlarr", "torrent:abc", "")
+		m.TrackInLibrary("Tracked Game", "SNES", "snes", false, "/other", 1, "torrent", "prowlarr", "torrent:abc", "", "", "")
 		if after := jobs.LibraryTotal(); after != before {
 			t.Errorf("library total = %d, want %d (dedup)", after, before)
 		}
@@ -315,7 +316,7 @@ func TestTrackInLibraryConsumesWishlistRow(t *testing.T) {
 		"Auto-downloaded from wishlist search: CTR - Crash Team Racing (USA).zip", "job-ctr", nil)
 
 	m.TrackInLibrary("CTR - Crash Team Racing (USA).zip", "PS1", "psx", false,
-		"/roms/psx/CTR - Crash Team Racing (USA)", 1, "ddl", "ddl", "ddl:/roms/psx/ctr", "job-ctr")
+		"/roms/psx/CTR - Crash Team Racing (USA)", 1, "ddl", "ddl", "ddl:/roms/psx/ctr", "job-ctr", "", "")
 
 	if left := jobs.GetWishlist(); len(left) != 0 {
 		t.Fatalf("wishlist = %+v, want the row consumed at import", left)
@@ -336,9 +337,53 @@ func TestTrackInLibraryConsumesWishlistRow(t *testing.T) {
 			t.Fatal(err)
 		}
 		m.TrackInLibrary("Some Other Game (USA).zip", "PS1", "psx", false,
-			"/roms/psx/other", 1, "ddl", "ddl", "ddl:/roms/psx/other", "")
+			"/roms/psx/other", 1, "ddl", "ddl", "ddl:/roms/psx/other", "", "", "")
 		if left := jobs.GetWishlist(); len(left) != 1 {
 			t.Fatalf("wishlist = %+v, want the row untouched by a non-scheduler import", left)
 		}
 	})
+}
+
+func TestTrackInLibraryPersistsReleaseHashes(t *testing.T) {
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	m := New(cfg, jobs, nil)
+
+	m.TrackInLibrary("Hash Game", "SNES", "snes", false, "/roms/snes/h.sfc", 1,
+		"ddl", "ddl", "ddl:/roms/snes/h", "", "D3BFF827B6BE076D969FC1DC01602082", "")
+	item := jobs.FindLibraryByTitle("Hash Game", "snes")
+	if item == nil {
+		t.Fatal("item not found")
+	}
+	var meta map[string]map[string]string
+	if err := json.Unmarshal([]byte(item.Metadata), &meta); err != nil {
+		t.Fatalf("metadata not JSON: %v", err)
+	}
+	if meta["gamarr"]["md5"] != "d3bff827b6be076d969fc1dc01602082" {
+		t.Errorf("$.gamarr.md5 = %q, want lowercased hash", meta["gamarr"]["md5"])
+	}
+	if _, ok := meta["gamarr"]["sha1"]; ok {
+		t.Errorf("empty sha1 must be omitted: %s", item.Metadata)
+	}
+
+	m.TrackInLibrary("Hashless Game", "SNES", "snes", false, "/roms/snes/n.sfc", 1,
+		"ddl", "ddl", "ddl:/roms/snes/n", "", "", "")
+	if item := jobs.FindLibraryByTitle("Hashless Game", "snes"); item == nil || item.Metadata != "{}" {
+		t.Errorf("hashless import metadata = %+v, want {}", item)
+	}
+}
+
+func TestImportMetadata(t *testing.T) {
+	cases := []struct{ md5, sha1, want string }{
+		{"", "", "{}"},
+		{"  ", "", "{}"},
+		{"AA", "", `{"gamarr":{"md5":"aa"}}`},
+		{"", "BB", `{"gamarr":{"sha1":"bb"}}`},
+		{"AA", "bb", `{"gamarr":{"md5":"aa","sha1":"bb"}}`},
+	}
+	for _, c := range cases {
+		if got := importMetadata(c.md5, c.sha1); got != c.want {
+			t.Errorf("importMetadata(%q,%q) = %s, want %s", c.md5, c.sha1, got, c.want)
+		}
+	}
 }

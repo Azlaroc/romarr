@@ -352,7 +352,7 @@ func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string
 		"detail": "Moved to GameVault",
 	})
 	writeMetadataSidecar(path, title, platf, platSlug, isPC, "nzb")
-	m.TrackInLibrary(title, platf, platSlug, isPC, path, 0, "nzb", sourceClient, "nzb:"+path, jobID)
+	m.TrackInLibrary(title, platf, platSlug, isPC, path, 0, "nzb", sourceClient, "nzb:"+path, jobID, "", "")
 	m.jobs.LogActivity("download_completed", title, "NZB to GameVault", jobID, nil)
 }
 

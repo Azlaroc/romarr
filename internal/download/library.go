@@ -1,6 +1,7 @@
 package download
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -202,13 +203,40 @@ func containsGameFiles(dir string) bool {
 	return false
 }
 
+// importMetadata builds the metadata blob for a download-import library row.
+// md5/sha1 are the source release's file hashes (archive.org exposes them),
+// stashed under $.gamarr so ownership checks can recognize a re-encounter of
+// the same release byte-for-byte. Distinct from $.romm's DAT-style content
+// hashes: an archived release's file hash and its inner-rom hash never agree,
+// so both families are kept and matched independently. "{}" when the source
+// exposed no hash.
+func importMetadata(md5, sha1 string) string {
+	hashes := map[string]string{}
+	if v := strings.ToLower(strings.TrimSpace(md5)); v != "" {
+		hashes["md5"] = v
+	}
+	if v := strings.ToLower(strings.TrimSpace(sha1)); v != "" {
+		hashes["sha1"] = v
+	}
+	if len(hashes) == 0 {
+		return "{}"
+	}
+	out, err := json.Marshal(map[string]map[string]string{"gamarr": hashes})
+	if err != nil {
+		return "{}"
+	}
+	return string(out)
+}
+
 // TrackInLibrary adds a completed download to the library. jobID is the
 // download job that produced the import ("" when none) — it links the
 // import_completed activity and lets a scheduler grab consume its wishlist
-// row. Returns whether a library row was actually added (false on the
+// row. md5/sha1 are the source release's file hashes ("" when the source
+// exposes none) — persisted under metadata $.gamarr for by-hash ownership
+// checks. Returns whether a library row was actually added (false on the
 // restart-re-entry dedupe and on storage errors), so callers that count
 // imports don't overcount.
-func (m *Manager) TrackInLibrary(title, platformName, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID, jobID string) bool {
+func (m *Manager) TrackInLibrary(title, platformName, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID, jobID, md5, sha1 string) bool {
 	if m.jobs.LibraryHasSourceID(sourceID) {
 		return false
 	}
@@ -222,7 +250,7 @@ func (m *Manager) TrackInLibrary(title, platformName, platformSlug string, isPC 
 		Source:       source,
 		SourceType:   sourceType,
 		SourceID:     sourceID,
-		Metadata:     "{}",
+		Metadata:     importMetadata(md5, sha1),
 	})
 	if err != nil {
 		slog.Warn("failed to add to library", "error", err)

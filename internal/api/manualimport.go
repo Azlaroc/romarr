@@ -163,7 +163,7 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 		// import_completed activity, and the RomM Connect notification.
 		// Re-importing a path that's already tracked counts as skipped.
 		if !s.mgr.TrackInLibrary(title, f.Platform, f.PlatformSlug, f.IsPC,
-			destPath, info.Size(), "manual", "import", "manual:"+destPath, "") {
+			destPath, info.Size(), "manual", "import", "manual:"+destPath, "", "", "") {
 			skipped++
 			continue
 		}

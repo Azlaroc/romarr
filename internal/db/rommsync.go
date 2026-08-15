@@ -90,18 +90,34 @@ func (s *JobStore) SyncRommItems(items []RommSyncItem, fullReconcile bool) (adde
 			updated++
 		case sql.ErrNoRows:
 			// Adopt: an import row (torrent/ddl/nzb/manual) already tracks
-			// this file — do not create a duplicate ownership row. Legacy
-			// scan rows deliberately do NOT count as owners: they are the
-			// rows this sync replaces, so displace them instead (covers
+			// this file — do not create a duplicate ownership row, but DO
+			// merge RomM's identity blob (content hashes, search_key) into it
+			// so adopted rows are visible to by-hash ownership checks. Only
+			// metadata changes: source stays the import's, which keeps the
+			// row out of the full-reconcile sweeps (they filter source='romm').
+			// Legacy scan rows deliberately do NOT count as owners: they are
+			// the rows this sync replaces, so displace them instead (covers
 			// incremental runs before the first full reconcile).
-			var pathOwners int
-			if err = tx.QueryRow(
-				"SELECT COUNT(*) FROM library_items WHERE file_path = ? AND source NOT IN ('romm', 'scan')", it.FilePath,
-			).Scan(&pathOwners); err != nil {
-				return 0, 0, 0, err
-			}
-			if pathOwners > 0 {
+			var adoptID int64
+			var adoptMeta string
+			aerr := tx.QueryRow(
+				"SELECT id, metadata FROM library_items WHERE file_path = ? AND source NOT IN ('romm', 'scan') LIMIT 1", it.FilePath,
+			).Scan(&adoptID, &adoptMeta)
+			switch aerr {
+			case nil:
+				merged := mergeRommMetadata(adoptMeta, it.Metadata)
+				if merged != adoptMeta {
+					if _, err = tx.Exec("UPDATE library_items SET metadata = ? WHERE id = ?", merged, adoptID); err != nil {
+						return 0, 0, 0, err
+					}
+					updated++
+				}
 				continue
+			case sql.ErrNoRows:
+				// no adopter — fall through to insert
+			default:
+				err = aerr
+				return 0, 0, 0, err
 			}
 			res, derr := tx.Exec("DELETE FROM library_items WHERE file_path = ? AND source = 'scan' AND is_pc = 0", it.FilePath)
 			if derr != nil {

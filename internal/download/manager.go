@@ -481,7 +481,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 			"status": "completed", "detail": "Moved to GameVault",
 		})
 		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "torrent")
-		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrent.Hash, jobID)
+		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrent.Hash, jobID, "", "")
 		m.jobs.LogActivity("download_completed", title, "Organized to GameVault", jobID, nil)
 		slog.Info("PC game imported", "name", sanitizeLog(title), "dest", sanitizeLog(dest))
 	} else {
@@ -908,7 +908,7 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 			"status": "completed", "detail": "Moved to GameVault",
 		})
 		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "ddl")
-		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "ddl", "ddl", "ddl:"+dest, jobID)
+		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "ddl", "ddl", "ddl:"+dest, jobID, md5, sha1)
 		m.jobs.LogActivity("download_completed", title, "DDL to GameVault", jobID, nil)
 		slog.Info("DDL PC game organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {

@@ -308,3 +308,62 @@ func TestNormalizeTitleKey(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncRommItemsAdoptMergesMetadata(t *testing.T) {
+	store := newTestStore(t)
+	store.AddLibraryItem(&LibraryItem{
+		Title: "Hagane", PlatformSlug: "snes",
+		FilePath: "/roms/snes/Hagane (USA)", FileSize: 42,
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:/roms/snes/hagane",
+		Metadata: `{"gamarr":{"md5":"aa"}}`,
+	})
+
+	it := rommItem(7, "Hagane", "snes", "/roms/snes/Hagane (USA)", 42)
+	added, updated, _, err := store.SyncRommItems([]RommSyncItem{it}, false)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if added != 0 || updated != 1 {
+		t.Errorf("added/updated = %d/%d, want 0/1 (adopt-merge)", added, updated)
+	}
+
+	item := store.FindLibraryByTitle("Hagane", "snes")
+	if item == nil {
+		t.Fatal("adopted row not found")
+	}
+	if item.Source != "ddl" || item.SourceType != "ddl" || item.SourceID != "ddl:/roms/snes/hagane" {
+		t.Errorf("adopt-merge must not touch source identity: %+v", item)
+	}
+	var meta map[string]map[string]interface{}
+	if err := json.Unmarshal([]byte(item.Metadata), &meta); err != nil {
+		t.Fatalf("metadata not JSON: %v", err)
+	}
+	if meta["gamarr"]["md5"] != "aa" {
+		t.Errorf("$.gamarr sibling lost in merge: %s", item.Metadata)
+	}
+	if meta["romm"]["rom_id"] != float64(7) {
+		t.Errorf("$.romm not merged onto adopted row: %s", item.Metadata)
+	}
+
+	// Same pull again: metadata identical, so the merge is a no-op write.
+	_, updated, _, err = store.SyncRommItems([]RommSyncItem{it}, false)
+	if err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+	if updated != 0 {
+		t.Errorf("updated=%d, want 0 (idempotent adopt-merge)", updated)
+	}
+
+	// Full reconcile without the item: the adopted row is not source='romm',
+	// so the stale sweep must leave it (and its merged metadata) alone.
+	_, _, removed, err := store.SyncRommItems([]RommSyncItem{}, true)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed=%d, want 0", removed)
+	}
+	if item := store.FindLibraryByTitle("Hagane", "snes"); item == nil || item.Metadata == "{}" {
+		t.Errorf("adopted row or merged metadata lost on reconcile: %+v", item)
+	}
+}
