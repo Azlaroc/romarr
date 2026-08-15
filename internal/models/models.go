@@ -128,6 +128,10 @@ type DownloadRequest struct {
 	MD5  string `json:"md5,omitempty"`
 	SHA1 string `json:"sha1,omitempty"`
 
+	// Force bypasses the by-hash duplicate gate (409 duplicate_hash): download
+	// even though the release is byte-identical to a library item.
+	Force bool `json:"force,omitempty"`
+
 	// TargetFile names one file to pluck out of a multi-file (pack) torrent —
 	// an exact in-torrent path or a bare filename (#256). Every other file is
 	// set to priority 0 and only the target is imported. Empty = whole content.

@@ -281,6 +281,12 @@ func (s *Server) handleDownloadForRequest(w http.ResponseWriter, r *http.Request
 		body.Title = req.Title
 	}
 
+	// By-hash duplicate gate BEFORE the status write below — a blocked
+	// download must not strand the request in "downloading".
+	if s.hashOwnedConflict(w, &body) {
+		return
+	}
+
 	// Update request status.
 	req.Status = models.RequestStatusDownloading
 	req.UpdatedAt = time.Now()

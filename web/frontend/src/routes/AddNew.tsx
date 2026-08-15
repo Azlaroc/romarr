@@ -2,11 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search, Download, Check, HardDriveDownload } from 'lucide-react'
 import { useSearch, useDownloadGame } from '../api/queries'
+import { ApiError } from '../api/client'
 import type { SearchResult } from '../api/types'
 import { PageHeader } from '../components/layout/PageHeader'
 import { PlatformSelect } from './PlatformSelect'
 import { Badge, type BadgeColor } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
@@ -34,6 +36,9 @@ export function AddNew() {
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [tookMs, setTookMs] = useState<number | undefined>()
   const [sent, setSent] = useState<Set<number>>(new Set())
+  // A 409 duplicate_hash from the download endpoint parks the attempt here
+  // until the user confirms a forced re-download or cancels.
+  const [dupe, setDupe] = useState<{ result: SearchResult; idx: number; message: string } | null>(null)
 
   const search = useSearch()
   const download = useDownloadGame()
@@ -63,16 +68,20 @@ export function AddNew() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQ])
 
-  const grab = async (r: SearchResult, idx: number) => {
+  const grab = async (r: SearchResult, idx: number, force = false) => {
     try {
-      const res = await download.mutateAsync(r)
+      const res = await download.mutateAsync(force ? { ...r, force: true } : r)
       if (res.success) {
         setSent((prev) => new Set(prev).add(idx))
         toast(`Downloading: ${r.title}`, 'success')
       } else {
         toast(res.error || 'Failed to queue', 'error')
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setDupe({ result: r, idx, message: err.message })
+        return
+      }
       toast('Failed to queue', 'error')
     }
   }
@@ -155,6 +164,21 @@ export function AddNew() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={dupe !== null}
+        title="Already in library"
+        message={dupe?.message ?? ''}
+        confirmLabel="Download anyway"
+        busy={download.isPending}
+        onConfirm={() => {
+          if (dupe) {
+            void grab(dupe.result, dupe.idx, true)
+            setDupe(null)
+          }
+        }}
+        onCancel={() => setDupe(null)}
+      />
     </>
   )
 }
