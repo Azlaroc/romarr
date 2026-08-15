@@ -47,6 +47,9 @@ type Manager struct {
 	nzbget       *nzbget.Client
 	norm         *normalize.Normalizer
 	NotifyFunc   NotifyCallback
+	// ImportNotify, when set, is told the RomM fs_slug of every completed
+	// non-PC library import (the Connect plane's enqueue). Must not block.
+	ImportNotify func(fsSlug string)
 
 	// importing single-flights torrent imports per job ID: the watcher tick,
 	// a restart-resumed tick, and the manual organize button may all try to
