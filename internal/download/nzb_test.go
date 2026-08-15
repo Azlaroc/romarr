@@ -164,6 +164,9 @@ func TestDownloadNZBCompletedFlow(t *testing.T) {
 	if detail, _ := job["detail"].(string); !strings.Contains(detail, "RomM (SNES)") {
 		t.Errorf("detail = %q, want RomM (SNES)", detail)
 	}
+	if got, _ := job["nzo_id"].(string); got != sab.nzoID {
+		t.Errorf("nzo_id = %q, want %q persisted for restart recovery", got, sab.nzoID)
+	}
 	if !pathExists(filepath.Join(dest, "rom.sfc")) {
 		t.Error("nzb content not moved to library")
 	}
@@ -305,6 +308,93 @@ func TestRecoverOrphanedNZBDownloads(t *testing.T) {
 	})
 	if !pathExists(filepath.Join(dest, "rom.gba")) {
 		t.Fatal("recovered NZBGet content was not organized")
+	}
+}
+
+func TestRecoverOrphanedSABnzbdDownload(t *testing.T) {
+	// A SAB job that persisted its nzo_id survives a restart: recovery
+	// reattaches the watcher, which finds the finished download in SAB's
+	// history and organizes it.
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	storage := filepath.Join(t.TempDir(), "Recovered SAB")
+	writeFileT(t, filepath.Join(storage, "rom.gba"), []byte("rom"))
+
+	mock := newSabMock(t)
+	mock.histSlots = []map[string]interface{}{
+		{"nzo_id": mock.nzoID, "status": "Completed", "storage": storage},
+	}
+	cfg.SABnzbdURL = mock.srv.URL
+	cfg.SABnzbdAPIKey = "apikey"
+
+	jobID := newJobID()
+	jobs.Set(jobID, map[string]interface{}{
+		"status":        "downloading",
+		"title":         "Recovered SAB",
+		"platform":      "Game Boy Advance",
+		"platform_slug": "gba",
+		"is_pc":         false,
+		"source_type":   "nzb",
+		"source_client": "sabnzbd",
+		"nzo_id":        mock.nzoID,
+	})
+
+	m := New(cfg, jobs, nil)
+	m.RecoverOrphanedNZBDownloads()
+
+	dest := filepath.Join(cfg.GamesRomsPath, "gba", "Recovered SAB")
+	waitFor(t, 5*time.Second, "recovered SABnzbd watcher", func() bool {
+		job, ok := jobs.Get(jobID)
+		return ok && job["status"] == "completed"
+	})
+	if !pathExists(filepath.Join(dest, "rom.gba")) {
+		t.Fatal("recovered SABnzbd content was not organized")
+	}
+}
+
+func TestRecoverSABnzbdMissingNZOID(t *testing.T) {
+	// Defensive path: a pre-persistence SAB job (no nzo_id) cannot be
+	// recovered — recovery must fail it explicitly, not spin a dead watcher.
+	// (In practice loadAll already interrupts these; recovery double-checks.)
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	mock := newSabMock(t)
+	cfg.SABnzbdURL = mock.srv.URL
+	cfg.SABnzbdAPIKey = "apikey"
+
+	jobs.Set("sab-noid", map[string]interface{}{
+		"status": "downloading", "title": "Old SAB Job",
+		"source_type": "nzb", "source_client": "sabnzbd",
+	})
+
+	m := New(cfg, jobs, nil)
+	m.RecoverOrphanedNZBDownloads()
+
+	job, _ := jobs.Get("sab-noid")
+	if job["status"] != "error" {
+		t.Errorf("status = %v, want error", job["status"])
+	}
+	if errMsg, _ := job["error"].(string); !strings.Contains(errMsg, "missing NZO ID") {
+		t.Errorf("error = %q", errMsg)
+	}
+}
+
+func TestRecoverSABnzbdSkipsWhenUnconfigured(t *testing.T) {
+	// No SAB client configured: the job is left untouched (parity with the
+	// NZBGet behavior) rather than errored — the client may come back.
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	jobs.Set("sab-stranded", map[string]interface{}{
+		"status": "downloading", "title": "Stranded SAB Job",
+		"source_type": "nzb", "source_client": "sabnzbd", "nzo_id": "SABnzbd_nzo_z",
+	})
+
+	m := New(cfg, jobs, nil)
+	m.RecoverOrphanedNZBDownloads()
+
+	job, _ := jobs.Get("sab-stranded")
+	if job["status"] != "downloading" {
+		t.Errorf("status = %v, want untouched downloading", job["status"])
 	}
 }
 

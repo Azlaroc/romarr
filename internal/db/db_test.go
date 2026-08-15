@@ -305,9 +305,10 @@ func TestJobStore_InterruptedOnLoad(t *testing.T) {
 }
 
 func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
-	// Torrent jobs with a persisted infohash (or association tag) and NZBGet
-	// jobs with an nzb_id are re-driven from stored state after a restart, so
-	// loadAll must NOT mark them interrupted. Everything else still is.
+	// Torrent jobs with a persisted infohash (or association tag), NZBGet
+	// jobs with an nzb_id, and SABnzbd jobs with an nzo_id are re-driven from
+	// stored state after a restart, so loadAll must NOT mark them
+	// interrupted. Everything else still is.
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
@@ -330,6 +331,10 @@ func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
 	store1.Set("sab", map[string]interface{}{
 		"status": "downloading", "source_type": "nzb", "source_client": "sabnzbd",
 	})
+	store1.Set("sab-id", map[string]interface{}{
+		"status": "downloading", "source_type": "nzb", "source_client": "sabnzbd",
+		"nzo_id": "SABnzbd_nzo_abc",
+	})
 	store1.Set("ddl", map[string]interface{}{
 		"status": "downloading",
 	})
@@ -345,6 +350,7 @@ func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
 		{"nzbget-id", "downloading"},
 		{"nzbget-noid", "interrupted"},
 		{"sab", "interrupted"},
+		{"sab-id", "downloading"},
 		{"ddl", "interrupted"},
 	}
 	for _, tt := range tests {

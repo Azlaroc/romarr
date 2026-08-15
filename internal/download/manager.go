@@ -29,6 +29,7 @@ import (
 	"gamarr/internal/nzbget"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
+	"gamarr/internal/sabnzbd"
 	"gamarr/internal/safety"
 	"gamarr/internal/search"
 )
@@ -45,6 +46,7 @@ type Manager struct {
 	transmission *TransmissionClient
 	deluge       *DelugeClient
 	nzbget       *nzbget.Client
+	sab          *sabnzbd.Client
 	norm         *normalize.Normalizer
 	NotifyFunc   NotifyCallback
 	// ImportNotify, when set, is told the RomM fs_slug of every completed
@@ -73,6 +75,11 @@ func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
 	if cfg.HasNZBGet() {
 		mgr.nzbget = nzbget.New(cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass)
 		slog.Info("NZBGet client initialized", "url", cfg.NZBGetURL)
+	}
+	if cfg.HasSABnzbd() {
+		// The download path receives its SABnzbd client per call; this one
+		// exists so restart recovery can reattach watchers without a caller.
+		mgr.sab = sabnzbd.New(cfg.SABnzbdURL, cfg.SABnzbdAPIKey)
 	}
 
 	return mgr
