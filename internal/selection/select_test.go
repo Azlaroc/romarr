@@ -338,3 +338,52 @@ func TestTitleNoCoverNeutral(t *testing.T) {
 		t.Fatalf("action = %v, want grab of the sole candidate", dec.Action)
 	}
 }
+
+func TestOwnedByHashWinnerSkips(t *testing.T) {
+	ia := mk("Game (USA).zip", 80, withHash, withIndexer("Internet Archive"))
+	dec := Select([]*models.SearchResult{ia}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(),
+		OwnedByHash: func(md5, sha1 string) *db.LibraryItem {
+			if md5 == ia.MD5 {
+				return &db.LibraryItem{ID: 1, Title: "Totally Different Name"}
+			}
+			return nil
+		}})
+	if dec.Action != ActionSkip || dec.Reason != "owned" {
+		t.Fatalf("dec = %+v, want skip/owned", dec)
+	}
+}
+
+func TestOwnedByHashChecksWinnerOnly(t *testing.T) {
+	// The losing candidate is hash-owned; the clean winner must still grab —
+	// filtering owned candidates would promote a byte-different variant.
+	winner := mk("Game (USA).zip", 80, withIndexer("Internet Archive"),
+		func(r *models.SearchResult) { r.MD5 = "aaaa" })
+	loser := mk("Game (Japan).zip", 60,
+		func(r *models.SearchResult) { r.MD5 = "bbbb" })
+	dec := Select([]*models.SearchResult{winner, loser}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(),
+		OwnedByHash: func(md5, sha1 string) *db.LibraryItem {
+			if md5 == "bbbb" {
+				return &db.LibraryItem{ID: 2}
+			}
+			return nil
+		}})
+	if dec.Action != ActionGrab || dec.Grabs[0].Result != winner {
+		t.Fatalf("dec = %+v, want grab of the clean winner", dec)
+	}
+}
+
+func TestOwnedByHashHashlessWinnerNotConsulted(t *testing.T) {
+	vimm := mk("Game (USA)", 80, withIndexer("Vimm's Lair"))
+	called := false
+	dec := Select([]*models.SearchResult{vimm}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(),
+		OwnedByHash: func(md5, sha1 string) *db.LibraryItem {
+			called = true
+			return &db.LibraryItem{ID: 3}
+		}})
+	if dec.Action != ActionGrab {
+		t.Fatalf("dec = %+v, want grab", dec)
+	}
+	if called {
+		t.Error("OwnedByHash consulted for a hashless winner")
+	}
+}
