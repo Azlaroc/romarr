@@ -123,7 +123,7 @@ type Config struct {
 	SchedulerAutoDownload   bool
 	SchedulerMinScore       int
 	SelectorMode            string // off | shadow | enforce
-	SelectorSetTimeoutHours int    // disc-set degrade timeout (consumed by fulfillment)
+	SelectorSetTimeoutHours int    // disc-set degrade timeout; read via DiscSetTimeoutHours()
 
 	// Retry
 	MaxRetries          int
@@ -351,6 +351,27 @@ func (c *Config) HasClamAV() bool {
 	}
 	_, err := os.Stat(c.DockerSocket)
 	return err == nil
+}
+
+// DiscSetTimeoutHours returns SelectorSetTimeoutHours normalized to the
+// historical 24h default when unset or invalid — zero-value Configs (tests
+// build bare &Config{} literals) must not degrade disc sets instantly.
+func (c *Config) DiscSetTimeoutHours() int {
+	if c.SelectorSetTimeoutHours <= 0 {
+		return 24
+	}
+	return c.SelectorSetTimeoutHours
+}
+
+// StaleJobHorizonHours returns the CleanupStaleDownloads horizon: never below
+// the historical 24h, and never below the disc-set timeout. A stale-deleted
+// pending set member zeroes the sweep's pending count and fires the degrade
+// arm early, which would silently cap SELECTOR_SET_TIMEOUT_HOURS at ~24h.
+func (c *Config) StaleJobHorizonHours() int {
+	if h := c.DiscSetTimeoutHours(); h > 24 {
+		return h
+	}
+	return 24
 }
 
 func envStr(key, fallback string) string {

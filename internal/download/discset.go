@@ -10,10 +10,11 @@ import (
 )
 
 // discSetTimeout is how long an incomplete disc set may wait for its missing
-// members before the sweep finalizes it degraded over whatever landed.
-// TODO(PR-5): wire cfg.SelectorSetTimeoutHours (SELECTOR_SET_TIMEOUT_HOURS,
-// added by the selector PR) instead of this constant.
-const discSetTimeout = 24 * time.Hour
+// members before the sweep finalizes it degraded over whatever landed
+// (SELECTOR_SET_TIMEOUT_HOURS, default 24h).
+func (m *Manager) discSetTimeout() time.Duration {
+	return time.Duration(m.cfg.DiscSetTimeoutHours()) * time.Hour
+}
 
 // DiscSet identifies one member of a multi-disc download group. All members
 // share ID/Total/Dir and converge into one game directory; fulfillment defers
@@ -256,7 +257,8 @@ func flattenSetMemberDir(memberDir, setDir string) string {
 // SweepDiscSets finalizes stuck disc sets: complete sets whose finalize never
 // ran (crash between last import and barrier), sets whose missing members all
 // terminally failed, and sets older than discSetTimeout. Called at boot after
-// job recovery and from the periodic cleanup loop.
+// job recovery and from the periodic cleanup loop — the effective degrade time
+// rounds up to that loop's 6h cadence.
 func (m *Manager) SweepDiscSets() {
 	byID := map[string][]discSetMember{}
 	for _, item := range m.jobs.Items() {
@@ -299,7 +301,7 @@ func (m *Manager) SweepDiscSets() {
 		case pending == 0:
 			// Nothing in flight and the set can never complete.
 			m.finalizeDiscSet(id, members, true)
-		case oldest > 0 && time.Since(time.Unix(oldest, 0)) > discSetTimeout:
+		case oldest > 0 && time.Since(time.Unix(oldest, 0)) > m.discSetTimeout():
 			m.finalizeDiscSet(id, members, true)
 		}
 	}
