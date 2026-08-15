@@ -19,6 +19,7 @@ import (
 	"gamarr/internal/models"
 	"gamarr/internal/monitor"
 	"gamarr/internal/qbit"
+	"gamarr/internal/renamer"
 	"gamarr/internal/romm"
 	"gamarr/internal/rommconnect"
 	"gamarr/internal/sabnzbd"
@@ -278,7 +279,16 @@ func main() {
 	}()
 
 	// Create HTTP router
-	router := api.NewRouter(cfg, mgr, mon, sab, sched, rommSync)
+	// On-demand bulk library rename (preview/apply). The notify closure
+	// defers the nil-check to call time: ImportNotify is only assigned when
+	// RomM Connect is enabled.
+	ren := renamer.New(cfg, database, func(fsSlug string) {
+		if mgr.ImportNotify != nil {
+			mgr.ImportNotify(fsSlug)
+		}
+	})
+
+	router := api.NewRouter(cfg, mgr, mon, sab, sched, rommSync, ren)
 
 	// Start HTTP server
 	server := &http.Server{
@@ -309,6 +319,7 @@ func main() {
 
 	watcher.Stop()
 	rommSync.Stop()
+	ren.Stop()
 	sched.Stop()
 	mon.Stop()
 	if err := server.Shutdown(shutdownCtx); err != nil {
