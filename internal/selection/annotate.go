@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"log/slog"
 	"sort"
 
 	"gamarr/internal/db"
@@ -68,6 +69,9 @@ func (pl *Pipeline) Prepare(results []*models.SearchResult, query, platformFilte
 			var exclude bool
 			adjust, exclude = pl.ReleaseProfiles(r.Title)
 			if exclude {
+				// Profile exclusions are otherwise invisible (no Rejection
+				// row) — leave a trace for the next silent-drop hunt.
+				slog.Debug("release profile excluded result", "title", r.Title)
 				continue
 			}
 		}

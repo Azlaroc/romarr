@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"log/slog"
+	"strings"
 )
 
 // PreferredWord is a word with a score boost/penalty.
@@ -141,10 +142,16 @@ func (s *JobStore) DeleteReleaseProfile(id int64) error {
 
 // ApplyReleaseProfiles scores a title against enabled release profiles.
 // Returns: score adjustment, whether it should be excluded.
+//
+// Terms match on WHOLE TOKENS, not substrings: "miner" never matches
+// "Underminer" or "Mineral Town", "RAT" never matches "Pirate" — the exact
+// bug that made the seeded anti-malware list swallow legitimate game titles.
+// Multi-word terms match as a contiguous token sequence ("crypto miner"
+// matches "Crypto.Miner.2024").
 func (s *JobStore) ApplyReleaseProfiles(title string) (int, bool) {
 	profiles := s.GetReleaseProfiles()
 	totalScore := 0
-	titleLower := toLower(title)
+	titleToks := termTokens(title)
 
 	for _, p := range profiles {
 		if !p.Enabled {
@@ -153,7 +160,7 @@ func (s *JobStore) ApplyReleaseProfiles(title string) (int, bool) {
 
 		// Check must_not_contain (exclude)
 		for _, word := range p.MustNotContain {
-			if containsIgnoreCase(titleLower, toLower(word)) {
+			if tokensContainTerm(titleToks, word) {
 				return 0, true
 			}
 		}
@@ -162,7 +169,7 @@ func (s *JobStore) ApplyReleaseProfiles(title string) (int, bool) {
 		if len(p.MustContain) > 0 {
 			allFound := true
 			for _, word := range p.MustContain {
-				if !containsIgnoreCase(titleLower, toLower(word)) {
+				if !tokensContainTerm(titleToks, word) {
 					allFound = false
 					break
 				}
@@ -174,7 +181,7 @@ func (s *JobStore) ApplyReleaseProfiles(title string) (int, bool) {
 
 		// Apply preferred word scores
 		for _, pw := range p.Preferred {
-			if containsIgnoreCase(titleLower, toLower(pw.Word)) {
+			if tokensContainTerm(titleToks, pw.Word) {
 				totalScore += pw.Score
 			}
 		}
@@ -183,29 +190,30 @@ func (s *JobStore) ApplyReleaseProfiles(title string) (int, bool) {
 	return totalScore, false
 }
 
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		b[i] = c
-	}
-	return string(b)
+// termTokens lowercases s and splits it on non-alphanumeric runs — the same
+// tokenization rule the search side uses, so profile terms and result titles
+// agree on what a word is.
+func termTokens(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
 }
 
-func containsIgnoreCase(haystack, needle string) bool {
+// tokensContainTerm reports whether term's token sequence appears as a
+// contiguous subsequence of titleToks. An empty term matches everything
+// (preserving the old empty-needle behavior).
+func tokensContainTerm(titleToks []string, term string) bool {
+	needle := termTokens(term)
 	if len(needle) == 0 {
 		return true
 	}
-	if len(needle) > len(haystack) {
+	if len(needle) > len(titleToks) {
 		return false
 	}
-	for i := 0; i <= len(haystack)-len(needle); i++ {
+	for i := 0; i+len(needle) <= len(titleToks); i++ {
 		match := true
-		for j := 0; j < len(needle); j++ {
-			if haystack[i+j] != needle[j] {
+		for j := range needle {
+			if titleToks[i+j] != needle[j] {
 				match = false
 				break
 			}
