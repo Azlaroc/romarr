@@ -387,3 +387,172 @@ func TestOwnedByHashHashlessWinnerNotConsulted(t *testing.T) {
 		t.Error("OwnedByHash consulted for a hashless winner")
 	}
 }
+
+func repairFF7(want ...int) *RepairSet {
+	w := map[int]bool{}
+	for _, i := range want {
+		w[i] = true
+	}
+	return &RepairSet{ID: "set-r1", Dir: "Final Fantasy VII (USA)", Total: 3, Want: w}
+}
+
+func TestRepairGrabsOnlyWantedDiscs(t *testing.T) {
+	d1 := mk("Final Fantasy VII (USA) (Disc 1).cue", 80, withHash, withIndexer("Internet Archive"))
+	d2 := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withHash, withIndexer("Internet Archive"))
+	d3 := mk("Final Fantasy VII (USA) (Disc 3).cue", 80, withHash, withIndexer("Internet Archive"))
+	single := mk("Final Fantasy VII (USA).zip", 95, withHash, withIndexer("Internet Archive"))
+	dec := Select([]*models.SearchResult{single, d3, d1, d2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 70, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionGrabSet {
+		t.Fatalf("action = %v (%s), want grab_set", dec.Action, dec.Reason)
+	}
+	if len(dec.Grabs) != 1 {
+		t.Fatalf("grabs = %d, want only the missing disc", len(dec.Grabs))
+	}
+	g := dec.Grabs[0]
+	if g.Result != d2 {
+		t.Errorf("grabbed %q, want disc 2", g.Result.Title)
+	}
+	if g.DiscSetID != "set-r1" || g.DiscIndex != 2 || g.DiscTotal != 3 || g.SetDir != "Final Fantasy VII (USA)" {
+		t.Errorf("grab stamps = %+v, want existing set identity", g)
+	}
+	if !strings.Contains(dec.Reason, "repair grab") {
+		t.Errorf("reason = %q", dec.Reason)
+	}
+}
+
+func TestRepairMultipleWantedDiscsAscending(t *testing.T) {
+	d1 := mk("Final Fantasy VII (USA) (Disc 1).cue", 80, withHash)
+	d2 := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withHash)
+	d3 := mk("Final Fantasy VII (USA) (Disc 3).cue", 80, withHash)
+	dec := Select([]*models.SearchResult{d3, d1, d2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(3, 1),
+	})
+	if dec.Action != ActionGrabSet || len(dec.Grabs) != 2 {
+		t.Fatalf("action = %v grabs = %d, want grab_set with 2", dec.Action, len(dec.Grabs))
+	}
+	if dec.Grabs[0].DiscIndex != 1 || dec.Grabs[1].DiscIndex != 3 {
+		t.Errorf("grab order = %d,%d, want ascending 1,3", dec.Grabs[0].DiscIndex, dec.Grabs[1].DiscIndex)
+	}
+}
+
+func TestRepairGroupMissingWantedDiscRejected(t *testing.T) {
+	d1 := mk("Final Fantasy VII (USA) (Disc 1).cue", 80, withHash)
+	d3 := mk("Final Fantasy VII (USA) (Disc 3).cue", 80, withHash)
+	dec := Select([]*models.SearchResult{d1, d3}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionSkip || dec.Reason != "no candidates" {
+		t.Fatalf("action = %v (%s), want skip/no candidates", dec.Action, dec.Reason)
+	}
+	found := false
+	for _, rej := range dec.Rejected {
+		if strings.Contains(rej.Reason, "missing wanted discs") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected missing-wanted-discs rejection, got %+v", dec.Rejected)
+	}
+}
+
+func TestRepairTotalMismatch(t *testing.T) {
+	// Declared "of 2" contradicts the set's declared total of 3 → rejected.
+	d2of2 := mk("Final Fantasy VII (USA) (Disc 2 of 2).cue", 80, withHash)
+	dec := Select([]*models.SearchResult{d2of2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionSkip {
+		t.Fatalf("total-mismatch group must not repair: %v (%s)", dec.Action, dec.Reason)
+	}
+	found := false
+	for _, rej := range dec.Rejected {
+		if strings.Contains(rej.Reason, "disc total mismatch") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected total-mismatch rejection, got %+v", dec.Rejected)
+	}
+
+	// An undeclared total (plain "(Disc 2)") is accepted.
+	d2 := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withHash)
+	dec = Select([]*models.SearchResult{d2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionGrabSet || len(dec.Grabs) != 1 || dec.Grabs[0].Result != d2 {
+		t.Fatalf("undeclared-total group must repair: %v (%s)", dec.Action, dec.Reason)
+	}
+}
+
+func TestRepairIgnoresOwnershipChecks(t *testing.T) {
+	// The degraded set's own library row IS owned — repair must not skip on
+	// any ownership/in-flight signal even when the funcs are wired.
+	d2 := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withHash)
+	dec := Select([]*models.SearchResult{d2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Owned:       func(title, slug string) *db.LibraryItem { return &db.LibraryItem{} },
+		ActiveGrab:  func(title, slug string) bool { return true },
+		OwnedByHash: func(md5, sha1 string) *db.LibraryItem { return &db.LibraryItem{} },
+		Repair:      repairFF7(2),
+	})
+	if dec.Action != ActionGrabSet {
+		t.Fatalf("ownership checks must be ignored under Repair: %v (%s)", dec.Action, dec.Reason)
+	}
+}
+
+func TestRepairMinScoreAndFiltersStillGate(t *testing.T) {
+	low := mk("Final Fantasy VII (USA) (Disc 2).cue", 40, withHash)
+	dec := Select([]*models.SearchResult{low}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 70, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionSkip || !strings.Contains(dec.Reason, "below min score") {
+		t.Fatalf("min-score gate under Repair: %v (%s)", dec.Action, dec.Reason)
+	}
+
+	// A bad-dump wanted disc is hard-filtered before grouping, leaving the
+	// group without the wanted disc.
+	bad := mk("Final Fantasy VII (USA) (Disc 2) [b].cue", 90, withHash)
+	dec = Select([]*models.SearchResult{bad}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionSkip {
+		t.Fatalf("bad dump must not repair: %v (%s)", dec.Action, dec.Reason)
+	}
+}
+
+func TestRepairDeterministicWinnerAcrossIndexers(t *testing.T) {
+	// Two groups both covering the wanted disc: the hash-carrying group wins
+	// via the shared rank key, deterministically.
+	ia := mk("Final Fantasy VII (USA) (Disc 2).cue", 76, withHash, withIndexer("Internet Archive"))
+	vimm := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withIndexer("Vimm's Lair"))
+	dec := Select([]*models.SearchResult{vimm, ia}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: repairFF7(2),
+	})
+	if dec.Action != ActionGrabSet || len(dec.Grabs) != 1 {
+		t.Fatalf("action = %v grabs = %d", dec.Action, len(dec.Grabs))
+	}
+	if dec.Grabs[0].Result != ia {
+		t.Errorf("winner = %q from %q, want the hash-carrying release", dec.Grabs[0].Result.Title, dec.Grabs[0].Result.Indexer)
+	}
+}
+
+func TestRepairEmptyWantIsNoop(t *testing.T) {
+	d2 := mk("Final Fantasy VII (USA) (Disc 2).cue", 80, withHash)
+	dec := Select([]*models.SearchResult{d2}, SelectOpts{
+		Query: "Final Fantasy VII", MinScore: 0, Profile: romProfile(),
+		Repair: &RepairSet{ID: "set-r1", Dir: "Final Fantasy VII (USA)", Total: 3, Want: map[int]bool{}},
+	})
+	if dec.Action != ActionSkip || dec.Reason != "nothing to repair" {
+		t.Fatalf("empty want: %v (%s)", dec.Action, dec.Reason)
+	}
+}

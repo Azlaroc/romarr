@@ -81,6 +81,32 @@ type SelectOpts struct {
 	// fulfilled, regardless of how the titles compare. Nil func disables the
 	// check (wired on the scheduler's enforce path).
 	OwnedByHash func(md5, sha1 string) *db.LibraryItem
+	// Repair, when non-nil, puts Select in disc-set repair mode: instead of
+	// minting a new set it emits grabs ONLY for the Want indices, stamped
+	// with the existing set's identity. Ownership/in-flight checks are
+	// skipped — the set's library row IS owned; the caller dedupes in-flight
+	// repairs at member level. Hard filters and ranking still apply.
+	Repair *RepairSet
+}
+
+// RepairSet names the degraded disc set a repair-mode Select must complete.
+type RepairSet struct {
+	ID    string       // existing disc_set_id — grabs converge into this set
+	Dir   string       // existing on-disk set dir name, stamped verbatim
+	Total int          // the set's declared disc total
+	Want  map[int]bool // missing disc indices to grab
+}
+
+// wanted returns the wanted indices in ascending order.
+func (r *RepairSet) wanted() []int {
+	out := make([]int, 0, len(r.Want))
+	for i, w := range r.Want {
+		if w {
+			out = append(out, i)
+		}
+	}
+	sort.Ints(out)
+	return out
 }
 
 // Select picks the release(s) to grab from prepared candidates (Pipeline.
@@ -92,13 +118,23 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 		prof = db.DefaultQualityProfile()
 	}
 
-	if opts.Owned != nil {
-		if item := opts.Owned(opts.Query, opts.PlatformSlug); item != nil {
-			return Decision{Action: ActionSkip, Reason: "owned"}
-		}
+	repair := opts.Repair
+	if repair != nil && len(repair.wanted()) == 0 {
+		return Decision{Action: ActionSkip, Reason: "nothing to repair"}
 	}
-	if opts.ActiveGrab != nil && opts.ActiveGrab(opts.Query, opts.PlatformSlug) {
-		return Decision{Action: ActionSkip, Reason: "already downloading"}
+
+	// Repair mode skips ownership/in-flight checks in code, not just by
+	// callers passing nil funcs: the degraded set's own library row would
+	// otherwise short-circuit every repair as "owned".
+	if repair == nil {
+		if opts.Owned != nil {
+			if item := opts.Owned(opts.Query, opts.PlatformSlug); item != nil {
+				return Decision{Action: ActionSkip, Reason: "owned"}
+			}
+		}
+		if opts.ActiveGrab != nil && opts.ActiveGrab(opts.Query, opts.PlatformSlug) {
+			return Decision{Action: ActionSkip, Reason: "already downloading"}
+		}
 	}
 
 	// Hard filters.
@@ -149,8 +185,12 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 		set *setGroup
 	}
 	candidates := make([]candidate, 0, len(singles)+len(groups))
-	for _, r := range singles {
-		candidates = append(candidates, candidate{rep: r})
+	if repair == nil {
+		// A non-disc-indexed release cannot satisfy a named disc slot, so
+		// singles only compete outside repair mode.
+		for _, r := range singles {
+			candidates = append(candidates, candidate{rep: r})
+		}
 	}
 	// Deterministic group iteration: sort keys.
 	groupKeys := make([]string, 0, len(groups))
@@ -160,6 +200,35 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	sort.Strings(groupKeys)
 	for _, k := range groupKeys {
 		g := groups[k]
+		if repair != nil {
+			// Repair eligibility: the group must cover every wanted index and
+			// agree on the declared total. Contiguity 1..N is deliberately NOT
+			// required — a group carrying only the wanted disc is exactly what
+			// repair needs.
+			if g.total != 0 && g.total != repair.Total {
+				rejected = append(rejected, Rejection{
+					Title:  g.discs[minDiscIndex(g.discs)].Title,
+					Reason: fmt.Sprintf("disc total mismatch (release declares %d, set has %d)", g.total, repair.Total),
+				})
+				continue
+			}
+			covered := true
+			for _, i := range repair.wanted() {
+				if g.discs[i] == nil {
+					covered = false
+					break
+				}
+			}
+			if !covered {
+				rejected = append(rejected, Rejection{
+					Title:  g.discs[minDiscIndex(g.discs)].Title,
+					Reason: fmt.Sprintf("missing wanted discs (has %d of the set)", len(g.discs)),
+				})
+				continue
+			}
+			candidates = append(candidates, candidate{rep: g.discs[repair.wanted()[0]], set: g})
+			continue
+		}
 		n := len(g.discs)
 		contiguous := true
 		for i := 1; i <= n; i++ {
@@ -200,7 +269,7 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// the winner is checked: filtering hash-owned candidates instead would
 	// promote a byte-different variant of a game already on disk. Disc sets
 	// are represented by disc 1 (sets carry no hashes today anyway).
-	if opts.OwnedByHash != nil && (winner.rep.MD5 != "" || winner.rep.SHA1 != "") {
+	if repair == nil && opts.OwnedByHash != nil && (winner.rep.MD5 != "" || winner.rep.SHA1 != "") {
 		if item := opts.OwnedByHash(winner.rep.MD5, winner.rep.SHA1); item != nil {
 			return Decision{Action: ActionSkip, Reason: "owned", Rejected: rejected}
 		}
@@ -219,6 +288,28 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 			Action:   ActionGrab,
 			Grabs:    []Grab{{Result: winner.rep}},
 			Reason:   "best single release",
+			Rejected: rejected,
+		}
+	}
+
+	if repair != nil {
+		// Existing identity, wanted indices only — newSetID is never called,
+		// so repair-mode Select stays pure (no randomness).
+		want := repair.wanted()
+		grabs := make([]Grab, 0, len(want))
+		for _, i := range want {
+			grabs = append(grabs, Grab{
+				Result:    winner.set.discs[i],
+				DiscSetID: repair.ID,
+				DiscIndex: i,
+				DiscTotal: repair.Total,
+				SetDir:    repair.Dir,
+			})
+		}
+		return Decision{
+			Action:   ActionGrabSet,
+			Grabs:    grabs,
+			Reason:   fmt.Sprintf("repair grab (%d missing discs)", len(grabs)),
 			Rejected: rejected,
 		}
 	}
