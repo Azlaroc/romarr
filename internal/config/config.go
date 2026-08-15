@@ -102,6 +102,16 @@ type Config struct {
 	RomMSyncEnabled      bool
 	RomMSyncIntervalS    int
 	RomMExcludePlatforms []string
+	// RomMConnectEnabled turns on the Connect plane: after each ROM import a
+	// targeted RomM scan is triggered over socket.io. Needs a RomM account
+	// with the tasks.run scope (admin role in RomM 5.x); with lesser roles
+	// the notifier degrades to warnings and RomM simply isn't notified.
+	RomMConnectEnabled bool
+	// RomMConnectFlushIdleS / RomMConnectTickS override the notifier's
+	// coalescing window and poll interval in seconds (0 = built-in defaults:
+	// 120/30). Mostly for tests and impatient setups.
+	RomMConnectFlushIdleS int
+	RomMConnectTickS      int
 
 	// Webhooks (default from env, additional via DB)
 	WebhookURL  string
@@ -233,11 +243,14 @@ func Load() *Config {
 		GameVaultURL: envStr("GAMEVAULT_URL", ""),
 		RomMURL:      envStr("ROMM_URL", ""),
 
-		RomMAPIUser:          envStr("ROMM_API_USER", ""),
-		RomMAPIPass:          envStr("ROMM_API_PASS", ""),
-		RomMSyncEnabled:      envBool("ROMM_SYNC_ENABLED", true),
-		RomMSyncIntervalS:    envInt("ROMM_SYNC_INTERVAL", 1800),
-		RomMExcludePlatforms: envStrSlice("ROMM_EXCLUDE_PLATFORMS"),
+		RomMAPIUser:           envStr("ROMM_API_USER", ""),
+		RomMAPIPass:           envStr("ROMM_API_PASS", ""),
+		RomMSyncEnabled:       envBool("ROMM_SYNC_ENABLED", true),
+		RomMSyncIntervalS:     envInt("ROMM_SYNC_INTERVAL", 1800),
+		RomMExcludePlatforms:  envStrSlice("ROMM_EXCLUDE_PLATFORMS"),
+		RomMConnectEnabled:    envBool("ROMM_CONNECT_ENABLED", true),
+		RomMConnectFlushIdleS: envInt("ROMM_CONNECT_FLUSH_IDLE", 0),
+		RomMConnectTickS:      envInt("ROMM_CONNECT_TICK", 0),
 
 		WebhookURL:  envStr("WEBHOOK_URL", ""),
 		WebhookType: envStr("WEBHOOK_TYPE", "generic"),

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"gamarr/internal/db"
+	"gamarr/internal/platform"
 )
 
 // ScanLibraryDirs scans vault and ROM directories to populate the library.
@@ -203,14 +204,17 @@ func containsGameFiles(dir string) bool {
 
 // TrackInLibrary adds a completed download to the library. jobID is the
 // download job that produced the import ("" when none) — it links the
-// import_completed activity and lets a scheduler grab consume its wishlist row.
-func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID, jobID string) {
+// import_completed activity and lets a scheduler grab consume its wishlist
+// row. Returns whether a library row was actually added (false on the
+// restart-re-entry dedupe and on storage errors), so callers that count
+// imports don't overcount.
+func (m *Manager) TrackInLibrary(title, platformName, platformSlug string, isPC bool, filePath string, fileSize int64, source, sourceType, sourceID, jobID string) bool {
 	if m.jobs.LibraryHasSourceID(sourceID) {
-		return
+		return false
 	}
 	id, err := m.jobs.AddLibraryItem(&db.LibraryItem{
 		Title:        title,
-		Platform:     platform,
+		Platform:     platformName,
 		PlatformSlug: platformSlug,
 		IsPC:         isPC,
 		FilePath:     filePath,
@@ -222,9 +226,17 @@ func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool
 	})
 	if err != nil {
 		slog.Warn("failed to add to library", "error", err)
-		return
+		return false
 	}
-	m.jobs.LogActivity("import_completed", title, "Added to library: "+platform, jobID, &id)
+	m.jobs.LogActivity("import_completed", title, "Added to library: "+platformName, jobID, &id)
+
+	// Connect plane: every ROM import funnels through here (single roms, the
+	// disc-set barrier, manual imports), so this is the one place RomM gets
+	// told which platform folder changed. Enqueue only — the notifier batches
+	// and never blocks an import.
+	if !isPC && m.ImportNotify != nil {
+		m.ImportNotify(platform.ToRommFSSlug(platformSlug))
+	}
 
 	// A scheduler grab consumes its wishlist row at import time. The
 	// later-cycle Owned check cannot be trusted for this: the library row is
@@ -236,6 +248,7 @@ func (m *Manager) TrackInLibrary(title, platform, platformSlug string, isPC bool
 			m.jobs.LogActivity("wishlist_fulfilled", wishTitle, "Imported — removed from wishlist", jobID, nil)
 		}
 	}
+	return true
 }
 
 func dirSize(path string) int64 {

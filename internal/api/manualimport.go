@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gamarr/internal/db"
 	"gamarr/internal/organize"
 )
 
@@ -159,19 +158,12 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 			destPath = s.mgr.MaybeNormalize("", destPath, f.PlatformSlug)
 		}
 
-		// Add to library
-		item := &db.LibraryItem{
-			Title:        title,
-			Platform:     f.Platform,
-			PlatformSlug: f.PlatformSlug,
-			IsPC:         f.IsPC,
-			FilePath:     destPath,
-			FileSize:     info.Size(),
-			Source:       "manual",
-			SourceType:   "import",
-		}
-		if _, err := s.mgr.Jobs().AddLibraryItem(item); err != nil {
-			errors = append(errors, title+": "+err.Error())
+		// Track through the same choke point as the download paths (#280
+		// shape): manual imports gain a stable SourceID for dedupe, the
+		// import_completed activity, and the RomM Connect notification.
+		// Re-importing a path that's already tracked counts as skipped.
+		if !s.mgr.TrackInLibrary(title, f.Platform, f.PlatformSlug, f.IsPC,
+			destPath, info.Size(), "manual", "import", "manual:"+destPath, "") {
 			skipped++
 			continue
 		}

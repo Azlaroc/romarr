@@ -20,6 +20,7 @@ import (
 	"gamarr/internal/monitor"
 	"gamarr/internal/qbit"
 	"gamarr/internal/romm"
+	"gamarr/internal/rommconnect"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -222,6 +223,24 @@ func main() {
 
 	// RomM library sync — when configured, RomM owns the ROM side of the
 	// library and the fs scanner above only walks the PC vault.
+	// Connect plane: tell RomM which platform folders changed after imports,
+	// instead of leaving new files invisible until a manual scan. The account
+	// behind ROMM_API_USER needs the tasks.run scope (admin role in RomM 5.x).
+	if cfg.HasRomMAPI() && cfg.RomMConnectEnabled {
+		connectNotifier := rommconnect.NewNotifier(
+			rommconnect.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
+			rommconnect.NotifierOptions{
+				FlushIdle: time.Duration(cfg.RomMConnectFlushIdleS) * time.Second,
+				Tick:      time.Duration(cfg.RomMConnectTickS) * time.Second,
+				OnEvent: func(event, detail string) {
+					database.LogActivity(event, "RomM Connect", detail, "", nil)
+				},
+			},
+		)
+		connectNotifier.Start()
+		mgr.ImportNotify = connectNotifier.Enqueue
+	}
+
 	var rommSync *romm.Syncer
 	if cfg.HasRomMAPI() && cfg.RomMSyncEnabled {
 		rommSync = romm.NewSyncer(

@@ -126,6 +126,12 @@ ROMM_USER = "romarr-e2e"
 ROMM_PASS = "romm-stub-pw"
 ROMM_PAGE = 3  # server-side page size: forces the sync client through 2 pages
 
+# RomM Connect stub: gamarr's notifier logs in (session cookie), walks the
+# socket.io long-polling handshake and emits "scan" events; every scan payload
+# lands in ROMM_SOCKET["scans"] for tests to read via GET /stub/romm-scans.
+ROMM_SESSION_COOKIE = "romm_session=stub-session"
+ROMM_SOCKET = {"sessions": {}, "scans": []}
+
 ROMM_PLATFORMS = [
     {"id": 41, "slug": "psx", "fs_slug": "psx", "name": "PlayStation", "rom_count": 5},
 ]
@@ -295,8 +301,43 @@ class _StubHandler(BaseHTTPRequestHandler):
             for h in form.get("hashes", [""])[0].split("|"):
                 QBIT_STATE["torrents"].pop(h.lower(), None)
             self._send(200, b"", "text/plain")
+        # ── RomM Connect: session login + socket.io polling emits ─────────
+        elif path == "/api/login":
+            if not self._romm_auth_ok():
+                self._send(401, b"unauthorized", "text/plain")
+                return
+            payload = b"null"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", ROMM_SESSION_COOKIE + "; Path=/")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        elif path == "/ws/socket.io/":
+            if not self._romm_session_ok():
+                self._send(401, b"no session", "text/plain")
+                return
+            from urllib.parse import parse_qs, urlparse
+            sid = parse_qs(urlparse(self.path).query).get("sid", [""])[0]
+            sess = ROMM_SOCKET["sessions"].get(sid)
+            if sess is None:
+                self._send(400, b"unknown sid", "text/plain")
+                return
+            if body == "40":
+                sess["joined"] = True
+            elif body.startswith("42"):
+                try:
+                    event = json.loads(body[2:])
+                    if event and event[0] == "scan":
+                        ROMM_SOCKET["scans"].append(event[1])
+                except (ValueError, IndexError):
+                    pass
+            self._send(200, b"ok", "text/plain")
         else:
             self._send(404, b"not found", "text/plain")
+
+    def _romm_session_ok(self) -> bool:
+        return ROMM_SESSION_COOKIE in (self.headers.get("Cookie") or "")
 
     def do_GET(self):  # noqa: N802
         path = self.path.split("?")[0]
@@ -332,7 +373,39 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(200, b"[]", "application/json")
         # ── RomM: heartbeat + platforms + paginated roms ──────────────────
         elif path == "/api/heartbeat":
-            self._send(200, b"{}", "application/json")
+            hb = {"METADATA_SOURCES": {
+                "ANY_SOURCE_ENABLED": True,
+                "IGDB_API_ENABLED": True,
+                "HASHEOUS_API_ENABLED": True,
+                "MOBY_API_ENABLED": False,
+            }}
+            self._send(200, json.dumps(hb).encode(), "application/json")
+        # ── RomM Connect: engine.io long-polling handshake + debug view ───
+        elif path == "/ws/socket.io/":
+            if not self._romm_session_ok():
+                self._send(401, b"no session", "text/plain")
+                return
+            from urllib.parse import parse_qs, urlparse
+            sid = parse_qs(urlparse(self.path).query).get("sid", [""])[0]
+            if not sid:
+                sid = f"eio-{len(ROMM_SOCKET['sessions'])}"
+                ROMM_SOCKET["sessions"][sid] = {"joined": False, "acked": False}
+                open_pkt = '0{"sid":"%s","upgrades":[],"pingInterval":25000,"pingTimeout":60000}' % sid
+                self._send(200, open_pkt.encode(), "text/plain")
+                return
+            sess = ROMM_SOCKET["sessions"].get(sid)
+            if sess is None:
+                self._send(400, b"unknown sid", "text/plain")
+            elif sess["joined"] and not sess["acked"]:
+                sess["acked"] = True
+                self._send(200, ('40{"sid":"ns-%s"}' % sid).encode(), "text/plain")
+            else:
+                # Quiet connection: throttle the client's listen loop a bit,
+                # then answer with an engine.io ping like a real idle server.
+                time.sleep(0.2)
+                self._send(200, b"2", "text/plain")
+        elif path == "/stub/romm-scans":
+            self._send(200, json.dumps(ROMM_SOCKET["scans"]).encode(), "application/json")
         elif path == "/api/platforms":
             if not self._romm_auth_ok():
                 self._send(401, b"unauthorized", "text/plain")
@@ -443,6 +516,10 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         "ROMM_URL": stub_server,
         "ROMM_API_USER": ROMM_USER,
         "ROMM_API_PASS": ROMM_PASS,
+        # RomM Connect: fast coalescing so import-triggered scans land while
+        # a journey is still watching (defaults are 120s/30s).
+        "ROMM_CONNECT_FLUSH_IDLE": "1",
+        "ROMM_CONNECT_TICK": "1",
         # F4 selector: enforce mode drives the scheduler in the selector
         # journey; harmless elsewhere (nothing else triggers a scheduler run).
         "SELECTOR_MODE": "enforce",
