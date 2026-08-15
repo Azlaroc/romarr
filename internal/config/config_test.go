@@ -10,7 +10,8 @@ func TestLoad_Defaults(t *testing.T) {
 	for _, k := range []string{"PROWLARR_URL", "PROWLARR_API_KEY", "QB_URL", "QB_USER", "QB_PASS",
 		"QB_CONTAINER_NAME", "GAMARR_PORT", "MAX_RETRIES", "METRICS_ENABLED", "PROWLARR_GAME_INDEXERS",
 		"AI_MONITOR_ENABLED", "EXTRACT_ARCHIVES", "SABNZBD_URL", "SABNZBD_API_KEY",
-		"NZBGET_URL", "NZBGET_USER", "NZBGET_PASS", "NZBGET_CATEGORY"} {
+		"NZBGET_URL", "NZBGET_USER", "NZBGET_PASS", "NZBGET_CATEGORY",
+		"SELECTOR_SET_TIMEOUT_HOURS"} {
 		os.Unsetenv(k)
 	}
 
@@ -40,6 +41,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ExtractArchives {
 		t.Error("ExtractArchives should default to false")
 	}
+	if cfg.SelectorSetTimeoutHours != 24 {
+		t.Errorf("SelectorSetTimeoutHours=%d, want 24", cfg.SelectorSetTimeoutHours)
+	}
 
 	// Default indexers
 	expected := []int{7, 5, 15, 9, 8, 3, 4}
@@ -66,6 +70,7 @@ func TestLoad_FromEnv(t *testing.T) {
 	os.Setenv("NZBGET_USER", "gamarr")
 	os.Setenv("NZBGET_PASS", "secret")
 	os.Setenv("NZBGET_CATEGORY", "roms")
+	os.Setenv("SELECTOR_SET_TIMEOUT_HOURS", "72")
 	defer func() {
 		os.Unsetenv("GAMARR_PORT")
 		os.Unsetenv("PROWLARR_API_KEY")
@@ -79,6 +84,7 @@ func TestLoad_FromEnv(t *testing.T) {
 		os.Unsetenv("NZBGET_USER")
 		os.Unsetenv("NZBGET_PASS")
 		os.Unsetenv("NZBGET_CATEGORY")
+		os.Unsetenv("SELECTOR_SET_TIMEOUT_HOURS")
 	}()
 
 	cfg := Load()
@@ -109,6 +115,32 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 	if cfg.NZBGetURL != "http://nzbget:6789" || cfg.NZBGetUser != "gamarr" || cfg.NZBGetPass != "secret" || cfg.NZBGetCategory != "roms" {
 		t.Errorf("unexpected NZBGet config: url=%q user=%q pass=%q category=%q", cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass, cfg.NZBGetCategory)
+	}
+	if cfg.SelectorSetTimeoutHours != 72 {
+		t.Errorf("SelectorSetTimeoutHours=%d, want 72", cfg.SelectorSetTimeoutHours)
+	}
+}
+
+func TestDiscSetTimeoutAccessors(t *testing.T) {
+	cases := []struct {
+		raw         int
+		wantTimeout int
+		wantHorizon int
+	}{
+		{0, 24, 24},  // zero-value Config (bare test fixtures) keeps the 24h default
+		{-1, 24, 24}, // invalid → default
+		{6, 6, 24},   // short timeout never shrinks the stale horizon below 24h
+		{24, 24, 24},
+		{72, 72, 72}, // long timeout widens the stale horizon with it
+	}
+	for _, tc := range cases {
+		c := &Config{SelectorSetTimeoutHours: tc.raw}
+		if got := c.DiscSetTimeoutHours(); got != tc.wantTimeout {
+			t.Errorf("DiscSetTimeoutHours(%d)=%d, want %d", tc.raw, got, tc.wantTimeout)
+		}
+		if got := c.StaleJobHorizonHours(); got != tc.wantHorizon {
+			t.Errorf("StaleJobHorizonHours(%d)=%d, want %d", tc.raw, got, tc.wantHorizon)
+		}
 	}
 }
 

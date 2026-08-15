@@ -257,19 +257,22 @@ func main() {
 		rommSync.Start()
 	}
 
-	// Periodic cleanup: remove stale downloading jobs (>24h) and old finished jobs (>7d)
+	// Periodic cleanup: remove stale downloading jobs and old finished jobs
+	// (>7d). The stale horizon tracks the disc-set timeout — deleting a
+	// still-pending set member early would fire the sweep's degrade arm before
+	// SELECTOR_SET_TIMEOUT_HOURS elapses.
 	go func() {
 		// Initial cleanup on startup. The disc-set sweep runs after job
 		// recovery: it re-finalizes sets whose barrier a restart interrupted
 		// and degrades sets that can no longer complete (F4).
-		database.CleanupStaleDownloads(24)
+		database.CleanupStaleDownloads(cfg.StaleJobHorizonHours())
 		database.Cleanup(7)
 		mgr.SweepDiscSets()
 
 		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			stale := database.CleanupStaleDownloads(24)
+			stale := database.CleanupStaleDownloads(cfg.StaleJobHorizonHours())
 			old := database.Cleanup(7)
 			if stale > 0 || old > 0 {
 				slog.Info("periodic cleanup", "stale_downloads", stale, "old_jobs", old)

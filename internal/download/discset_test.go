@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"gamarr/internal/db"
 )
@@ -251,6 +252,64 @@ func TestDiscSetSweepCompletesCrashedFinalize(t *testing.T) {
 	}
 	if got := jobString(t, jobs, "crashed-1", "detail"); got != "Disc set complete (2 discs)" {
 		t.Errorf("detail = %q (sweep must finalize non-degraded)", got)
+	}
+}
+
+func TestDiscSetSweepTimeoutHonorsConfig(t *testing.T) {
+	// SELECTOR_SET_TIMEOUT_HOURS below the old 24h const: a set idle past the
+	// configured timeout degrades even though its missing member is still
+	// nominally downloading.
+	cfg := newTestConfig(t)
+	cfg.SelectorSetTimeoutHours = 1
+	jobs := newTestJobs(t)
+	m := New(cfg, jobs, nil)
+	const setID = "set-to1"
+
+	set1 := DiscSet{ID: setID, Index: 1, Total: 2, Dir: "Test Game (USA)"}
+	seedSetMemberJob(t, jobs, "done-job", set1, "downloading")
+	importSetMember(t, m, "done-job", set1)
+	seedSetMemberJob(t, jobs, "slow-job", DiscSet{ID: setID, Index: 2, Total: 2, Dir: "Test Game (USA)"}, "downloading")
+	backdated := time.Now().Add(-2 * time.Hour).Unix()
+	for _, jobID := range []string{"done-job", "slow-job"} {
+		jobs.UpdateMulti(jobID, map[string]interface{}{"set_started_at": backdated})
+	}
+
+	m.SweepDiscSets()
+
+	if !jobs.LibraryHasSourceID("set:" + setID) {
+		t.Fatal("set not degraded after configured timeout elapsed")
+	}
+	if got := jobString(t, jobs, "done-job", "detail"); got != "Incomplete disc set (1 of 2 imported)" {
+		t.Errorf("detail = %q", got)
+	}
+}
+
+func TestDiscSetSweepTimeoutExtendedByConfig(t *testing.T) {
+	// SELECTOR_SET_TIMEOUT_HOURS above the old 24h const: a set idle longer
+	// than 24h but within the configured timeout must NOT degrade — proves the
+	// hardcoded const is really gone.
+	cfg := newTestConfig(t)
+	cfg.SelectorSetTimeoutHours = 100
+	jobs := newTestJobs(t)
+	m := New(cfg, jobs, nil)
+	const setID = "set-to2"
+
+	set1 := DiscSet{ID: setID, Index: 1, Total: 2, Dir: "Test Game (USA)"}
+	seedSetMemberJob(t, jobs, "done-job", set1, "downloading")
+	importSetMember(t, m, "done-job", set1)
+	seedSetMemberJob(t, jobs, "slow-job", DiscSet{ID: setID, Index: 2, Total: 2, Dir: "Test Game (USA)"}, "downloading")
+	backdated := time.Now().Add(-25 * time.Hour).Unix()
+	for _, jobID := range []string{"done-job", "slow-job"} {
+		jobs.UpdateMulti(jobID, map[string]interface{}{"set_started_at": backdated})
+	}
+
+	m.SweepDiscSets()
+
+	if jobs.LibraryHasSourceID("set:" + setID) {
+		t.Fatal("set degraded before the configured timeout elapsed")
+	}
+	if jobBool(t, jobs, "done-job", "set_finalized") {
+		t.Error("member finalized before the configured timeout elapsed")
 	}
 }
 
