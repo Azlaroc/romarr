@@ -39,6 +39,8 @@ import type {
   AdminDashboard,
   SchedulerStatus,
   LibrarySyncStatus,
+  NormalizeStatus,
+  NormalizePreviewRow,
   SafeUser,
   InviteCode,
   BackupInfo,
@@ -68,6 +70,8 @@ export const keys = {
   notifications: ['notifications'] as const,
   dashboard: ['admin-dashboard'] as const,
   scheduler: ['scheduler-status'] as const,
+  normalizeStatus: ['normalize-status'] as const,
+  normalizeResults: (page: number) => ['normalize-results', page] as const,
   syncStatus: ['sync-status'] as const,
   users: ['users'] as const,
   invites: ['invites'] as const,
@@ -576,6 +580,51 @@ export function useTriggerSync() {
     mutationFn: (full: boolean) =>
       api.post<{ success: boolean; error?: string; message?: string }>(`/api/library/sync${full ? '?full=true' : ''}`),
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.syncStatus }), 2000),
+  })
+}
+
+export function useNormalizeStatus() {
+  return useQuery({
+    queryKey: keys.normalizeStatus,
+    queryFn: () => api.get<NormalizeStatus>('/api/library/normalize/status'),
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
+  })
+}
+
+export function useNormalizeResults(page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.normalizeResults(page),
+    queryFn: () =>
+      api.get<{ success: boolean; items: NormalizePreviewRow[]; total: number }>(
+        `/api/library/normalize/preview/results?page=${page}&page_size=100`,
+      ),
+    enabled,
+  })
+}
+
+export function useNormalizePreview() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (platformSlug: string) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/normalize/preview', { platform_slug: platformSlug }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.normalizeStatus }),
+  })
+}
+
+export function useNormalizeApply() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (excludeIds: number[]) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/normalize/apply', { exclude_ids: excludeIds }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.normalizeStatus }),
+  })
+}
+
+export function useNormalizeStop() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean }>('/api/library/normalize/stop'),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.normalizeStatus }), 500),
   })
 }
 

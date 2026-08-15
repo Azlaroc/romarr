@@ -194,8 +194,15 @@ func (r *Runner) Status() map[string]interface{} {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	planned := 0
+	for i := range r.rows {
+		if r.rows[i].Status == "rename" {
+			planned++
+		}
+	}
 	return map[string]interface{}{
 		"enabled":     true,
+		"planned":     planned,
 		"running":     r.running.Load(),
 		"phase":       r.phase,
 		"scope":       r.scope,
