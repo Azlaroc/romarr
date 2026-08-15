@@ -35,6 +35,8 @@ func (d DiscSet) valid() bool { return d.ID != "" }
 // applyDiscSetJobData stamps a set membership onto a job blob at create time.
 // set_started_at anchors the sweep's degrade timeout: not every job path
 // writes started_at, and set semantics need one uniform clock.
+// scheduler.reopenSet mirrors these keys when it seeds phantom done-members
+// for a repaired set — keep the two in sync.
 func applyDiscSetJobData(jobData map[string]interface{}, set DiscSet) {
 	if !set.valid() {
 		return

@@ -133,29 +133,37 @@ func (s *Scheduler) run() {
 
 	slog.Info("scheduler: starting wishlist search")
 
-	wishlist := s.jobs.GetWishlist()
-	if len(wishlist) == 0 {
-		slog.Info("scheduler: wishlist empty, nothing to do")
-		s.mu.Lock()
-		s.lastRun = time.Now()
-		s.lastResults = 0
-		s.mu.Unlock()
-		return
-	}
-
-	totalResults := 0
-	autoDownloads := 0
-	minScore := s.cfg.SchedulerMinScore
-	if minScore <= 0 {
-		minScore = 70
-	}
-
 	// Unset/unknown SELECTOR_MODE behaves as shadow (the Load default), so a
 	// hand-built config in tests matches a deployed default.
 	mode := s.cfg.SelectorMode
 	if mode != "off" && mode != "enforce" {
 		mode = "shadow"
 	}
+
+	// Degraded disc-set repair runs ahead of the wishlist loop: its work list
+	// comes from library markers, not the wishlist — the degraded finalize
+	// consumed the wishlist row, so by the time a set needs repair the
+	// wishlist is typically empty.
+	repairGrabs := s.repairDegradedSets(mode)
+
+	wishlist := s.jobs.GetWishlist()
+	if len(wishlist) == 0 {
+		slog.Info("scheduler: wishlist empty, nothing to do")
+		s.mu.Lock()
+		s.lastRun = time.Now()
+		s.lastResults = 0
+		s.autoDownloads += repairGrabs
+		s.mu.Unlock()
+		return
+	}
+
+	totalResults := 0
+	autoDownloads := repairGrabs
+	minScore := s.cfg.SchedulerMinScore
+	if minScore <= 0 {
+		minScore = 70
+	}
+
 	var owned func(title, platformSlug string) *db.LibraryItem
 	var ownedByHash func(md5, sha1 string) *db.LibraryItem
 	if mode == "enforce" {
