@@ -337,3 +337,37 @@ func TestDeleteWishlistByTitle(t *testing.T) {
 		t.Fatalf("empty title deleted %d rows, want 0", n)
 	}
 }
+
+func TestFindLibraryByHash(t *testing.T) {
+	store := newTestStore(t)
+	store.AddLibraryItem(&LibraryItem{Title: "A", PlatformSlug: "snes", FilePath: "/a",
+		Source: "romm", SourceType: "romm", SourceID: "romm:a",
+		Metadata: `{"romm":{"md5":"AA11","sha1":"bb22"}}`})
+	store.AddLibraryItem(&LibraryItem{Title: "B", PlatformSlug: "gba", FilePath: "/b",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:b",
+		Metadata: `{"gamarr":{"sha1":"cc33"}}`})
+	store.AddLibraryItem(&LibraryItem{Title: "C", PlatformSlug: "nes", FilePath: "/c",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:c", Metadata: "{}"})
+	// One malformed blob must not error the whole lookup (json_valid guard).
+	store.AddLibraryItem(&LibraryItem{Title: "D", PlatformSlug: "gb", FilePath: "/d",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:d", Metadata: "not json"})
+
+	if it := store.FindLibraryByHash("aa11", ""); it == nil || it.Title != "A" {
+		t.Errorf("md5 lookup (stored uppercase) = %+v, want A", it)
+	}
+	if it := store.FindLibraryByHash("", "BB22"); it == nil || it.Title != "A" {
+		t.Errorf("sha1 lookup (input uppercase) = %+v, want A", it)
+	}
+	if it := store.FindLibraryByHash("", "cc33"); it == nil || it.Title != "B" {
+		t.Errorf("$.gamarr family lookup = %+v, want B", it)
+	}
+	if it := store.FindLibraryByHash("", ""); it != nil {
+		t.Errorf("empty inputs = %+v, want nil", it)
+	}
+	if it := store.FindLibraryByHash("zz", "zz"); it != nil {
+		t.Errorf("no-match inputs = %+v, want nil (absent stored hashes must not match)", it)
+	}
+	if it := store.FindLibraryByHash("bb22", ""); it != nil {
+		t.Errorf("md5 input matched a sha1 field: %+v", it)
+	}
+}

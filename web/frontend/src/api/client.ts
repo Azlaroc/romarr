@@ -6,9 +6,12 @@
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Parsed response body, when the backend sent structured details (e.g. the 409 duplicate_hash payload). */
+  body: unknown
+  constructor(status: number, message: string, body?: unknown) {
     super(message)
     this.status = status
+    this.body = body
     this.name = 'ApiError'
   }
 }
@@ -69,7 +72,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       (data && typeof data === 'object' && 'error' in data && typeof (data as { error: unknown }).error === 'string'
         ? (data as { error: string }).error
         : null) || `${res.status} ${res.statusText}`
-    throw new ApiError(res.status, msg)
+    throw new ApiError(res.status, msg, data)
   }
 
   return data as T

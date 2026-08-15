@@ -269,7 +269,8 @@ export function useSearch() {
 export function useDownloadGame() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (result: SearchResult) => api.post<{ success: boolean; error?: string }>('/api/download', result),
+    mutationFn: (result: SearchResult & { force?: boolean }) =>
+      api.post<{ success: boolean; error?: string }>('/api/download', result),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.downloads }),
   })
 }

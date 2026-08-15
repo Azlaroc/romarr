@@ -558,6 +558,12 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A release hash proving a byte-identical copy is owned blocks (409,
+	// force overrides); a title match merely warns below.
+	if s.hashOwnedConflict(w, &req) {
+		return
+	}
+
 	// Check for duplicate in library (warn but don't block)
 	var duplicateWarning string
 	if existing := s.mgr.Jobs().FindLibraryByTitle(req.Title, req.PlatformSlug); existing != nil {

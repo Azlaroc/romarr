@@ -481,6 +481,48 @@ func (s *JobStore) findLibraryBySearchKey(key, platformSlug string) *LibraryItem
 	return &item
 }
 
+// FindLibraryByHash finds a library row whose stored hash identity matches
+// either given hash (hex, any case). Two hash families are checked: $.romm
+// (RomM's DAT-style content hashes) and $.gamarr (the source release's file
+// hashes persisted at import) — an archived release's file hash and its inner
+// rom's content hash never agree, so all four paths are matched independently.
+// Global across platforms: byte identity is platform-independent. Returns nil
+// when both inputs are empty; an empty input never matches a row whose stored
+// hash is absent. Metadata is json_valid-guarded: one malformed blob would
+// otherwise error the whole query (json_extract raises on bad JSON).
+func (s *JobStore) FindLibraryByHash(md5, sha1 string) *LibraryItem {
+	md5 = strings.ToLower(strings.TrimSpace(md5))
+	sha1 = strings.ToLower(strings.TrimSpace(sha1))
+	var conds []string
+	var args []interface{}
+	for _, h := range []struct{ name, val string }{{"md5", md5}, {"sha1", sha1}} {
+		if h.val == "" {
+			continue
+		}
+		for _, fam := range []string{"romm", "gamarr"} {
+			conds = append(conds,
+				"LOWER(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END, '$."+fam+"."+h.name+"')) = ?")
+			args = append(args, h.val)
+		}
+	}
+	if len(conds) == 0 {
+		return nil
+	}
+	row := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE "+
+			strings.Join(conds, " OR ")+" LIMIT 1", args...,
+	)
+	var item LibraryItem
+	var isPC int
+	if err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+		&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+		return nil
+	}
+	item.IsPC = isPC != 0
+	return &item
+}
+
 // NormalizeTitleKey lowercases, trims and strips one trailing file extension
 // from a title, matching how the RomM sync builds search keys from fs names.
 func NormalizeTitleKey(title string) string {
