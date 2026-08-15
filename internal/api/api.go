@@ -24,6 +24,7 @@ import (
 	"gamarr/internal/monitor"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
+	"gamarr/internal/renamer"
 	"gamarr/internal/romm"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
@@ -43,13 +44,14 @@ type Server struct {
 	scheduler *scheduler.Scheduler
 	oidc      *OIDCHandler
 	rommSync  *romm.Syncer
+	renamer   *renamer.Runner
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMonitor, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMonitor, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer, ren *renamer.Runner) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, mon: mon, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync}
+	s := &Server{cfg: cfg, mgr: mgr, mon: mon, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync, renamer: ren}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -128,6 +130,11 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
 	r.Get("/api/library/sync/status", s.handleLibrarySyncStatus)
 	r.Post("/api/library/sync", requireAdmin(s.handleLibrarySync))
+	r.Get("/api/library/normalize/status", s.handleNormalizeStatus)
+	r.Get("/api/library/normalize/preview/results", requireAdmin(s.handleNormalizeResults))
+	r.Post("/api/library/normalize/preview", requireAdmin(s.handleNormalizePreview))
+	r.Post("/api/library/normalize/apply", requireAdmin(s.handleNormalizeApply))
+	r.Post("/api/library/normalize/stop", requireAdmin(s.handleNormalizeStop))
 
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)
