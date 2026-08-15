@@ -130,6 +130,18 @@ func TestDiscSetConvergesAndFinalizesOnLastDisc(t *testing.T) {
 	if rows != 1 {
 		t.Errorf("library rows for set = %d, want 1", rows)
 	}
+	item := jobs.FindLibraryBySourceID("set:" + setID)
+	if item == nil {
+		t.Fatal("set row missing")
+	}
+	mk, ok := db.ParseSetMarker(item.Metadata)
+	if !ok {
+		t.Fatalf("no set marker on complete finalize: %q", item.Metadata)
+	}
+	if mk.ID != setID || mk.Total != 3 || mk.Degraded ||
+		len(mk.Have) != 3 || mk.Have[0] != 1 || mk.Have[2] != 3 {
+		t.Errorf("marker = %+v, want complete {total:3 have:[1 2 3]}", mk)
+	}
 }
 
 func TestDiscSetFinalizeIdempotentAndSingleFlight(t *testing.T) {
@@ -195,6 +207,87 @@ func TestDiscSetSweepDegradesWithTerminalMember(t *testing.T) {
 	}
 	if !jobBool(t, jobs, "dead-job", "set_finalized") {
 		t.Error("terminal member not finalized by sweep")
+	}
+	item := jobs.FindLibraryBySourceID("set:" + setID)
+	if item == nil {
+		t.Fatal("set row missing")
+	}
+	mk, ok := db.ParseSetMarker(item.Metadata)
+	if !ok {
+		t.Fatalf("no set marker on degraded finalize: %q", item.Metadata)
+	}
+	if !mk.Degraded || mk.Total != 2 || len(mk.Have) != 1 || mk.Have[0] != 1 {
+		t.Errorf("marker = %+v, want degraded {total:2 have:[1]}", mk)
+	}
+	if mk.DegradedAt == "" {
+		t.Error("degraded_at not stamped")
+	}
+	if mk.RepairAttempts != 0 || mk.Exhausted || mk.RepairedAt != "" {
+		t.Errorf("fresh degrade carries repair state: %+v", mk)
+	}
+}
+
+func TestDiscSetReFinalizeAfterRepairFlipsMarker(t *testing.T) {
+	// The download-side half of a repair: a degraded set whose finalize latch
+	// was cleared and whose missing member then lands must re-finalize
+	// complete over the existing row — marker flips, size refreshes,
+	// TrackInLibrary's source_id dedupe keeps it at one row.
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	m := New(cfg, jobs, nil)
+	const setID = "set-rf1"
+
+	set1 := DiscSet{ID: setID, Index: 1, Total: 2, Dir: "Test Game (USA)"}
+	seedSetMemberJob(t, jobs, "ok-job", set1, "downloading")
+	importSetMember(t, m, "ok-job", set1)
+	seedSetMemberJob(t, jobs, "dead-job", DiscSet{ID: setID, Index: 2, Total: 2, Dir: "Test Game (USA)"}, "error")
+	m.SweepDiscSets()
+
+	item := jobs.FindLibraryBySourceID("set:" + setID)
+	if item == nil {
+		t.Fatal("degraded set row missing")
+	}
+	sizeBefore := item.FileSize
+	if mk, _ := db.ParseSetMarker(item.Metadata); !mk.Degraded {
+		t.Fatalf("precondition: marker not degraded: %+v", mk)
+	}
+
+	// Repair: dispatch the replacement member, then reopen (clear the latch
+	// and drop the terminal member's stand-in the way the scheduler will).
+	set2 := DiscSet{ID: setID, Index: 2, Total: 2, Dir: "Test Game (USA)"}
+	seedSetMemberJob(t, jobs, "repair-job", set2, "downloading")
+	for _, jobID := range []string{"ok-job", "dead-job"} {
+		jobs.UpdateMulti(jobID, map[string]interface{}{
+			"set_finalized": false, "set_started_at": time.Now().Unix(),
+		})
+	}
+	importSetMember(t, m, "repair-job", set2)
+
+	item = jobs.FindLibraryBySourceID("set:" + setID)
+	if item == nil {
+		t.Fatal("set row missing after repair")
+	}
+	mk, ok := db.ParseSetMarker(item.Metadata)
+	if !ok {
+		t.Fatalf("marker missing after repair: %q", item.Metadata)
+	}
+	if mk.Degraded || len(mk.Have) != 2 || mk.RepairedAt == "" {
+		t.Errorf("marker = %+v, want repaired {have:[1 2] repaired_at set}", mk)
+	}
+	if item.FileSize <= sizeBefore {
+		t.Errorf("file_size not refreshed: %d -> %d", sizeBefore, item.FileSize)
+	}
+	rows := 0
+	for _, it := range jobs.RecentLibraryItems(20) {
+		if it.SourceID == "set:"+setID {
+			rows++
+		}
+	}
+	if rows != 1 {
+		t.Errorf("library rows = %d, want 1", rows)
+	}
+	if got := jobString(t, jobs, "repair-job", "detail"); got != "Disc set complete (2 discs)" {
+		t.Errorf("detail = %q", got)
 	}
 }
 
