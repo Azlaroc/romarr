@@ -469,11 +469,12 @@ def gamarr_binary(tmp_path_factory) -> Path:
     return out
 
 
-@pytest.fixture(scope="session")
-def app(stub_server, gamarr_binary, tmp_path_factory):
-    """Boot gamarr with an injected registry: archive.org -> stub (a live gb
-    item), Vimm -> dead port that refuses connections instantly."""
-    data = tmp_path_factory.mktemp("data")
+def _app_env(stub_server: str, data: Path, port: int) -> dict:
+    """Environment for one gamarr instance rooted at data: injected registry
+    (archive.org -> stub with live gb/psx items, Vimm -> dead port that
+    refuses connections instantly), stub-backed integrations, fast ticks.
+    Creates the instance dirs; safe to call again on the same data dir (the
+    set-repair journey reboots its instance to trigger the boot sweep)."""
     dead = "http://127.0.0.1:1/"
     registry = {
         "version": 1,
@@ -486,15 +487,13 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
     reg_path = data / "sources.json"
     reg_path.write_text(json.dumps(registry))
 
-    port = _free_port()
     vault = data / "vault"
     roms = data / "roms"
     incoming = data / "incoming"
-    vault.mkdir()
-    roms.mkdir()
-    incoming.mkdir()
+    for d in (vault, roms, incoming):
+        d.mkdir(exist_ok=True)
 
-    env = {
+    return {
         **os.environ,
         "GAMARR_PORT": str(port),
         "DATA_DIR": str(data / "gamarr"),
@@ -524,33 +523,55 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
         # journey; harmless elsewhere (nothing else triggers a scheduler run).
         "SELECTOR_MODE": "enforce",
     }
-    QBIT_STATE["incoming"] = str(incoming)
-    log = open(data / "gamarr.log", "w")
-    proc = subprocess.Popen([str(gamarr_binary)], env=env, stdout=log, stderr=log)
 
-    base = f"http://127.0.0.1:{port}"
+
+def _boot_gamarr(gamarr_binary: Path, env: dict, data: Path):
+    """Start the binary and wait for /api/health. Returns (proc, log handle);
+    the log opens in append mode so a rebooted instance keeps its history."""
+    log = open(data / "gamarr.log", "a")
+    proc = subprocess.Popen([str(gamarr_binary)], env=env, stdout=log, stderr=log)
+    base = f"http://127.0.0.1:{int(env['GAMARR_PORT'])}"
     for _ in range(60):
         try:
             urllib.request.urlopen(f"{base}/api/health", timeout=1)
-            break
+            return proc, log
         except Exception:
             if proc.poll() is not None:
                 log.close()
                 raise RuntimeError(
                     "gamarr exited during startup:\n" + (data / "gamarr.log").read_text())
             time.sleep(0.5)
-    else:
-        proc.kill()
-        raise RuntimeError("gamarr did not become healthy within 30s")
+    proc.kill()
+    log.close()
+    raise RuntimeError("gamarr did not become healthy within 30s")
 
-    yield {"base": base, "data": data, "roms_dir": roms, "vault_dir": vault}
 
+def _stop_gamarr(proc, log):
     proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
     log.close()
+
+
+@pytest.fixture(scope="session")
+def app(stub_server, gamarr_binary, tmp_path_factory):
+    """Boot the session gamarr instance against the stub."""
+    data = tmp_path_factory.mktemp("data")
+    port = _free_port()
+    env = _app_env(stub_server, data, port)
+    QBIT_STATE["incoming"] = str(data / "incoming")
+    proc, log = _boot_gamarr(gamarr_binary, env, data)
+
+    yield {
+        "base": f"http://127.0.0.1:{port}",
+        "data": data,
+        "roms_dir": data / "roms",
+        "vault_dir": data / "vault",
+    }
+
+    _stop_gamarr(proc, log)
 
 
 @pytest.fixture()
