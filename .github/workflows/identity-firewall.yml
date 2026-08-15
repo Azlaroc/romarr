@@ -1,0 +1,47 @@
+name: identity-firewall
+
+# Public-repo identity hygiene, enforced in CI. Two rules, both generic by
+# design — this file deliberately names no private hosts, domains, or repos:
+#   1. First-party (bot/persona) commits must use GitHub noreply emails, so
+#      no private domain can enter commit metadata.
+#   2. PR bodies must not cross-link sibling repositories under this owner —
+#      public PR bodies are not internal work logs.
+# Deny-list scanning for specific private identifiers deliberately lives
+# outside this repo, so this file cannot leak what it guards.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: first-party commit identities use noreply emails
+        run: |
+          set -euo pipefail
+          range='${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}'
+          git log --format='%an <%ae>%n%cn <%ce>' "$range" | sort -u > /tmp/ids.txt
+          # First-party = our bot/persona identities. External contributors
+          # are out of scope for this rule.
+          if grep -Ei '^(blaster|guv|claudfin|cet-[a-z0-9-]+\[bot\]) ' /tmp/ids.txt \
+            | grep -Ev '@users\.noreply\.github\.com>|<noreply@github\.com>' \
+            | grep .; then
+            echo '::error::first-party commits must use a GitHub noreply email (user.email = <login>@users.noreply.github.com)'
+            exit 1
+          fi
+      - name: PR body carries no sibling-repo cross-links
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if printf '%s' "$PR_BODY" | grep -Piq 'Azlaroc/(?!romarr\b)[A-Za-z0-9_.-]+'; then
+            echo '::error::PR body references a sibling repository — keep internal cross-links out of public PR bodies'
+            exit 1
+          fi
+          echo "PR body clean"
