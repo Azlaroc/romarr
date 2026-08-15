@@ -37,9 +37,46 @@ export interface LibraryItem {
   platform?: string
   platform_slug?: string
   is_pc?: boolean
+  file_path?: string
   file_size?: number
   source?: string
   source_type?: string
+}
+
+export interface NormalizeCollision {
+  with_library_id?: number
+  with_name: string
+  verdict: 'byte-identical' | 'different-bytes' | 'unknown'
+}
+
+export interface NormalizePreviewRow {
+  library_id: number
+  platform_slug: string
+  old_path: string
+  old_name: string
+  new_name?: string
+  status: 'rename' | 'renamed' | 'noop' | 'skip'
+  reason?: string
+  collision?: NormalizeCollision
+}
+
+export interface NormalizeStatus {
+  enabled: boolean
+  running?: boolean
+  phase?: string
+  scope?: string
+  total?: number
+  done?: number
+  planned?: number
+  renamed?: number
+  skipped?: number
+  collisions?: number
+  errors?: number
+  last_error?: string
+  started_at?: string | null
+  finished_at?: string | null
+  resume_note?: string
+  [k: string]: unknown
 }
 
 export interface LibraryPage {
