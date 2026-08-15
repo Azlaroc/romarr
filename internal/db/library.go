@@ -562,6 +562,36 @@ func (s *JobStore) UpdateLibraryItemPath(id int64, newPath string) error {
 	return tx.Commit()
 }
 
+// FindLibraryBySourceID returns the row carrying exactly this source_id, or
+// nil when none does (idx_library_source_id backed). LibraryHasSourceID is
+// the bool-only variant; this one hands back the row itself.
+func (s *JobStore) FindLibraryBySourceID(sourceID string) *LibraryItem {
+	if sourceID == "" {
+		return nil
+	}
+	row := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE source_id = ? LIMIT 1",
+		sourceID,
+	)
+	var item LibraryItem
+	var isPC int
+	if err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+		&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
+		return nil
+	}
+	item.IsPC = isPC != 0
+	return &item
+}
+
+// UpdateLibraryItemFileSize refreshes a row's file_size — the re-finalize
+// path for disc sets, where the source_id dedupe keeps TrackInLibrary from
+// rewriting the row after new members land.
+func (s *JobStore) UpdateLibraryItemFileSize(id, size int64) error {
+	_, err := s.db.Exec("UPDATE library_items SET file_size = ? WHERE id = ?", size, id)
+	return err
+}
+
 // GetLibraryItemByFilePath returns the row tracking exactly this path, or
 // nil without error when none does (idx_library_file_path backed).
 func (s *JobStore) GetLibraryItemByFilePath(path string) *LibraryItem {

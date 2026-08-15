@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"gamarr/internal/db"
+	"gamarr/internal/platform"
 )
 
 // discSetTimeout is how long an incomplete disc set may wait for its missing
@@ -209,10 +212,54 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 	finalPath := m.MaybeNormalize(lead.jobID, setPath, platSlug)
 	finalPath = m.MaybeConvert(lead.jobID, finalPath, platSlug, hashStatus)
 	writeMetadataSidecar(finalPath, title, platf, platSlug, false, source)
-	// One library row per set vs per-disc release hashes is ambiguous — no
-	// $.gamarr persistence for disc sets in v1.
-	m.TrackInLibrary(title, platf, platSlug, false, finalPath,
-		contentSize(finalPath), source, sourceClient, "set:"+discSetID, lead.jobID, "", "")
+	size := contentSize(finalPath)
+	// Per-disc release hashes stay unpersisted (one row vs many hashes is
+	// ambiguous); the set's durable record is the $.gamarr.set marker below.
+	added := m.TrackInLibrary(title, platf, platSlug, false, finalPath,
+		size, source, sourceClient, "set:"+discSetID, lead.jobID, "", "")
+
+	// Durable set record: the member job blobs are the only other evidence of
+	// a degrade and the 7-day job cleanup purges them, so the composition and
+	// repair state live on the library row's metadata under $.gamarr.set.
+	if item := m.jobs.FindLibraryBySourceID("set:" + discSetID); item != nil {
+		prev, _ := db.ParseSetMarker(item.Metadata)
+		mk := db.SetMarker{
+			ID:             discSetID,
+			Total:          total,
+			Degraded:       degraded,
+			RepairAttempts: prev.RepairAttempts,
+			DegradedAt:     prev.DegradedAt,
+			RepairedAt:     prev.RepairedAt,
+		}
+		for _, mem := range members {
+			if mem.done() {
+				mk.Have = append(mk.Have, mem.set.Index)
+			}
+		}
+		if degraded {
+			mk.Exhausted = prev.Exhausted // a re-degrade keeps the give-up latch
+			if mk.DegradedAt == "" {
+				mk.DegradedAt = time.Now().UTC().Format(time.RFC3339)
+			}
+		} else if prev.Degraded {
+			mk.RepairedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		if err := m.jobs.SaveSetMarker(item.ID, mk); err != nil {
+			slog.Warn("disc set marker save failed", "set", discSetID, "error", err)
+		}
+		if !added {
+			// Re-finalize over an existing row (repair completion or a
+			// re-degrade): TrackInLibrary deduped on source_id, so refresh
+			// what it would have written and tell RomM the platform dir
+			// changed.
+			if err := m.jobs.UpdateLibraryItemFileSize(item.ID, size); err != nil {
+				slog.Warn("disc set size refresh failed", "set", discSetID, "error", err)
+			}
+			if !degraded && m.ImportNotify != nil {
+				m.ImportNotify(platform.ToRommFSSlug(platSlug))
+			}
+		}
+	}
 
 	detail := fmt.Sprintf("Disc set complete (%d discs)", imported)
 	if degraded {
