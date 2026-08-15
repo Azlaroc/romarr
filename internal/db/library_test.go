@@ -396,3 +396,79 @@ func TestLibraryHashIndex(t *testing.T) {
 		t.Errorf("idx has %d keys, want 3 (empty and malformed metadata skipped)", len(idx))
 	}
 }
+
+func TestUpdateLibraryItemPath(t *testing.T) {
+	store := newTestStore(t)
+	cases := []struct {
+		name, sourceID, wantSourceID string
+	}{
+		{"ddl rewritten", "ddl:/roms/gb/Old (U).zip", "ddl:/roms/gb/New (USA).zip"},
+		{"scan rewritten", "scan:/roms/gb/Old (U).zip", "scan:/roms/gb/New (USA).zip"},
+		{"romm untouched", "romm:1234", "romm:1234"},
+		{"non-matching suffix untouched", "ddl:/roms/gb/other.zip", "ddl:/roms/gb/other.zip"},
+	}
+	for _, c := range cases {
+		id, err := store.AddLibraryItem(&LibraryItem{
+			Title: "G", PlatformSlug: "gb",
+			FilePath: "/roms/gb/Old (U).zip", FileSize: 1,
+			Source: "ddl", SourceType: "ddl", SourceID: c.sourceID,
+			Metadata: "{}",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpdateLibraryItemPath(id, "/roms/gb/New (USA).zip"); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		item, err := store.GetLibraryItem(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.FilePath != "/roms/gb/New (USA).zip" {
+			t.Errorf("%s: file_path = %q", c.name, item.FilePath)
+		}
+		if item.SourceID != c.wantSourceID {
+			t.Errorf("%s: source_id = %q, want %q", c.name, item.SourceID, c.wantSourceID)
+		}
+		store.DeleteLibraryItem(id)
+	}
+
+	if err := store.UpdateLibraryItemPath(99999, "/x"); err == nil {
+		t.Error("missing id: want error")
+	}
+}
+
+func TestGetLibraryItemByFilePath(t *testing.T) {
+	store := newTestStore(t)
+	store.AddLibraryItem(&LibraryItem{Title: "A", PlatformSlug: "gb",
+		FilePath: "/roms/gb/a.zip", Source: "ddl", SourceType: "ddl",
+		SourceID: "ddl:/roms/gb/a.zip", Metadata: "{}"})
+
+	if it := store.GetLibraryItemByFilePath("/roms/gb/a.zip"); it == nil || it.Title != "A" {
+		t.Errorf("hit = %+v, want A", it)
+	}
+	if it := store.GetLibraryItemByFilePath("/roms/gb/missing.zip"); it != nil {
+		t.Errorf("miss = %+v, want nil", it)
+	}
+	if it := store.GetLibraryItemByFilePath(""); it != nil {
+		t.Errorf("empty = %+v, want nil", it)
+	}
+}
+
+func TestListLibraryItemsForRename(t *testing.T) {
+	store := newTestStore(t)
+	store.AddLibraryItem(&LibraryItem{Title: "GB1", PlatformSlug: "gb", FilePath: "/roms/gb/1",
+		Source: "ddl", SourceType: "ddl", SourceID: "ddl:/roms/gb/1", Metadata: "{}"})
+	store.AddLibraryItem(&LibraryItem{Title: "SNES1", PlatformSlug: "snes", FilePath: "/roms/snes/1",
+		Source: "romm", SourceType: "romm", SourceID: "romm:1", Metadata: "{}"})
+	store.AddLibraryItem(&LibraryItem{Title: "PC", PlatformSlug: "", IsPC: true, FilePath: "/vault/pc",
+		Source: "scan", SourceType: "scan", SourceID: "scan:/vault/pc", Metadata: "{}"})
+
+	if got := store.ListLibraryItemsForRename("gb"); len(got) != 1 || got[0].Title != "GB1" {
+		t.Errorf("gb scope = %+v", got)
+	}
+	all := store.ListLibraryItemsForRename("")
+	if len(all) != 2 {
+		t.Errorf("all scope = %d rows, want 2 (PC excluded)", len(all))
+	}
+}
