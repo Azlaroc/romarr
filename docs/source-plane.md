@@ -73,8 +73,8 @@ honours `Range` → the fetch is resumable (`curl -C -` semantics).
 ## Enabling a platform (registry, not code)
 
 The driver is **inert until a platform is mapped to a collection item**. The
-embedded defaults ship an empty `archiveorg.items`, so on the live server the
-fourth fan-out branch is a no-op until an operator opts a platform in via
+embedded defaults ship an empty `archiveorg.items`, so on a live server the
+archive.org branch is a no-op until an operator opts a platform in via
 `GAMARR_SOURCES_PATH` / `GAMARR_SOURCES_URL`:
 
 ```json
@@ -84,16 +84,84 @@ fourth fan-out branch is a no-op until an operator opts a platform in via
     "items": {
       "psx":     "2024-sony-playstation-usa-hearto-1g1r-collection",
       "genesis": "nointro.md",
-      "tg16":    "nointro.tg-16"
+      "tg16":    "nointro.tg-16",
+      "snes":    "ef_nintendo_snes_no-intro_2024-04-20",
+      "nes":     "No-Intro_NES",
+      "gb":      "No-Intro_GB",
+      "gbc":     "No-Intro_GBC",
+      "gba":     "ef_gba_no-intro_2024-02-21",
+      "n64":     "ef_nintendo_64_no-intro_2024-02-10",
+      "nds":     "ni-n-ds-dec_202401"
     }
   }
 }
 ```
 
-Proven items from RomSeerr: PSX = the hearto USA 1G1R set (`.zip` bin/cue,
-restricted=None, HTTP 206); No-Intro cart systems = `nointro.<code>` items.
+Two loading properties worth knowing before you edit the file:
+
+- The registry file is a **full replace** of the embedded defaults (a plain
+  whole-document unmarshal, no merge) and is read **once at startup** — edits
+  require a process restart to take effect.
+- A malformed registry file logs a warning and **silently falls back to the
+  embedded defaults** — validate the JSON (`jq .`) before restarting, or you
+  quietly get default behaviour instead of your overrides.
+
+### Verified per-title collection items (2026-08)
+
+| slug | item | shape |
+|------|------|-------|
+| `psx` | `2024-sony-playstation-usa-hearto-1g1r-collection` | 1,501 `.zip` (bin/cue), USA 1G1R; names nest under an item-named subfolder |
+| `genesis` | `nointro.md` | per-game `.7z` |
+| `tg16` | `nointro.tg-16` | per-game `.zip` |
+| `snes` | `ef_nintendo_snes_no-intro_2024-04-20` | 4,122 `.zip` |
+| `nes` | `No-Intro_NES` | 5,359 `.zip` |
+| `gb` | `No-Intro_GB` | 1,896 `.7z` |
+| `gbc` | `No-Intro_GBC` | 1,931 `.7z` |
+| `gba` | `ef_gba_no-intro_2024-02-21` | 3,555 `.zip` |
+| `n64` | `ef_nintendo_64_no-intro_2024-02-10` | 1,216 `.zip` (BigEndian `.z64`) |
+| `nds` | `ni-n-ds-dec_202401` | 266 `.7z` — **partial set**; the only per-title DS item found |
+
+All ten verified the same way: unrestricted, `md5`+`sha1` on every `files[]`
+entry, No-Intro region-tagged naming (survives the driver's English filter),
+and a ranged download GET returning 206.
+
+**The `nointro.<code>` naming does NOT generalize.** `nointro.snes` and
+`nointro.gba` don't exist; `nointro.snes_202203` and `nointro.n64_202203`
+exist but are single-zip packs (one 3–12 GB archive), useless to a per-file
+driver; `nointro-gb-20260731` / `nointro-gbc-20260731` are single RARs. Every
+candidate item needs verification before it's mapped:
+
+1. `GET /metadata/<item>` — `files[]` must be per-title `.zip`/`.7z` (not one
+   pack/RAR), each entry carrying `md5`+`sha1`, names region-tagged
+   (`(USA)`, `(Europe)`, …) so the English filter can work.
+2. One ranged `GET /download/<item>/<name>` (`Range: bytes=0-1023`) must return
+   **206** — items exist whose metadata is public but whose downloads are
+   auth-gated (401/403).
+3. Anonymous metadata calls rate-limit around 60/hr — batch probes.
+
 Redump disc items that are pre-made `.chd` are open; the bin/cue Redump items
-are frequently auth-gated (401/403) — the selector should prefer open sources.
+are frequently auth-gated — prefer open sources.
+
+## Disabling a source
+
+There is no per-source `enabled` flag yet. To take a source whose fetch lane is
+dead upstream (e.g. Vimm while its download hosts reject all requests) out of
+every search, dead-port it in the registry:
+
+```json
+"vimm": { "base_url": "http://127.0.0.1:1/", "platform_systems": {} }
+```
+
+- **Emptying `platform_systems` alone is not enough**: the Vimm search then
+  runs *without* its `system=` filter and returns cross-platform hits tagged
+  with whatever slug was queried (`Platform: "Unknown"`) — mis-slugged results
+  enter the pipeline. The dead port makes the search fail instantly instead;
+  after three consecutive failures the circuit breaker holds the source open
+  and skips the HTTP call entirely.
+- A hashless-but-live search paired with a dead fetch lane is the worst
+  combination: the search keeps feeding the selector candidates whose download
+  always fails, so every scheduler cycle produces a guaranteed error job. If a
+  source's fetch lane dies, disable the whole source.
 
 ## Hand-off to F5 (normalize / convert)
 
@@ -103,11 +171,13 @@ this: fetch the file, verify it against the release hash, then normalize. The
 PS1 case above is the canonical example — a `.zip` of bin/cue that F5 turns into
 a single `.chd`.
 
-## Scope after the spike (F2 proper)
+## Scope after the spike (F2 proper) — since landed
 
-- Hoist Prowlarr + Vimm behind `SearchSource`; collapse the four `wg.Add(4)`
-  fan-out sites into a single `FanOut` over a registered slice.
-- Drop the dead Myrient driver (shut down 2026-03-31).
-- Strip Vimm's `InsecureSkipVerify`.
-- Order sources: archive.org native driver (path #1), Prowlarr's Internet
-  Archive Cardigann indexer (#2, bulk), optional Cardigann/others (#3).
+- ✅ Prowlarr + Vimm hoisted behind a single fan-out (`search.Source` /
+  `search.FanOut` at the `SearchResult` level; `driver.SearchSource` remains
+  the narrow native-driver contract).
+- ✅ Dead Myrient driver dropped (service shut down 2026-03-31).
+- ✅ Vimm's `InsecureSkipVerify` stripped.
+- Prowlarr's Internet Archive Cardigann indexer (path #2, bulk) remains
+  unwired — it's the fallback for platforms whose per-title IA coverage is
+  thin (see `nds` above).
