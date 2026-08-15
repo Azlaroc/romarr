@@ -60,7 +60,7 @@ func TestScanSkipsImportTrackedPath(t *testing.T) {
 	romPath := filepath.Join(snes, "Grabbed Game.sfc")
 	writeFileT(t, romPath, bigROM())
 
-	m.TrackInLibrary("Grabbed Game", "SNES", "snes", false, romPath, 42, "torrent", "prowlarr", "torrent:abc", "")
+	m.TrackInLibrary("Grabbed Game", "SNES", "snes", false, romPath, 42, "torrent", "prowlarr", "torrent:abc", "", "", "")
 
 	m.ScanLibraryDirs()
 

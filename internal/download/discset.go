@@ -208,8 +208,10 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 	finalPath := m.MaybeNormalize(lead.jobID, setPath, platSlug)
 	finalPath = m.MaybeConvert(lead.jobID, finalPath, platSlug, hashStatus)
 	writeMetadataSidecar(finalPath, title, platf, platSlug, false, source)
+	// One library row per set vs per-disc release hashes is ambiguous — no
+	// $.gamarr persistence for disc sets in v1.
 	m.TrackInLibrary(title, platf, platSlug, false, finalPath,
-		contentSize(finalPath), source, sourceClient, "set:"+discSetID, lead.jobID)
+		contentSize(finalPath), source, sourceClient, "set:"+discSetID, lead.jobID, "", "")
 
 	detail := fmt.Sprintf("Disc set complete (%d discs)", imported)
 	if degraded {
