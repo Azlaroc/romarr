@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,13 +23,35 @@ type Client struct {
 
 // NZBSlot represents a SABnzbd queue/history item.
 type NZBSlot struct {
-	NZOID    string  `json:"nzo_id"`
-	Filename string  `json:"filename"`
-	Status   string  `json:"status"`
-	Storage  string  `json:"storage"` // final path (history only)
-	Size     string  `json:"size"`
-	MBLeft   float64 `json:"mbleft"`
-	MB       float64 `json:"mb"`
+	NZOID    string    `json:"nzo_id"`
+	Filename string    `json:"filename"`
+	Status   string    `json:"status"`
+	Storage  string    `json:"storage"` // final path (history only)
+	Size     string    `json:"size"`
+	MBLeft   FlexFloat `json:"mbleft"`
+	MB       FlexFloat `json:"mb"`
+}
+
+// FlexFloat unmarshals SABnzbd's numeric fields, which the real API returns
+// as JSON strings ("312.50") — a bare float64 field made the whole queue
+// decode fail silently, so download progress never surfaced. Bare numbers
+// still parse; unparseable junk degrades to 0 rather than killing the slot
+// list.
+type FlexFloat float64
+
+func (f *FlexFloat) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		*f = 0
+		return nil
+	}
+	*f = FlexFloat(v)
+	return nil
 }
 
 // New creates a new SABnzbd client.

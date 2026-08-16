@@ -173,7 +173,7 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 			for _, slot := range queue {
 				if slot.NZOID == nzoID {
 					if slot.MB > 0 {
-						pct := ((slot.MB - slot.MBLeft) / slot.MB) * 100
+						pct := ((float64(slot.MB) - float64(slot.MBLeft)) / float64(slot.MB)) * 100
 						m.jobs.Update(jobID, "detail",
 							fmt.Sprintf("Downloading... %.1f%%", pct))
 					}
