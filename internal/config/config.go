@@ -6,11 +6,29 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"gamarr/internal/sources"
 )
 
+// SettingsSource is the runtime settings lookup consulted before the
+// env-derived fallback (the DB settings table; *db.JobStore satisfies it).
+// With no source attached every accessor returns its env value, so bare
+// &Config{} test fixtures behave exactly as before.
+type SettingsSource interface {
+	GetSetting(key string) (string, bool)
+}
+
+// settingsHolder wraps the source so attachment is a single atomic pointer
+// swap — accessors are called from watcher/scheduler/HTTP goroutines and the
+// Config struct itself is never written after Load().
+type settingsHolder struct{ src SettingsSource }
+
 type Config struct {
+	// settings is attached once after the DB opens (AttachSettings); nil
+	// until then.
+	settings atomic.Pointer[settingsHolder]
+
 	// Sources is the runtime source-driver registry. Drivers read base URLs
 	// and per-platform mappings from here instead of from hardcoded constants.
 	// Always non-nil after Load() returns.
@@ -284,6 +302,87 @@ func (c *Config) HasClamAV() bool {
 	}
 	_, err := os.Stat(c.DockerSocket)
 	return err == nil
+}
+
+// AttachSettings connects the runtime settings store. Called once at boot,
+// after the DB opens; safe to call from tests with any SettingsSource.
+func (c *Config) AttachSettings(src SettingsSource) {
+	c.settings.Store(&settingsHolder{src: src})
+}
+
+func (c *Config) settingStr(key string) (string, bool) {
+	h := c.settings.Load()
+	if h == nil || h.src == nil {
+		return "", false
+	}
+	return h.src.GetSetting(key)
+}
+
+func (c *Config) settingBool(key string) (bool, bool) {
+	v, ok := c.settingStr(key)
+	if !ok {
+		return false, false
+	}
+	switch strings.ToLower(v) {
+	case "true", "1", "yes":
+		return true, true
+	case "false", "0", "no":
+		return false, true
+	}
+	return false, false
+}
+
+func (c *Config) settingInt(key string) (int, bool) {
+	v, ok := c.settingStr(key)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// RemoveTorrentAfterImport reports whether imported torrents are deleted from
+// qBittorrent (settings row over REMOVE_TORRENT_AFTER_IMPORT).
+func (c *Config) RemoveTorrentAfterImport() bool {
+	if v, ok := c.settingBool("remove_torrent_after_import"); ok {
+		return v
+	}
+	return c.RemoveAfterImport
+}
+
+// SeedJanitor reports whether the watcher may delete share-limit-stopped
+// imported torrents (settings row over SEED_JANITOR_ENABLED).
+func (c *Config) SeedJanitor() bool {
+	if v, ok := c.settingBool("seed_janitor_enabled"); ok {
+		return v
+	}
+	return c.SeedJanitorEnabled
+}
+
+// AutoDownload reports whether scheduler cycles may grab (settings row over
+// SCHEDULER_AUTO_DOWNLOAD).
+func (c *Config) AutoDownload() bool {
+	if v, ok := c.settingBool("scheduler_auto_download"); ok {
+		return v
+	}
+	return c.SchedulerAutoDownload
+}
+
+// MinScore returns the scheduler's minimum grab score. Zero and negative
+// have never been legal scores — they mean "unset" and resolve to the
+// historical default of 70 whether they arrive via env or a stored row.
+func (c *Config) MinScore() int {
+	n := c.SchedulerMinScore
+	if v, ok := c.settingInt("scheduler_min_score"); ok {
+		n = v
+	}
+	if n <= 0 {
+		return 70
+	}
+	return n
 }
 
 // DiscSetTimeoutHours returns SelectorSetTimeoutHours normalized to the

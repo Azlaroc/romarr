@@ -342,11 +342,61 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 		t.Errorf("extract_archives after update = %v, want true", m["extract_archives"])
 	}
 
-	// Persisted to DataDir — a fresh GET re-reads from disk.
+	// Persisted to the DB settings table — a fresh GET re-reads it.
 	rr = env.do("GET", "/api/settings", "")
 	if m := decodeMap(t, rr); m["extract_archives"] != true {
 		t.Errorf("extract_archives after reload = %v, want true", m["extract_archives"])
 	}
+}
+
+func TestSettingsTierAKnobs(t *testing.T) {
+	env := newTestEnv(t, nil)
+
+	// Defaults: bare test config → min score resolves to the historical 70.
+	rr := env.do("GET", "/api/settings", "")
+	wantStatus(t, rr, 200)
+	m := decodeMap(t, rr)
+	if m["remove_torrent_after_import"] != false || m["scheduler_min_score"] != float64(70) {
+		t.Fatalf("defaults = %v", m)
+	}
+
+	// Sparse PUT sets only the mentioned keys.
+	rr = env.do("PUT", "/api/settings", `{"remove_torrent_after_import":true,"scheduler_min_score":85,"seed_janitor_enabled":true,"scheduler_auto_download":true}`)
+	wantStatus(t, rr, 200)
+	m = decodeMap(t, rr)
+	if m["remove_torrent_after_import"] != true || m["scheduler_min_score"] != float64(85) ||
+		m["seed_janitor_enabled"] != true || m["scheduler_auto_download"] != true {
+		t.Fatalf("after PUT = %v", m)
+	}
+	// The config accessors see the same rows (hot-apply path).
+	if !env.cfg.RemoveTorrentAfterImport() || env.cfg.MinScore() != 85 {
+		t.Fatalf("accessors: remove=%v minScore=%d", env.cfg.RemoveTorrentAfterImport(), env.cfg.MinScore())
+	}
+
+	// null deletes the row → env default returns.
+	rr = env.do("PUT", "/api/settings", `{"scheduler_min_score":null}`)
+	wantStatus(t, rr, 200)
+	if m := decodeMap(t, rr); m["scheduler_min_score"] != float64(70) {
+		t.Errorf("after null reset = %v, want 70", m["scheduler_min_score"])
+	}
+
+	// Validation failures apply nothing.
+	rr = env.do("PUT", "/api/settings", `{"scheduler_min_score":0}`)
+	wantStatus(t, rr, 400)
+	rr = env.do("PUT", "/api/settings", `{"scheduler_min_score":2.5}`)
+	wantStatus(t, rr, 400)
+	rr = env.do("PUT", "/api/settings", `{"remove_torrent_after_import":"yes"}`)
+	wantStatus(t, rr, 400)
+	// A valid key alongside an invalid one is NOT applied (validate-all-first).
+	rr = env.do("PUT", "/api/settings", `{"seed_janitor_enabled":false,"scheduler_min_score":-1}`)
+	wantStatus(t, rr, 400)
+	if !env.cfg.SeedJanitor() {
+		t.Error("seed_janitor_enabled changed despite failed validation")
+	}
+
+	// Unknown keys are ignored, not errors (legacy clients).
+	rr = env.do("PUT", "/api/settings", `{"nonsense_key":true}`)
+	wantStatus(t, rr, 200)
 }
 
 // ── Import / Export ────────────────────────────────────────────────────────────

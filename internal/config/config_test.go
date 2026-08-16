@@ -255,3 +255,80 @@ func TestEnvInt(t *testing.T) {
 		t.Errorf("got %d, want fallback 7", got)
 	}
 }
+
+// fakeSettings is a map-backed SettingsSource for accessor tests.
+type fakeSettings map[string]string
+
+func (f fakeSettings) GetSetting(k string) (string, bool) {
+	v, ok := f[k]
+	return v, ok
+}
+
+func TestRuntimeSettingAccessors(t *testing.T) {
+	c := &Config{SchedulerAutoDownload: true, SchedulerMinScore: 55}
+
+	// No source attached: accessors return the env-derived fields.
+	if c.RemoveTorrentAfterImport() {
+		t.Error("RemoveTorrentAfterImport should default false")
+	}
+	if !c.AutoDownload() {
+		t.Error("AutoDownload should reflect env true")
+	}
+	if c.MinScore() != 55 {
+		t.Errorf("MinScore = %d, want env 55", c.MinScore())
+	}
+
+	// Stored rows win over env.
+	c.AttachSettings(fakeSettings{
+		"remove_torrent_after_import": "true",
+		"seed_janitor_enabled":        "true",
+		"scheduler_auto_download":     "false",
+		"scheduler_min_score":         "85",
+	})
+	if !c.RemoveTorrentAfterImport() {
+		t.Error("row true should win over env false")
+	}
+	if !c.SeedJanitor() {
+		t.Error("SeedJanitor row true should win")
+	}
+	if c.AutoDownload() {
+		t.Error("row false should win over env true")
+	}
+	if c.MinScore() != 85 {
+		t.Errorf("MinScore = %d, want row 85", c.MinScore())
+	}
+
+	// Zero has never been a legal min score: row "0" resolves to 70.
+	c.AttachSettings(fakeSettings{"scheduler_min_score": "0"})
+	if c.MinScore() != 70 {
+		t.Errorf("MinScore(0 row) = %d, want 70", c.MinScore())
+	}
+
+	// A garbage row is ignored; env value applies.
+	c.AttachSettings(fakeSettings{"scheduler_min_score": "abc", "scheduler_auto_download": "maybe"})
+	if c.MinScore() != 55 {
+		t.Errorf("MinScore(garbage row) = %d, want env 55", c.MinScore())
+	}
+	if !c.AutoDownload() {
+		t.Error("garbage bool row should fall back to env true")
+	}
+}
+
+func TestAttachSettingsConcurrent(t *testing.T) {
+	// Attachment is an atomic swap read from many goroutines; the -race gate
+	// in CI is the real assertion here.
+	c := &Config{SchedulerMinScore: 55}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			c.AttachSettings(fakeSettings{"scheduler_min_score": "85"})
+		}
+	}()
+	for i := 0; i < 1000; i++ {
+		if got := c.MinScore(); got != 55 && got != 85 {
+			t.Fatalf("MinScore = %d, want 55 or 85", got)
+		}
+	}
+	<-done
+}

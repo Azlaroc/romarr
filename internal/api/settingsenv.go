@@ -12,9 +12,10 @@ import (
 )
 
 // handleSettingsEnv reports the read-only, boot-time runtime configuration
-// (env-derived paths, scheduler/selector/RomM/download knobs) so the settings
-// UI can display it. Everything here requires a restart to change, which is
-// why it is a separate surface from the editable /api/settings document.
+// (env-derived paths and the knobs not yet migrated to the DB settings
+// store) so the settings UI can display it. Everything here requires a
+// restart to change, which is why it is a separate surface from the editable
+// /api/settings document. Knobs promoted to /api/settings leave this doc.
 func (s *Server) handleSettingsEnv(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfg
 	writeJSON(w, 200, map[string]interface{}{
@@ -31,8 +32,6 @@ func (s *Server) handleSettingsEnv(w http.ResponseWriter, r *http.Request) {
 		"scheduler": map[string]interface{}{
 			"enabled":        cfg.SchedulerEnabled,
 			"interval_hours": cfg.SchedulerIntervalHours,
-			"auto_download":  cfg.SchedulerAutoDownload,
-			"min_score":      cfg.SchedulerMinScore,
 		},
 		"romm": map[string]interface{}{
 			"sync_enabled":          cfg.RomMSyncEnabled,
@@ -40,9 +39,7 @@ func (s *Server) handleSettingsEnv(w http.ResponseWriter, r *http.Request) {
 			"connect_enabled":       cfg.RomMConnectEnabled,
 		},
 		"downloads": map[string]interface{}{
-			"remove_torrent_after_import": cfg.RemoveAfterImport,
-			"seed_janitor_enabled":        cfg.SeedJanitorEnabled,
-			"watcher_interval_seconds":    cfg.WatcherIntervalS,
+			"watcher_interval_seconds": cfg.WatcherIntervalS,
 		},
 		"converto": s.convertoInfo(r.Context()),
 	})

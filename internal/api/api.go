@@ -885,30 +885,6 @@ func (s *Server) handleDeleteDDLSource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"success": true})
 }
 
-func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	settings := s.mgr.LoadSettings()
-	writeJSON(w, 200, settings)
-}
-
-func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if !decodeJSONBody(w, r, &req) {
-		return
-	}
-	settings := s.mgr.LoadSettings()
-	if v, ok := req["extract_archives"].(bool); ok {
-		settings.ExtractArchives = v
-	}
-	if v, ok := req["normalize_roms"].(bool); ok {
-		settings.NormalizeROMs = v
-	}
-	if v, ok := req["convert_roms"].(bool); ok {
-		settings.ConvertROMs = v
-	}
-	s.mgr.SaveSettings(settings)
-	writeJSON(w, 200, settings)
-}
-
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// Job status counts
 	items := s.mgr.Jobs().Items()

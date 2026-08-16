@@ -167,7 +167,7 @@ func (w *Watcher) tick() {
 		claimed[strings.ToLower(t.Hash)] = true
 	}
 
-	if w.cfg.SeedJanitorEnabled {
+	if w.cfg.SeedJanitor() {
 		w.janitor(torrents, items)
 	}
 }

@@ -62,6 +62,7 @@ func (s *JobStore) migrateExtra() {
 	s.migrateBlocklist()
 	s.migrateReleaseProfiles()
 	s.migrateTags()
+	s.migrateSettings()
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS library_items (

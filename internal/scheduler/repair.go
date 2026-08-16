@@ -27,17 +27,14 @@ const maxSetRepairAttempts = 5
 // Enforce-only: it reuses the selector machinery, and shadow/off deployments
 // have not opted into selector-driven downloads.
 func (s *Scheduler) repairDegradedSets(mode string) int {
-	if mode != "enforce" || !s.cfg.SchedulerAutoDownload {
+	if mode != "enforce" || !s.cfg.AutoDownload() {
 		return 0
 	}
 	rows := s.jobs.ListDegradedSets()
 	if len(rows) == 0 {
 		return 0
 	}
-	minScore := s.cfg.SchedulerMinScore
-	if minScore <= 0 {
-		minScore = 70
-	}
+	minScore := s.cfg.MinScore()
 	grabbedTotal := 0
 	for _, item := range rows {
 		select {

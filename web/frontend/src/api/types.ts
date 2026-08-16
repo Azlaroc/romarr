@@ -188,6 +188,10 @@ export interface Settings {
   extract_archives?: boolean
   normalize_roms?: boolean
   convert_roms?: boolean
+  remove_torrent_after_import?: boolean
+  seed_janitor_enabled?: boolean
+  scheduler_auto_download?: boolean
+  scheduler_min_score?: number
 }
 
 /** GET /api/settings/env — read-only, boot-time env config (admin). */
@@ -200,11 +204,9 @@ export interface SettingsEnv {
     platform_dir_count: number
   }
   selector: { mode: string }
-  scheduler: { enabled: boolean; interval_hours: number; auto_download: boolean; min_score: number }
+  scheduler: { enabled: boolean; interval_hours: number }
   romm: { sync_enabled: boolean; sync_interval_seconds: number; connect_enabled: boolean }
   downloads: {
-    remove_torrent_after_import: boolean
-    seed_janitor_enabled: boolean
     watcher_interval_seconds: number
   }
   converto: { available: boolean; version: string }

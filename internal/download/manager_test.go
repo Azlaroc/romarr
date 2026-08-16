@@ -895,11 +895,70 @@ func TestSettingsRoundTrip(t *testing.T) {
 		}
 	})
 
-	t.Run("corrupt file falls back to default", func(t *testing.T) {
-		writeFileT(t, filepath.Join(cfg.DataDir, "settings.json"), []byte("{{{"))
+	t.Run("save pins unmentioned fields", func(t *testing.T) {
+		// SaveSettings writes all three rows, so a field the caller left
+		// zero-valued is pinned false — the old whole-file semantics.
+		m.SaveSettings(&Settings{NormalizeROMs: true})
 		s := m.LoadSettings()
-		if s.ExtractArchives != cfg.ExtractArchives {
-			t.Errorf("corrupt settings should fall back to config default")
+		if s.ExtractArchives || !s.NormalizeROMs {
+			t.Errorf("settings = %+v, want only NormalizeROMs true", s)
+		}
+	})
+}
+
+func TestImportLegacySettings(t *testing.T) {
+	t.Run("imports once and renames the file", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		writeFileT(t, filepath.Join(cfg.DataDir, "settings.json"),
+			[]byte(`{"extract_archives":true,"normalize_roms":true,"convert_roms":false}`))
+
+		ImportLegacySettings(cfg, jobs)
+
+		s := New(cfg, jobs, nil).LoadSettings()
+		if !s.ExtractArchives || !s.NormalizeROMs || s.ConvertROMs {
+			t.Errorf("imported settings = %+v", s)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "settings.json.migrated")); err != nil {
+			t.Error("settings.json was not renamed to .migrated")
+		}
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "settings.json")); !os.IsNotExist(err) {
+			t.Error("original settings.json should be gone")
+		}
+
+		// A second call is a no-op (rows exist, file gone).
+		ImportLegacySettings(cfg, jobs)
+	})
+
+	t.Run("skips when any row already exists", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		jobs.SetSetting("normalize_roms", "true")
+		writeFileT(t, filepath.Join(cfg.DataDir, "settings.json"),
+			[]byte(`{"normalize_roms":false}`))
+
+		ImportLegacySettings(cfg, jobs)
+
+		if v, _ := jobs.GetSetting("normalize_roms"); v != "true" {
+			t.Errorf("existing row overwritten: %q", v)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "settings.json")); err != nil {
+			t.Error("file should be left in place when import is skipped")
+		}
+	})
+
+	t.Run("corrupt file leaves env defaults and stays put", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		writeFileT(t, filepath.Join(cfg.DataDir, "settings.json"), []byte("{{{"))
+
+		ImportLegacySettings(cfg, jobs)
+
+		if n := jobs.SettingsCount("extract_archives", "normalize_roms", "convert_roms"); n != 0 {
+			t.Errorf("corrupt import wrote %d rows, want 0", n)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "settings.json")); err != nil {
+			t.Error("corrupt file should be left in place for inspection")
 		}
 	})
 }
