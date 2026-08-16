@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,6 +206,24 @@ func TestApplyRenamesDiskDBAndSidecar(t *testing.T) {
 	}
 	if notified["gb"] != 1 {
 		t.Errorf("importNotify = %v, want one gb notification", notified)
+	}
+
+	// Persistent run history: the apply left one library_renamed activity
+	// entry with the run summary (survives restarts, unlike runner state).
+	activity, _ := store.GetActivity(1, 20)
+	var summary string
+	renamedEntries := 0
+	for _, a := range activity {
+		if a.EventType == "library_renamed" {
+			renamedEntries++
+			summary = a.Detail
+		}
+	}
+	if renamedEntries != 1 {
+		t.Errorf("library_renamed entries = %d, want 1", renamedEntries)
+	}
+	if !strings.Contains(summary, "1 renamed") || !strings.Contains(summary, "0 errors") {
+		t.Errorf("summary = %q", summary)
 	}
 
 	// Second preview: everything is canonical now → all noop, resume story.

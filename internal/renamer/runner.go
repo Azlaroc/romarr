@@ -170,7 +170,19 @@ func (r *Runner) TriggerApply(excludeIDs []int64) bool {
 		r.runApply(ctx, excl)
 		r.mu.Lock()
 		r.finishedAt = time.Now()
+		scope := r.scope
+		renamed, skipped, collisions, errs := r.renamed, r.skipped, r.collisions, r.errCount
 		r.mu.Unlock()
+		// Persistent run history: runner state is in-memory and the UI shows
+		// only the last run — the activity log is the durable record of what
+		// an apply did. One summary entry per run; per-file entries would be
+		// noise at campaign scale (hundreds of renames per platform).
+		if scope == "" {
+			scope = "all platforms"
+		}
+		r.store.LogActivity("library_renamed", "Library rename ("+scope+")",
+			fmt.Sprintf("%d renamed, %d skipped, %d collisions, %d errors",
+				renamed, skipped, collisions, errs), "", nil)
 	}()
 	return true
 }
