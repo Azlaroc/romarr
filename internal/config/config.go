@@ -385,14 +385,124 @@ func (c *Config) MinScore() int {
 	return n
 }
 
-// DiscSetTimeoutHours returns SelectorSetTimeoutHours normalized to the
-// historical 24h default when unset or invalid — zero-value Configs (tests
-// build bare &Config{} literals) must not degrade disc sets instantly.
-func (c *Config) DiscSetTimeoutHours() int {
-	if c.SelectorSetTimeoutHours <= 0 {
+// WatcherOn reports whether the torrent completion watcher should run
+// (settings row over WATCHER_ENABLED).
+func (c *Config) WatcherOn() bool {
+	if v, ok := c.settingBool("watcher_enabled"); ok {
+		return v
+	}
+	return c.WatcherEnabled
+}
+
+// WatcherIntervalSeconds returns the watcher poll interval, floored at 1s
+// (the historical sub-second clamp jumped to 30s; a floor keeps small
+// intervals meaningful for tests while rejecting zero).
+func (c *Config) WatcherIntervalSeconds() int {
+	n := c.WatcherIntervalS
+	if v, ok := c.settingInt("watcher_interval_seconds"); ok {
+		n = v
+	}
+	if n < 1 {
+		return 30
+	}
+	return n
+}
+
+// SchedulerOn reports whether the wishlist-search loop should run (settings
+// row over SCHEDULER_ENABLED).
+func (c *Config) SchedulerOn() bool {
+	if v, ok := c.settingBool("scheduler_enabled"); ok {
+		return v
+	}
+	return c.SchedulerEnabled
+}
+
+// SchedulerIntervalHrs returns the scheduler cycle interval in hours,
+// floored at 1 (the historical sub-1h clamp silently jumped to 24h).
+func (c *Config) SchedulerIntervalHrs() int {
+	n := c.SchedulerIntervalHours
+	if v, ok := c.settingInt("scheduler_interval_hours"); ok {
+		n = v
+	}
+	if n < 1 {
 		return 24
 	}
-	return c.SelectorSetTimeoutHours
+	return n
+}
+
+// SelectorModeEffective returns the selector mode normalized to off | shadow
+// | enforce; unset or unknown behaves as shadow (the Load default), so
+// hand-built test configs match a deployed default.
+func (c *Config) SelectorModeEffective() string {
+	m := c.SelectorMode
+	if v, ok := c.settingStr("selector_mode"); ok {
+		m = v
+	}
+	if m != "off" && m != "enforce" {
+		return "shadow"
+	}
+	return m
+}
+
+// RomMSyncOn reports whether RomM owns the ROM library view (settings row
+// over ROMM_SYNC_ENABLED). Callers must still check HasRomMAPI.
+func (c *Config) RomMSyncOn() bool {
+	if v, ok := c.settingBool("romm_sync_enabled"); ok {
+		return v
+	}
+	return c.RomMSyncEnabled
+}
+
+// RomMSyncIntervalSeconds returns the RomM sync interval, floored at 60s.
+func (c *Config) RomMSyncIntervalSeconds() int {
+	n := c.RomMSyncIntervalS
+	if v, ok := c.settingInt("romm_sync_interval_seconds"); ok {
+		n = v
+	}
+	if n < 60 {
+		return 1800
+	}
+	return n
+}
+
+// RomMConnectOn reports whether the Connect notifier runs (settings row over
+// ROMM_CONNECT_ENABLED). Callers must still check HasRomMAPI.
+func (c *Config) RomMConnectOn() bool {
+	if v, ok := c.settingBool("romm_connect_enabled"); ok {
+		return v
+	}
+	return c.RomMConnectEnabled
+}
+
+// RomMExcludeList returns the platform slugs excluded from RomM sync — the
+// stored CSV row when present, else ROMM_EXCLUDE_PLATFORMS.
+func (c *Config) RomMExcludeList() []string {
+	if v, ok := c.settingStr("romm_exclude_platforms"); ok {
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	return c.RomMExcludePlatforms
+}
+
+// DiscSetTimeoutHours returns the disc-set degrade timeout (settings row
+// over SELECTOR_SET_TIMEOUT_HOURS), normalized to the historical 24h default
+// when unset or invalid — zero-value Configs (tests build bare &Config{}
+// literals) must not degrade disc sets instantly.
+func (c *Config) DiscSetTimeoutHours() int {
+	n := c.SelectorSetTimeoutHours
+	if v, ok := c.settingInt("selector_set_timeout_hours"); ok {
+		n = v
+	}
+	if n <= 0 {
+		return 24
+	}
+	return n
 }
 
 // StaleJobHorizonHours returns the CleanupStaleDownloads horizon: never below

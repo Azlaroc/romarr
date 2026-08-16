@@ -211,10 +211,30 @@ def test_settings_download_handling_toggles(ui):
     toggle.click()
     expect(toggle).to_be_checked(checked=initial, timeout=SLOW_MS)
 
-    # The Wishlist Search card on Indexers carries the scheduler grab knobs.
+    # The Wishlist Search card on Indexers carries the scheduler knobs.
     _open_settings_child(page, "indexers", "idx-wishlist-search")
     expect(page.get_by_test_id("idx-autodl-toggle")).to_be_attached(timeout=SLOW_MS)
-    expect(page.get_by_test_id("idx-minscore-input")).to_be_attached(timeout=SLOW_MS)
+
+
+def test_settings_show_advanced_and_scheduler_flip(ui):
+    # Advanced fields hide behind the arr-style Show Advanced toggle.
+    page = ui["page"]
+    _open_settings_child(page, "download-clients", "dc-handling")
+    expect(page.get_by_test_id("dc-janitor-toggle")).not_to_be_attached()
+    page.get_by_test_id("show-advanced").click()
+    expect(page.get_by_test_id("dc-janitor-toggle")).to_be_attached(timeout=SLOW_MS)
+    page.get_by_test_id("show-advanced").click()
+    expect(page.get_by_test_id("dc-janitor-toggle")).not_to_be_attached()
+
+    # Scheduler enable is a live re-arm: flip it off and back on
+    # (state-neutral; the loop stops and restarts underneath).
+    _open_settings_child(page, "indexers", "idx-wishlist-search")
+    toggle = page.get_by_test_id("idx-scheduler-toggle")
+    initial = toggle.is_checked()
+    toggle.click()
+    expect(toggle).to_be_checked(checked=not initial, timeout=SLOW_MS)
+    toggle.click()
+    expect(toggle).to_be_checked(checked=initial, timeout=SLOW_MS)
 
 
 def test_settings_connection_tests(ui):

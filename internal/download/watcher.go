@@ -69,16 +69,14 @@ func NewWatcher(cfg *config.Config, mgr *Manager) *Watcher {
 }
 
 // Start begins watching. The interval floor is 1s (test/e2e); default 30s.
-func (w *Watcher) Start() {
-	if !w.cfg.WatcherEnabled || !w.cfg.HasQBittorrent() {
+// Returns whether a watch loop was started (false = disabled/unconfigured).
+func (w *Watcher) Start() bool {
+	if !w.cfg.WatcherOn() || !w.cfg.HasQBittorrent() {
 		slog.Info("torrent watcher disabled")
-		return
+		return false
 	}
 
-	interval := time.Duration(w.cfg.WatcherIntervalS) * time.Second
-	if interval < time.Second {
-		interval = 30 * time.Second
-	}
+	interval := time.Duration(w.cfg.WatcherIntervalSeconds()) * time.Second
 
 	slog.Info("torrent watcher started", "interval", interval, "category", w.cfg.QBCategory)
 
@@ -90,12 +88,20 @@ func (w *Watcher) Start() {
 			select {
 			case <-ticker.C:
 				w.tick()
+				// Interval changes hot-apply on the next tick: ticks are
+				// short (seconds), so a boundary re-read is prompt and the
+				// per-instance vanish counters survive untouched.
+				if next := time.Duration(w.cfg.WatcherIntervalSeconds()) * time.Second; next != interval {
+					interval = next
+					ticker.Reset(interval)
+				}
 			case <-w.stopCh:
 				slog.Info("torrent watcher stopped")
 				return
 			}
 		}
 	}()
+	return true
 }
 
 // Stop signals the watcher to stop.

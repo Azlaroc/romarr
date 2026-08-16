@@ -1,11 +1,15 @@
-import { useConfig, useSaveSetting, useSettings, useSettingsEnv } from '../../api/queries'
+import { useEffect, useState } from 'react'
+import { useConfig, useSaveSetting, useSettings } from '../../api/queries'
 import { isForbidden } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { AdminNotice } from '../../components/ui/AdminNotice'
 import { Card } from '../../components/ui/Card'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
+import { Input } from '../../components/ui/Input'
+import { ShowAdvancedButton } from '../../components/ui/ShowAdvancedButton'
 import { Toggle } from '../../components/ui/Toggle'
 import { useToast } from '../../components/ui/Toast'
+import { useShowAdvanced } from '../../lib/useShowAdvanced'
 
 const TESTABLE_CLIENTS = [
   { id: 'qbittorrent', label: 'qBittorrent' },
@@ -13,12 +17,17 @@ const TESTABLE_CLIENTS = [
 ] as const
 
 export function DownloadClients() {
+  const [showAdvanced, setShowAdvanced] = useShowAdvanced()
   return (
     <>
-      <PageHeader title="Settings" subtitle="Download Clients" />
+      <PageHeader
+        title="Settings"
+        subtitle="Download Clients"
+        actions={<ShowAdvancedButton show={showAdvanced} onChange={setShowAdvanced} />}
+      />
       <div className="space-y-6">
         <Clients />
-        <CompletedDownloadHandling />
+        <CompletedDownloadHandling showAdvanced={showAdvanced} />
       </div>
     </>
   )
@@ -46,28 +55,17 @@ function Clients() {
   )
 }
 
-const HANDLING_TOGGLES = [
-  {
-    key: 'remove_torrent_after_import',
-    testId: 'dc-remove-toggle',
-    label: 'Remove torrent after import',
-    help: 'Delete the torrent from the client once its files are imported',
-  },
-  {
-    key: 'seed_janitor_enabled',
-    testId: 'dc-janitor-toggle',
-    label: 'Seed janitor',
-    help: 'Remove imported torrents (and files) after their seeding goals complete — deletion is unrecoverable',
-  },
-] as const
-
-function CompletedDownloadHandling() {
-  const { data: env, error: envError } = useSettingsEnv()
-  const { data: settings, error: settingsError } = useSettings()
+function CompletedDownloadHandling({ showAdvanced }: { showAdvanced: boolean }) {
+  const { data: settings, error } = useSettings()
   const save = useSaveSetting()
   const { toast } = useToast()
+  const [interval, setIntervalStr] = useState('')
 
-  if (isForbidden(envError) || isForbidden(settingsError)) {
+  useEffect(() => {
+    if (settings?.watcher_interval_seconds !== undefined) setIntervalStr(String(settings.watcher_interval_seconds))
+  }, [settings?.watcher_interval_seconds])
+
+  if (isForbidden(error)) {
     return (
       <Card title="Completed download handling">
         <AdminNotice />
@@ -75,36 +73,68 @@ function CompletedDownloadHandling() {
     )
   }
 
-  const toggle = async (key: string, checked: boolean) => {
+  const saveKey = async (patch: Record<string, unknown>) => {
     try {
-      await save.mutateAsync({ [key]: checked })
+      await save.mutateAsync(patch)
       toast('Settings saved', 'success')
     } catch {
       toast('Failed to save', 'error')
     }
   }
 
+  const saveInterval = () => {
+    const n = Number(interval)
+    if (!Number.isInteger(n) || n < 1) {
+      toast('Watcher interval must be a whole number of seconds ≥ 1', 'error')
+      if (settings?.watcher_interval_seconds !== undefined) setIntervalStr(String(settings.watcher_interval_seconds))
+      return
+    }
+    if (n !== settings?.watcher_interval_seconds) saveKey({ watcher_interval_seconds: n })
+  }
+
   return (
     <Card title="Completed download handling">
       <div className="space-y-3" data-testid="dc-handling">
-        {HANDLING_TOGGLES.map((t) => (
-          <Toggle
-            key={t.key}
-            checked={!!settings?.[t.key]}
-            onChange={(checked) => toggle(t.key, checked)}
-            label={t.label}
-            hint={t.help}
-            data-testid={t.testId}
-          />
-        ))}
-        <div className="flex items-center justify-between gap-4 rounded bg-slate-800 p-3">
-          <div className="min-w-0">
-            <div className="text-sm text-white">Download watcher interval</div>
-            <div className="mt-0.5 text-xs text-slate-500">How often client queues are polled for completed downloads</div>
-          </div>
-          <span className="shrink-0 text-sm text-slate-300">{env ? `${env.downloads.watcher_interval_seconds}s` : '…'}</span>
-        </div>
-        <p className="text-xs text-slate-500">Watcher interval is set by the container environment; requires a restart to change.</p>
+        <Toggle
+          checked={!!settings?.remove_torrent_after_import}
+          onChange={(checked) => saveKey({ remove_torrent_after_import: checked })}
+          label="Remove torrent after import"
+          hint="Delete the torrent from the client once its files are imported"
+          data-testid="dc-remove-toggle"
+        />
+        {showAdvanced && (
+          <>
+            <Toggle
+              checked={!!settings?.seed_janitor_enabled}
+              onChange={(checked) => saveKey({ seed_janitor_enabled: checked })}
+              label="Seed janitor"
+              hint="Remove imported torrents (and files) after their seeding goals complete — deletion is unrecoverable"
+              advanced
+              data-testid="dc-janitor-toggle"
+            />
+            <Toggle
+              checked={!!settings?.watcher_enabled}
+              onChange={(checked) => saveKey({ watcher_enabled: checked })}
+              label="Download watcher"
+              hint="Polls client queues for completed downloads; disabling stops all torrent imports"
+              advanced
+              data-testid="dc-watcher-toggle"
+            />
+            <div className="max-w-xs">
+              <Input
+                label="Watcher interval (seconds)"
+                type="number"
+                min={1}
+                value={interval}
+                onChange={(e) => setIntervalStr(e.target.value)}
+                onBlur={saveInterval}
+                hint="How often client queues are polled; applies from the next tick"
+                advanced
+                data-testid="dc-watcher-interval"
+              />
+            </div>
+          </>
+        )}
       </div>
     </Card>
   )

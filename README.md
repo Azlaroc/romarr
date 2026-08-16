@@ -155,7 +155,13 @@ Open `http://localhost:5001` in your browser.
 
 ## Configuration
 
-All configuration is via environment variables.
+Deploy contracts (paths, ports, credentials, client endpoints) are environment
+variables. Behavior knobs — pipeline toggles, download handling, the watcher,
+wishlist-search/scheduler settings, and the RomM sync/Connect switches — are
+editable in the Settings UI and stored in the database: their env variables
+below are the **fresh-install defaults**, consulted only until the knob is
+first edited in-app (resetting a field in the UI returns it to the env
+default).
 
 ### Server
 

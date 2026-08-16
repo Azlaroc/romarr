@@ -24,11 +24,11 @@ import (
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
-	"gamarr/internal/romm"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
 	"gamarr/internal/selection"
+	"gamarr/internal/supervise"
 	"gamarr/internal/torznab"
 	"gamarr/web"
 )
@@ -41,15 +41,15 @@ type Server struct {
 	sessions  *SessionStore
 	scheduler *scheduler.Scheduler
 	oidc      *OIDCHandler
-	rommSync  *romm.Syncer
+	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer, ren *renamer.Runner) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, sup *supervise.Supervisor, ren *renamer.Runner) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync, renamer: ren}
+	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -761,7 +761,10 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Unmatched jobs
+	// Unmatched jobs. Items() iterates a map (random order per call), so
+	// sort deterministically — disc-set members by index, everything else by
+	// title then id — or the queue reshuffles on every poll.
+	var unmatched []models.DownloadEntry
 	for _, item := range jobs.Items() {
 		if matchedJobIDs[item.ID] {
 			continue
@@ -772,7 +775,7 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		detail, _ := item.Data["detail"].(string)
 		setID, _ := item.Data["disc_set_id"].(string)
 
-		downloads = append(downloads, models.DownloadEntry{
+		unmatched = append(unmatched, models.DownloadEntry{
 			Type:      "job",
 			Title:     jTitle(item.Data),
 			Platform:  platf,
@@ -785,6 +788,20 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 			DiscTotal: jobIntValue(item.Data["disc_total"]),
 		})
 	}
+	sort.SliceStable(unmatched, func(i, j int) bool {
+		a, b := unmatched[i], unmatched[j]
+		if a.DiscSetID != b.DiscSetID {
+			return a.DiscSetID < b.DiscSetID
+		}
+		if a.DiscIndex != b.DiscIndex {
+			return a.DiscIndex < b.DiscIndex
+		}
+		if a.Title != b.Title {
+			return a.Title < b.Title
+		}
+		return a.JobID < b.JobID
+	})
+	downloads = append(downloads, unmatched...)
 
 	writeJSON(w, 200, map[string]interface{}{"downloads": downloads})
 }

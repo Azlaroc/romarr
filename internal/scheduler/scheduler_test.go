@@ -55,8 +55,9 @@ func TestNewAndStatusDefaults(t *testing.T) {
 	s := New(cfg, newTestStore(t), noopSearch, noopDownload, nil)
 
 	status := s.Status()
-	if status["enabled"] != true {
-		t.Errorf("enabled = %v, want true", status["enabled"])
+	// "enabled" reports loop liveness, not the config flag — nothing started.
+	if status["enabled"] != false {
+		t.Errorf("enabled = %v, want false before Start", status["enabled"])
 	}
 	if status["interval_hours"] != 12 {
 		t.Errorf("interval_hours = %v, want 12", status["interval_hours"])

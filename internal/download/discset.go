@@ -263,8 +263,8 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 			if err := m.jobs.UpdateLibraryItemFileSize(item.ID, size); err != nil {
 				slog.Warn("disc set size refresh failed", "set", discSetID, "error", err)
 			}
-			if !degraded && m.ImportNotify != nil {
-				m.ImportNotify(platform.ToRommFSSlug(platSlug))
+			if !degraded {
+				m.NotifyImport(platform.ToRommFSSlug(platSlug))
 			}
 		}
 	}

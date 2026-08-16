@@ -5,9 +5,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/romm"
+	"gamarr/internal/supervise"
 )
 
 func TestLibrarySyncUnconfigured(t *testing.T) {
@@ -51,7 +54,22 @@ func TestLibrarySyncTrigger(t *testing.T) {
 		RomsRoot:  t.TempDir(),
 		StateFile: filepath.Join(t.TempDir(), "romm_sync.json"),
 	})
-	s := &Server{rommSync: syncer}
+	cfg := &config.Config{RomMURL: stub.URL, RomMAPIUser: "u", RomMAPIPass: "p", RomMSyncEnabled: true}
+	sup := supervise.New(cfg, nil, supervise.Builders{
+		RomMSync: func() *romm.Syncer { return syncer },
+	}, nil)
+	sup.StartAll()
+	t.Cleanup(sup.StopAll)
+	s := &Server{cfg: cfg, sup: sup}
+
+	// Syncer.Start fires an immediate sync; wait for it to settle so the
+	// explicit trigger below isn't rejected as already-running.
+	for i := 0; i < 100; i++ {
+		if st := syncer.Status(); st["running"] != true {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	rr := httptest.NewRecorder()
 	s.handleLibrarySync(rr, httptest.NewRequest("POST", "/api/library/sync?full=true", nil))
