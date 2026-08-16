@@ -49,8 +49,9 @@ export const NAV: NavItem[] = [
     label: 'Settings',
     icon: Settings,
     children: [
-      { to: '/settings/general', label: 'General' },
+      { to: '/settings/media-management', label: 'Media Management' },
       { to: '/settings/profiles', label: 'Profiles' },
+      { to: '/settings/general', label: 'General' },
     ],
   },
   {
