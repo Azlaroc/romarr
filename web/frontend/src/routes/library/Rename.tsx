@@ -34,6 +34,8 @@ function statusBadge(status: NormalizePreviewRow['status']): BadgeColor {
       return 'emerald'
     case 'noop':
       return 'blue'
+    case 'review':
+      return 'yellow'
     default:
       return 'yellow'
   }
@@ -146,6 +148,7 @@ export function LibraryRename() {
             <span>{counters?.renamed ?? 0} renamed</span>
             <span>{counters?.skipped ?? 0} skipped</span>
             <span className={counters?.collisions ? 'text-yellow-400' : ''}>{counters?.collisions ?? 0} collisions</span>
+            <span className={counters?.reviews ? 'text-yellow-400' : ''}>{counters?.reviews ?? 0} to review</span>
             <span className={counters?.errors ? 'text-red-400' : ''}>{counters?.errors ?? 0} errors</span>
           </>
         )}

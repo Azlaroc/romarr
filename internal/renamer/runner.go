@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,16 @@ const maxConsecutiveErrors = 25
 // library scans ignore it; reaped at every run start.
 const workDirName = ".gamarr-normalize-tmp"
 
+// compilationEntryRe flags DAT names that look like extractions from modern
+// compilation/re-release products rather than original releases. Some
+// No-Intro DATs carry byte-identical entries for both ("Super Pocket - The
+// Atari Collection (World) (Extracted)", "(Atari Anthology)", "(Atari Lynx
+// Collection 1)"), making the hash lookup ambiguous — the resolver can
+// legitimately return the compilation entry. Only parenthesized tags match,
+// and "Collection" only with a trailing number, so title-position words
+// ("Konami GB Collection Vol. 1 (Europe)") are never flagged.
+var compilationEntryRe = regexp.MustCompile(`\([^)]*\b(?:Anthology|Collection \d|Extracted)\b[^)]*\)`)
+
 // Collision describes the library entry already holding a row's proposed
 // canonical name.
 type Collision struct {
@@ -45,7 +56,8 @@ type Collision struct {
 // PreviewRow is one library entry's classification in the held preview.
 // Status: "rename" (planned), "renamed" (applied), "noop" (already
 // canonical), "skip" (Reason says why; Collision set when the canonical name
-// is taken).
+// is taken), "review" (proposed name looks like a hash-ambiguous
+// compilation-entry resolution — never applied automatically).
 type PreviewRow struct {
 	LibraryID    int64      `json:"library_id"`
 	PlatformSlug string     `json:"platform_slug"`
@@ -82,6 +94,7 @@ type Runner struct {
 	renamed    int
 	skipped    int
 	collisions int
+	reviews    int
 	errCount   int
 	lastErr    string
 	startedAt  time.Time
@@ -111,7 +124,7 @@ func (r *Runner) TriggerPreview(scope string) bool {
 	r.cancel = cancel
 	r.phase = "preview"
 	r.scope = scope
-	r.total, r.done, r.renamed, r.skipped, r.collisions, r.errCount = 0, 0, 0, 0, 0, 0
+	r.total, r.done, r.renamed, r.skipped, r.collisions, r.reviews, r.errCount = 0, 0, 0, 0, 0, 0, 0
 	r.lastErr = ""
 	r.startedAt = time.Now()
 	r.finishedAt = time.Time{}
@@ -211,6 +224,7 @@ func (r *Runner) Status() map[string]interface{} {
 		"renamed":     r.renamed,
 		"skipped":     r.skipped,
 		"collisions":  r.collisions,
+		"reviews":     r.reviews,
 		"errors":      r.errCount,
 		"last_error":  r.lastErr,
 		"started_at":  timeOrEmpty(r.startedAt),
@@ -340,6 +354,13 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 				row.Reason = "canonical name already exists in library"
 				row.Collision = r.collisionWith(target, row.md5)
 				r.appendRow(row, func() { r.skipped++; r.collisions++ })
+			} else if compilationEntryRe.MatchString(identity.ProposedName) && !compilationEntryRe.MatchString(row.OldName) {
+				// The intra-run collision guard catches the 2nd..Nth file that
+				// hash-matches the same compilation entry; this flags the
+				// first claimant, the residual single-file risk.
+				row.Status = "review"
+				row.Reason = "proposed name looks like a compilation/re-release DAT entry (hash-ambiguous) — not applied automatically"
+				r.appendRow(row, func() { r.reviews++ })
 			} else {
 				row.Status = "rename"
 				targets[target] = targetClaim{id: row.LibraryID, oldName: row.OldName, md5: row.md5}

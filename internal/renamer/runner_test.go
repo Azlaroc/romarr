@@ -309,3 +309,68 @@ func TestStatusJSONShape(t *testing.T) {
 		t.Error("nil runner triggers must refuse")
 	}
 }
+
+func TestPreviewReviewFlagForCompilationEntries(t *testing.T) {
+	r, store, root := newTestRunner(t)
+	// The #290 campaign shape: an original-release file whose hash-ambiguous
+	// DAT resolution proposes a compilation-extraction name.
+	seedROM(t, store, root, "a26", "Dark Cavern (1982) (Mattel) [!].a26",
+		"MATCH:Super Pocket - The Atari Collection (World) (Extracted).a26:x")
+	// Both sides carry a compilation tag → legitimately a compilation build,
+	// renames normally.
+	seedROM(t, store, root, "a26", "Skyworks Game (Atari Anthology) (U).a26",
+		"MATCH:Skyworks Game (Atari Anthology).a26:y")
+
+	r.TriggerPreview("a26")
+	waitDone(t, r)
+	by := rowsByStatus(r)
+	if len(by["review"]) != 1 || by["review"][0].OldName != "Dark Cavern (1982) (Mattel) [!].a26" {
+		t.Fatalf("review rows = %+v", by["review"])
+	}
+	if by["review"][0].NewName == "" || by["review"][0].Reason == "" {
+		t.Errorf("review row missing proposal/reason: %+v", by["review"][0])
+	}
+	if len(by["rename"]) != 1 || by["rename"][0].OldName != "Skyworks Game (Atari Anthology) (U).a26" {
+		t.Errorf("rename rows = %+v", by["rename"])
+	}
+	st := r.Status()
+	if st["reviews"] != 1 || st["planned"] != 1 {
+		t.Errorf("status = reviews=%v planned=%v, want 1/1", st["reviews"], st["planned"])
+	}
+
+	// Review rows are never applied: only the legit rename goes through.
+	if !r.TriggerApply(nil) {
+		t.Fatal("TriggerApply refused")
+	}
+	waitDone(t, r)
+	if _, err := os.Stat(filepath.Join(root, "a26", "Dark Cavern (1982) (Mattel) [!].a26")); err != nil {
+		t.Error("review-flagged file was renamed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "a26", "Skyworks Game (Atari Anthology).a26")); err != nil {
+		t.Error("legit compilation rename did not apply")
+	}
+}
+
+func TestCompilationEntryRe(t *testing.T) {
+	flagged := []string{
+		"Super Pocket - The Atari Collection (World) (Extracted).a26",
+		"Basketbrawl (USA, Europe) (Atari Lynx Collection 1) (Unl).zip",
+		"Dark Cavern (Atari Anthology).a26",
+	}
+	clean := []string{
+		"Konami GB Collection Vol. 1 (Europe).gb",
+		"Collection of Mana (USA).zip",
+		"Checkered Flag (USA, Europe).zip",
+		"Secret of Mana (Collection of Mana) (USA).zip", // Collection without digit
+	}
+	for _, s := range flagged {
+		if !compilationEntryRe.MatchString(s) {
+			t.Errorf("%q should be flagged", s)
+		}
+	}
+	for _, s := range clean {
+		if compilationEntryRe.MatchString(s) {
+			t.Errorf("%q should NOT be flagged", s)
+		}
+	}
+}

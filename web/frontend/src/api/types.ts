@@ -55,7 +55,7 @@ export interface NormalizePreviewRow {
   old_path: string
   old_name: string
   new_name?: string
-  status: 'rename' | 'renamed' | 'noop' | 'skip'
+  status: 'rename' | 'renamed' | 'noop' | 'skip' | 'review'
   reason?: string
   collision?: NormalizeCollision
 }
@@ -71,6 +71,7 @@ export interface NormalizeStatus {
   renamed?: number
   skipped?: number
   collisions?: number
+  reviews?: number
   errors?: number
   last_error?: string
   started_at?: string | null
