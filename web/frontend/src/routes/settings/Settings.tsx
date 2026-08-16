@@ -10,7 +10,6 @@ import { PageHeader } from '../../components/layout/PageHeader'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
 import { useToast } from '../../components/ui/Toast'
 
@@ -19,10 +18,6 @@ export function Settings() {
     <>
       <PageHeader title="Settings" subtitle="General" />
       <div className="space-y-6">
-        {/* RomM's tile moves to Settings > Connect with the rest of the RomM surface. */}
-        <Card title="Connection tests">
-          <ConnectionTestTiles services={[{ id: 'romm', label: 'RomM' }]} />
-        </Card>
         <Security />
       </div>
     </>

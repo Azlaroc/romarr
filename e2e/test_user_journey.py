@@ -174,7 +174,7 @@ def _open_settings_child(page, slug, wait_testid):
 
 
 def _open_general(page):
-    """Settings now lands on Media Management; General holds the RomM tile + security."""
+    """Settings now lands on Media Management; General holds security only."""
     _open_settings_child(page, "general", "totp-card")
 
 
@@ -199,8 +199,8 @@ def test_settings_media_management(ui):
 
 
 def test_settings_connection_tests(ui):
-    # Test tiles now live on their service screens: torrent/usenet clients on
-    # Download Clients, Prowlarr on Indexers, RomM (still) on General.
+    # Test tiles live on their service screens: torrent/usenet clients on
+    # Download Clients, Prowlarr on Indexers, RomM on Connect.
     page = ui["page"]
     _open_settings_child(page, "download-clients", "dc-clients")
 
@@ -220,10 +220,13 @@ def test_settings_connection_tests(ui):
     expect(page.get_by_test_id("test-prowlarr-status")).to_have_text(
         re.compile("connected", re.I), timeout=SLOW_MS)
 
-    _open_general(page)
+    _open_settings_child(page, "connect", "cn-romm")
     page.get_by_test_id("test-romm").click()
     expect(page.get_by_test_id("test-romm-status")).to_have_text(
         re.compile("connected", re.I), timeout=SLOW_MS)
+
+    # General now holds only the security card.
+    _open_general(page)
 
 
 def test_settings_shows_sources(ui):
@@ -254,3 +257,42 @@ def test_settings_indexers_ddl_sources(ui):
     page.get_by_test_id("confirm-ok").click()
     expect(page.get_by_test_id("idx-ddl-list")).not_to_contain_text(
         "E2E Custom Source", timeout=SLOW_MS)
+
+
+def test_settings_connect_webhooks(ui):
+    # Webhook CRUD on Settings > Connect: add -> visible -> delete (state
+    # left clean). The Test button fires a real outbound HTTP call, so it is
+    # not clicked here. Also anchors the Metadata screen (nav + sources card).
+    page = ui["page"]
+    _open_settings_child(page, "connect", "cn-webhook-list")
+
+    page.get_by_test_id("cn-webhook-name").fill("E2E Hook")
+    page.get_by_test_id("cn-webhook-url").fill("https://example.invalid/hook")
+    page.get_by_test_id("cn-webhook-add").click()
+    row = page.locator('[data-testid="cn-webhook-list"] > div', has_text="E2E Hook").first
+    expect(row).to_be_visible(timeout=SLOW_MS)
+
+    row.locator('[data-testid^="cn-webhook-delete-"]').click()
+    page.get_by_test_id("confirm-ok").click()
+    expect(page.get_by_test_id("cn-webhook-list")).not_to_contain_text(
+        "E2E Hook", timeout=SLOW_MS)
+
+    _open_settings_child(page, "metadata", "md-sources")
+    expect(page.get_by_test_id("md-sources")).to_contain_text(
+        re.compile("RomM", re.I), timeout=SLOW_MS)
+
+
+def test_settings_tags(ui):
+    # Tag CRUD on Settings > Tags: add -> visible -> delete (state left clean).
+    page = ui["page"]
+    _open_settings_child(page, "tags", "tag-list")
+
+    page.get_by_test_id("tag-name").fill("e2e-tag")
+    page.get_by_test_id("tag-add").click()
+    row = page.locator('[data-testid="tag-list"] > div', has_text="e2e-tag").first
+    expect(row).to_be_visible(timeout=SLOW_MS)
+
+    row.locator('[data-testid^="tag-delete-"]').click()
+    page.get_by_test_id("confirm-ok").click()
+    expect(page.get_by_test_id("tag-list")).not_to_contain_text(
+        "e2e-tag", timeout=SLOW_MS)
