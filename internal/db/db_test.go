@@ -305,10 +305,10 @@ func TestJobStore_InterruptedOnLoad(t *testing.T) {
 }
 
 func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
-	// Torrent jobs with a persisted infohash (or association tag), NZBGet
-	// jobs with an nzb_id, and SABnzbd jobs with an nzo_id are re-driven from
-	// stored state after a restart, so loadAll must NOT mark them
-	// interrupted. Everything else still is.
+	// Torrent jobs with a persisted infohash (or association tag) and SABnzbd
+	// jobs with an nzo_id are re-driven from stored state after a restart, so
+	// loadAll must NOT mark them interrupted. Everything else still is —
+	// including legacy NZBGet jobs, whose client was removed.
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
@@ -322,11 +322,8 @@ func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
 	store1.Set("torrent-bare", map[string]interface{}{
 		"status": "downloading", "source_type": "torrent",
 	})
-	store1.Set("nzbget-id", map[string]interface{}{
+	store1.Set("nzbget-legacy", map[string]interface{}{
 		"status": "downloading", "source_type": "nzb", "source_client": "nzbget", "nzb_id": 42,
-	})
-	store1.Set("nzbget-noid", map[string]interface{}{
-		"status": "downloading", "source_type": "nzb", "source_client": "nzbget",
 	})
 	store1.Set("sab", map[string]interface{}{
 		"status": "downloading", "source_type": "nzb", "source_client": "sabnzbd",
@@ -347,8 +344,7 @@ func TestJobStore_RecoverableJobsSurviveLoad(t *testing.T) {
 		{"torrent-hash", "downloading"},
 		{"torrent-tag", "importing"},
 		{"torrent-bare", "interrupted"},
-		{"nzbget-id", "downloading"},
-		{"nzbget-noid", "interrupted"},
+		{"nzbget-legacy", "interrupted"},
 		{"sab", "interrupted"},
 		{"sab-id", "downloading"},
 		{"ddl", "interrupted"},

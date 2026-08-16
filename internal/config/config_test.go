@@ -8,9 +8,8 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	// Clear relevant env vars
 	for _, k := range []string{"PROWLARR_URL", "PROWLARR_API_KEY", "QB_URL", "QB_USER", "QB_PASS",
-		"QB_CONTAINER_NAME", "GAMARR_PORT", "MAX_RETRIES", "METRICS_ENABLED", "PROWLARR_GAME_INDEXERS",
-		"AI_MONITOR_ENABLED", "EXTRACT_ARCHIVES", "SABNZBD_URL", "SABNZBD_API_KEY",
-		"NZBGET_URL", "NZBGET_USER", "NZBGET_PASS", "NZBGET_CATEGORY",
+		"GAMARR_PORT", "MAX_RETRIES", "METRICS_ENABLED", "PROWLARR_GAME_INDEXERS",
+		"EXTRACT_ARCHIVES", "SABNZBD_URL", "SABNZBD_API_KEY",
 		"SELECTOR_SET_TIMEOUT_HOURS"} {
 		os.Unsetenv(k)
 	}
@@ -23,9 +22,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.QBUser != "admin" {
 		t.Errorf("QBUser=%q", cfg.QBUser)
 	}
-	if cfg.QBContainerName != "qbittorrent" {
-		t.Errorf("QBContainerName=%q, want %q", cfg.QBContainerName, "qbittorrent")
-	}
 	if cfg.Port != 5001 {
 		t.Errorf("Port=%d, want 5001", cfg.Port)
 	}
@@ -35,9 +31,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if !cfg.MetricsEnabled {
 		t.Error("MetricsEnabled should default to true")
 	}
-	if cfg.AIMonitorEnabled {
-		t.Error("AIMonitorEnabled should default to false")
-	}
 	if cfg.ExtractArchives {
 		t.Error("ExtractArchives should default to false")
 	}
@@ -45,15 +38,9 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Errorf("SelectorSetTimeoutHours=%d, want 24", cfg.SelectorSetTimeoutHours)
 	}
 
-	// Default indexers
-	expected := []int{7, 5, 15, 9, 8, 3, 4}
-	if len(cfg.ProwlarrGameIndexers) != len(expected) {
-		t.Fatalf("ProwlarrGameIndexers len=%d, want %d", len(cfg.ProwlarrGameIndexers), len(expected))
-	}
-	for i, v := range expected {
-		if cfg.ProwlarrGameIndexers[i] != v {
-			t.Errorf("ProwlarrGameIndexers[%d]=%d, want %d", i, cfg.ProwlarrGameIndexers[i], v)
-		}
+	// Default is empty = unscoped Prowlarr search across all indexers.
+	if len(cfg.ProwlarrGameIndexers) != 0 {
+		t.Fatalf("ProwlarrGameIndexers=%v, want empty", cfg.ProwlarrGameIndexers)
 	}
 }
 
@@ -62,28 +49,16 @@ func TestLoad_FromEnv(t *testing.T) {
 	os.Setenv("PROWLARR_API_KEY", "testkey123")
 	os.Setenv("QB_USER", "jam")
 	os.Setenv("QB_PASS", "secret")
-	os.Setenv("QB_CONTAINER_NAME", "qbit-custom")
 	os.Setenv("PROWLARR_GAME_INDEXERS", "1,2,3")
-	os.Setenv("AI_MONITOR_ENABLED", "true")
 	os.Setenv("EXTRACT_ARCHIVES", "1")
-	os.Setenv("NZBGET_URL", "http://nzbget:6789")
-	os.Setenv("NZBGET_USER", "gamarr")
-	os.Setenv("NZBGET_PASS", "secret")
-	os.Setenv("NZBGET_CATEGORY", "roms")
 	os.Setenv("SELECTOR_SET_TIMEOUT_HOURS", "72")
 	defer func() {
 		os.Unsetenv("GAMARR_PORT")
 		os.Unsetenv("PROWLARR_API_KEY")
 		os.Unsetenv("QB_USER")
 		os.Unsetenv("QB_PASS")
-		os.Unsetenv("QB_CONTAINER_NAME")
 		os.Unsetenv("PROWLARR_GAME_INDEXERS")
-		os.Unsetenv("AI_MONITOR_ENABLED")
 		os.Unsetenv("EXTRACT_ARCHIVES")
-		os.Unsetenv("NZBGET_URL")
-		os.Unsetenv("NZBGET_USER")
-		os.Unsetenv("NZBGET_PASS")
-		os.Unsetenv("NZBGET_CATEGORY")
 		os.Unsetenv("SELECTOR_SET_TIMEOUT_HOURS")
 	}()
 
@@ -101,20 +76,11 @@ func TestLoad_FromEnv(t *testing.T) {
 	if cfg.QBPass != "secret" {
 		t.Errorf("QBPass=%q", cfg.QBPass)
 	}
-	if cfg.QBContainerName != "qbit-custom" {
-		t.Errorf("QBContainerName=%q, want %q", cfg.QBContainerName, "qbit-custom")
-	}
 	if len(cfg.ProwlarrGameIndexers) != 3 || cfg.ProwlarrGameIndexers[0] != 1 {
 		t.Errorf("ProwlarrGameIndexers=%v", cfg.ProwlarrGameIndexers)
 	}
-	if !cfg.AIMonitorEnabled {
-		t.Error("AIMonitorEnabled should be true from env")
-	}
 	if !cfg.ExtractArchives {
 		t.Error("ExtractArchives should be true from env '1'")
-	}
-	if cfg.NZBGetURL != "http://nzbget:6789" || cfg.NZBGetUser != "gamarr" || cfg.NZBGetPass != "secret" || cfg.NZBGetCategory != "roms" {
-		t.Errorf("unexpected NZBGet config: url=%q user=%q pass=%q category=%q", cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass, cfg.NZBGetCategory)
 	}
 	if cfg.SelectorSetTimeoutHours != 72 {
 		t.Errorf("SelectorSetTimeoutHours=%d, want 72", cfg.SelectorSetTimeoutHours)
@@ -208,17 +174,6 @@ func TestHasSABnzbd(t *testing.T) {
 				t.Errorf("HasSABnzbd()=%v, want %v", cfg.HasSABnzbd(), tt.expect)
 			}
 		})
-	}
-}
-
-func TestHasNZBGet(t *testing.T) {
-	cfg := &Config{NZBGetURL: "http://nzbget:6789"}
-	if !cfg.HasNZBGet() {
-		t.Error("expected true when URL is set")
-	}
-	cfg.NZBGetURL = ""
-	if cfg.HasNZBGet() {
-		t.Error("expected false when URL is empty")
 	}
 }
 

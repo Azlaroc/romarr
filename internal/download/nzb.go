@@ -4,15 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"gamarr/internal/nzbget"
 	"gamarr/internal/sabnzbd"
 )
 
-// DownloadNZB starts a Usenet/NZB download. SABnzbd is preferred when both
-// clients are configured to preserve the existing behavior. The optional
+// DownloadNZB starts a Usenet/NZB download via SABnzbd. The optional
 // trailing DiscSet (at most one) marks a disc-set member (F4).
 func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlug string, isPC bool, set ...DiscSet) (string, error) {
 	var ds DiscSet
@@ -21,9 +18,6 @@ func (m *Manager) DownloadNZB(sab *sabnzbd.Client, nzbURL, title, platf, platSlu
 	}
 	if sab != nil {
 		return m.downloadSABnzbd(sab, nzbURL, title, platf, platSlug, isPC, ds)
-	}
-	if m.nzbget != nil {
-		return m.downloadNZBGet(m.nzbget, nzbURL, title, platf, platSlug, isPC, ds)
 	}
 	return "", fmt.Errorf("usenet download client not configured")
 }
@@ -63,43 +57,11 @@ func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, pla
 	return jobID, nil
 }
 
-func (m *Manager) downloadNZBGet(client *nzbget.Client, nzbURL, title, platf, platSlug string, isPC bool, set DiscSet) (string, error) {
-	jobID := newJobID()
-	jobData := map[string]interface{}{
-		"status":        "downloading",
-		"title":         title,
-		"platform":      platf,
-		"platform_slug": platSlug,
-		"is_pc":         isPC,
-		"error":         nil,
-		"detail":        "Sending to NZBGet...",
-		"source_type":   "nzb",
-		"source_client": "nzbget",
-	}
-	applyDiscSetJobData(jobData, set)
-	m.jobs.Set(jobID, jobData)
-	m.jobs.LogActivity("download_started", title, "NZB via NZBGet", jobID, nil)
-
-	nzbID, err := client.AddNZBByURL(nzbURL, title, m.cfg.NZBGetCategory)
-	if err != nil {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  err.Error(),
-		})
-		return jobID, nil
-	}
-	m.jobs.Update(jobID, "detail", "Downloading via NZBGet...")
-	m.jobs.Update(jobID, "nzb_id", nzbID)
-
-	go m.watchNZBGetDownload(client, jobID, nzbID, title, platf, platSlug, isPC)
-	return jobID, nil
-}
-
 // RecoverOrphanedNZBDownloads restarts watchers for persisted Usenet jobs
-// after a Gamarr restart. The download client (NZBGet via nzb_id, SABnzbd via
-// nzo_id) owns the transfer, so reconnecting the watcher is enough to resume
-// progress tracking and final organization — including a download that
-// finished while Gamarr was down (the watcher's history check organizes it).
+// after a Gamarr restart. The download client (SABnzbd via nzo_id) owns the
+// transfer, so reconnecting the watcher is enough to resume progress tracking
+// and final organization — including a download that finished while Gamarr
+// was down (the watcher's history check organizes it).
 func (m *Manager) RecoverOrphanedNZBDownloads() {
 	for _, item := range m.jobs.Items() {
 		status, _ := item.Data["status"].(string)
@@ -114,20 +76,6 @@ func (m *Manager) RecoverOrphanedNZBDownloads() {
 		isPC, _ := item.Data["is_pc"].(bool)
 
 		switch client {
-		case "nzbget":
-			if m.nzbget == nil {
-				continue
-			}
-			nzbID := int64Value(item.Data["nzb_id"])
-			if nzbID <= 0 {
-				m.jobs.UpdateMulti(item.ID, map[string]interface{}{
-					"status": "error",
-					"error":  "Cannot recover NZBGet download: missing NZB ID",
-				})
-				continue
-			}
-			m.jobs.Update(item.ID, "detail", "Recovered NZBGet download; reconnecting watcher...")
-			go m.watchNZBGetDownload(m.nzbget, item.ID, nzbID, title, platf, platSlug, isPC)
 		case "sabnzbd":
 			if m.sab == nil {
 				continue
@@ -211,64 +159,6 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
 		"status": "error",
 		"error":  "Timed out waiting for SABnzbd download",
-	})
-}
-
-func (m *Manager) watchNZBGetDownload(client *nzbget.Client, jobID string, nzbID int64, title, platf, platSlug string, isPC bool) {
-	slog.Info("watching NZBGet download", "title", title, "nzb_id", nzbID)
-	maxWait := 7 * 24 * time.Hour
-	start := time.Now()
-
-	for time.Since(start) < maxWait {
-		queue, err := client.GetQueue()
-		if err == nil {
-			for _, item := range queue {
-				if item.NZBID != nzbID {
-					continue
-				}
-				if item.FileSizeMB > 0 {
-					pct := (float64(item.FileSizeMB-item.RemainingSizeMB) / float64(item.FileSizeMB)) * 100
-					pct = max(0, min(100, pct))
-					m.jobs.Update(jobID, "detail", fmt.Sprintf("Downloading via NZBGet... %.1f%%", pct))
-				} else if item.Status != "" {
-					m.jobs.Update(jobID, "detail", fmt.Sprintf("NZBGet: %s", strings.ToLower(item.Status)))
-				}
-				break
-			}
-		}
-
-		history, err := client.GetHistory()
-		if err == nil {
-			for _, item := range history {
-				if item.NZBID != nzbID {
-					continue
-				}
-				status := strings.ToUpper(item.Status)
-				switch {
-				case strings.HasPrefix(status, "SUCCESS/"):
-					storagePath := item.StoragePath()
-					slog.Info("NZBGet download completed", "title", title, "path", storagePath)
-					m.jobs.UpdateMulti(jobID, map[string]interface{}{
-						"status": "organizing",
-						"detail": "NZB download complete. Organizing...",
-					})
-					m.organizeNZBDownloadWithClient(jobID, storagePath, title, platf, platSlug, isPC, "nzbget")
-					return
-				case strings.HasPrefix(status, "FAILURE/"), strings.HasPrefix(status, "DELETED/"), strings.HasPrefix(status, "WARNING/"):
-					m.jobs.UpdateMulti(jobID, map[string]interface{}{
-						"status": "error",
-						"error":  fmt.Sprintf("NZBGet download failed (%s)", item.Status),
-					})
-					return
-				}
-			}
-		}
-
-		time.Sleep(10 * time.Second)
-	}
-	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status": "error",
-		"error":  "Timed out waiting for NZBGet download",
 	})
 }
 
@@ -371,11 +261,11 @@ func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string
 	}
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
 		"status": "completed",
-		"detail": "Moved to GameVault",
+		"detail": "Moved to library",
 	})
 	writeMetadataSidecar(path, title, platf, platSlug, isPC, "nzb")
 	m.TrackInLibrary(title, platf, platSlug, isPC, path, 0, "nzb", sourceClient, "nzb:"+path, jobID, "", "")
-	m.jobs.LogActivity("download_completed", title, "NZB to GameVault", jobID, nil)
+	m.jobs.LogActivity("download_completed", title, "NZB to library", jobID, nil)
 }
 
 // RetryJob retries a failed download job.

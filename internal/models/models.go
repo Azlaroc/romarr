@@ -165,38 +165,3 @@ type DDLSource struct {
 type Settings struct {
 	ExtractArchives bool `json:"extract_archives"`
 }
-
-// MonitorAction represents a pending/completed monitor action.
-type MonitorAction struct {
-	ID          string      `json:"id"`
-	Action      string      `json:"action"`
-	Params      interface{} `json:"params"`
-	Description string      `json:"description"`
-	Risk        string      `json:"risk"`
-	CreatedAt   float64     `json:"created_at,omitempty"`
-	Result      string      `json:"result,omitempty"`
-	DoneAt      float64     `json:"done_at,omitempty"`
-}
-
-// MonitorStatus is the response from /api/monitor/status.
-type MonitorStatus struct {
-	Enabled        bool             `json:"enabled"`
-	Provider       string           `json:"provider"`
-	Model          string           `json:"model"`
-	AutoFix        bool             `json:"auto_fix"`
-	Interval       int              `json:"interval"`
-	LastChecked    *float64         `json:"last_checked"`
-	Diagnosis      string           `json:"diagnosis"`
-	RecentErrors   []ErrorEntry     `json:"recent_errors"`
-	PendingActions []*MonitorAction `json:"pending_actions"`
-	ActionHistory  []*MonitorAction `json:"action_history"`
-}
-
-// ErrorEntry is a captured warning/error log entry.
-type ErrorEntry struct {
-	Timestamp float64 `json:"ts"`
-	TimeStr   string  `json:"ts_str"`
-	Level     string  `json:"level"`
-	Logger    string  `json:"logger"`
-	Message   string  `json:"message"`
-}

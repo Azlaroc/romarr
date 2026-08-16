@@ -17,14 +17,14 @@ def _nav(page, section: str, title: str):
     expect(page.get_by_test_id("page-title")).to_have_text(title, timeout=SLOW_MS)
 
 
-def test_calendar_shows_honest_no_rawg_state(ui):
+def test_calendar_shows_honest_no_provider_state(ui):
     page = ui["page"]
     _nav(page, "calendar", "Calendar")
-    # The CI harness has no RAWG key — the backend silently serves empty lists,
-    # and the screen must say so instead of rendering a blank page.
-    expect(page.get_by_test_id("calendar-no-rawg")).to_be_visible(timeout=SLOW_MS)
-    expect(page.get_by_test_id("calendar-no-rawg")).to_contain_text(
-        re.compile("RAWG", re.I), timeout=SLOW_MS)
+    # No metadata provider is wired up — the backend serves empty lists, and
+    # the screen must say so instead of rendering a blank page.
+    expect(page.get_by_test_id("calendar-no-provider")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("calendar-no-provider")).to_contain_text(
+        re.compile("metadata provider", re.I), timeout=SLOW_MS)
 
 
 def test_playlog_add_and_delete(ui):

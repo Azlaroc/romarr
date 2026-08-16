@@ -1,13 +1,9 @@
-import { useConfig } from '../../api/queries'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { Toggle } from '../../components/ui/Toggle'
 
 export function Metadata() {
-  const { data: config } = useConfig()
-  const rawgConfigured = config?.rawg?.configured === true
-
   return (
     <>
       <PageHeader title="Settings" subtitle="Metadata" />
@@ -22,15 +18,6 @@ export function Metadata() {
                 </div>
               </div>
               <Badge color="emerald">library of record</Badge>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
-              <div className="min-w-0">
-                <div className="text-sm text-white">RAWG</div>
-                <div className="mt-0.5 text-xs text-slate-500">
-                  Release-date and artwork enrichment for the calendar; API key is set by the container environment
-                </div>
-              </div>
-              <Badge color={rawgConfigured ? 'emerald' : 'slate'}>{rawgConfigured ? 'configured' : 'not configured'}</Badge>
             </div>
           </div>
         </Card>

@@ -69,7 +69,6 @@ export const NAV: NavItem[] = [
       { to: '/system/tasks', label: 'Tasks' },
       { to: '/system/users', label: 'Users' },
       { to: '/system/backup', label: 'Backup' },
-      { to: '/system/monitor', label: 'Monitor' },
     ],
   },
 ]

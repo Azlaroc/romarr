@@ -342,19 +342,6 @@ test("SABnzbd not configured (graceful)", lambda: (
 ) or None)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-print("\n=== 14. MONITOR ===")
-
-def t_monitor():
-    d = get("/api/monitor/status")
-    for k in ["enabled", "diagnosis", "recent_errors", "pending_actions", "action_history"]:
-        assert k in d
-test("Monitor status structure", t_monitor)
-
-test("Monitor analyze (no crash)", lambda: post("/api/monitor/analyze") is not None or None)
-test("Approve nonexistent action", lambda: post("/api/monitor/actions/x/approve")["success"] == False or None)
-test("Dismiss nonexistent action", lambda: post("/api/monitor/actions/x/dismiss")["success"] == False or None)
-
-# ═══════════════════════════════════════════════════════════════════════════════
 print("\n=== 15. METRICS ===")
 
 def t_metrics():

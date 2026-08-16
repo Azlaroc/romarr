@@ -25,7 +25,6 @@ import type {
   Tag,
   Stats,
   ActivityPage,
-  MonitorStatus,
   Settings,
   SettingsEnv,
   AuthStatus,
@@ -67,7 +66,6 @@ export const keys = {
   tags: ['tags'] as const,
   stats: ['stats'] as const,
   activity: (page: number) => ['activity', page] as const,
-  monitor: ['monitor'] as const,
   authStatus: ['auth-status'] as const,
   unread: ['notifications-unread'] as const,
   qualityProfiles: ['quality-profiles'] as const,
@@ -208,10 +206,6 @@ export function useActivity(page = 1) {
     queryFn: () => api.get<ActivityPage>(`/api/activity?page=${page}`),
     placeholderData: keepPreviousData,
   })
-}
-
-export function useMonitor() {
-  return useQuery({ queryKey: keys.monitor, queryFn: () => api.get<MonitorStatus>('/api/monitor/status') })
 }
 
 export function useSettings() {
@@ -450,14 +444,6 @@ export function useDeleteTag() {
   return useMutation({
     mutationFn: (id: number) => api.del(`/api/tags/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.tags }),
-  })
-}
-
-export function useTriggerAnalysis() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => api.post('/api/monitor/analyze'),
-    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.monitor }), 600),
   })
 }
 
@@ -816,21 +802,6 @@ export function useRestoreBackup() {
     },
     onSuccess: () => qc.invalidateQueries(),
   })
-}
-
-export function useMonitorAction() {
-  const qc = useQueryClient()
-  const invalidate = () => qc.invalidateQueries({ queryKey: keys.monitor })
-  return {
-    approve: useMutation({
-      mutationFn: (id: string) => api.post<{ success: boolean; message?: string }>(`/api/monitor/actions/${id}/approve`),
-      onSuccess: invalidate,
-    }),
-    dismiss: useMutation({
-      mutationFn: (id: string) => api.post<{ success: boolean }>(`/api/monitor/actions/${id}/dismiss`),
-      onSuccess: invalidate,
-    }),
-  }
 }
 
 // TOTP self-service — all routes 401 without a real session user (open mode).
