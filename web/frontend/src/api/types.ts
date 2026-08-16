@@ -160,6 +160,8 @@ export interface AppConfig {
 
 export interface Settings {
   extract_archives?: boolean
+  normalize_roms?: boolean
+  convert_roms?: boolean
 }
 
 export interface AuthStatus {
