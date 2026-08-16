@@ -1,7 +1,5 @@
 import { useState } from 'react'
 import {
-  useSources,
-  useTestConnection,
   useTotpDisable,
   useTotpSetup,
   useTotpStatus,
@@ -10,98 +8,24 @@ import {
 import { isUnauthorized } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Card } from '../../components/ui/Card'
-import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
 import { useToast } from '../../components/ui/Toast'
-
-const TEST_SERVICES = [
-  { id: 'prowlarr', label: 'Prowlarr' },
-  { id: 'qbittorrent', label: 'qBittorrent' },
-  { id: 'sabnzbd', label: 'SABnzbd' },
-  { id: 'nzbget', label: 'NZBGet' },
-  { id: 'romm', label: 'RomM' },
-]
-
-type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; msg?: string }
 
 export function Settings() {
   return (
     <>
       <PageHeader title="Settings" subtitle="General" />
       <div className="space-y-6">
-        <ConnectionTests />
-        <SearchSources />
+        {/* RomM's tile moves to Settings > Connect with the rest of the RomM surface. */}
+        <Card title="Connection tests">
+          <ConnectionTestTiles services={[{ id: 'romm', label: 'RomM' }]} />
+        </Card>
         <Security />
       </div>
     </>
-  )
-}
-
-function ConnectionTests() {
-  const test = useTestConnection()
-  const [results, setResults] = useState<Record<string, TestState>>({})
-
-  const run = async (service: string) => {
-    setResults((r) => ({ ...r, [service]: { status: 'testing' } }))
-    try {
-      const res = await test.mutateAsync(service)
-      setResults((r) => ({
-        ...r,
-        [service]: res.success ? { status: 'ok', msg: 'Connected' } : { status: 'fail', msg: res.error || 'Failed' },
-      }))
-    } catch (e) {
-      setResults((r) => ({ ...r, [service]: { status: 'fail', msg: e instanceof Error ? e.message : 'Error' } }))
-    }
-  }
-
-  const statusText = (s?: TestState) => {
-    if (!s || s.status === 'idle') return <span className="text-slate-500">Not tested</span>
-    if (s.status === 'testing') return <span className="text-yellow-400">Testing…</span>
-    if (s.status === 'ok') return <span className="text-emerald-400">{s.msg}</span>
-    return <span className="text-red-400">{s.msg}</span>
-  }
-
-  return (
-    <Card title="Connection tests">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {TEST_SERVICES.map((svc) => (
-          <button
-            key={svc.id}
-            onClick={() => run(svc.id)}
-            className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-left transition-colors hover:bg-slate-700"
-            data-testid={`test-${svc.id}`}
-          >
-            <div className="text-sm font-medium text-white">{svc.label}</div>
-            <div className="mt-1 text-xs" data-testid={`test-${svc.id}-status`}>{statusText(results[svc.id])}</div>
-          </button>
-        ))}
-      </div>
-    </Card>
-  )
-}
-
-function SearchSources() {
-  const { data: sources = [] } = useSources()
-  return (
-    <Card title="Search sources">
-      {sources.length === 0 ? (
-        <p className="text-sm text-slate-500">No sources configured.</p>
-      ) : (
-        <div className="space-y-2" data-testid="settings-sources">
-          {sources.map((s, i) => (
-            <div key={i} className="flex items-center justify-between rounded-lg bg-slate-800 p-3">
-              <div className="flex items-center gap-3">
-                <span className={`h-2 w-2 rounded-full ${s.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-                <span className="text-sm text-white">{s.label}</span>
-              </div>
-              <Badge color={s.source_type === 'torrent' ? 'blue' : 'purple'}>{s.source_type}</Badge>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
   )
 }
 

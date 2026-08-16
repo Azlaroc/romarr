@@ -166,11 +166,16 @@ def test_wishlist_add_and_delete(ui):
 
 # ── settings: connection tests against the stubs ──────────────────────────────
 
-def _open_general(page):
-    """Settings now lands on Media Management; General holds tests/sources/security."""
+def _open_settings_child(page, slug, wait_testid):
+    """Open a Settings sub-page from the sidebar and wait for its anchor testid."""
     _nav(page, "settings", "Settings")
-    page.get_by_test_id("nav-settings-general").click()
-    expect(page.get_by_test_id("test-qbittorrent")).to_be_visible(timeout=SLOW_MS)
+    page.get_by_test_id(f"nav-settings-{slug}").click()
+    expect(page.get_by_test_id(wait_testid)).to_be_attached(timeout=SLOW_MS)
+
+
+def _open_general(page):
+    """Settings now lands on Media Management; General holds the RomM tile + security."""
+    _open_settings_child(page, "general", "totp-card")
 
 
 def test_settings_media_management(ui):
@@ -194,15 +199,13 @@ def test_settings_media_management(ui):
 
 
 def test_settings_connection_tests(ui):
+    # Test tiles now live on their service screens: torrent/usenet clients on
+    # Download Clients, Prowlarr on Indexers, RomM (still) on General.
     page = ui["page"]
-    _open_general(page)
+    _open_settings_child(page, "download-clients", "dc-clients")
 
     page.get_by_test_id("test-qbittorrent").click()
     expect(page.get_by_test_id("test-qbittorrent-status")).to_have_text(
-        re.compile("connected", re.I), timeout=SLOW_MS)
-
-    page.get_by_test_id("test-prowlarr").click()
-    expect(page.get_by_test_id("test-prowlarr-status")).to_have_text(
         re.compile("connected", re.I), timeout=SLOW_MS)
 
     # SABnzbd is deliberately unconfigured in the harness.
@@ -210,15 +213,44 @@ def test_settings_connection_tests(ui):
     expect(page.get_by_test_id("test-sabnzbd-status")).to_have_text(
         re.compile("fail|not configured", re.I), timeout=SLOW_MS)
 
+    expect(page.get_by_test_id("dc-handling")).to_be_attached(timeout=SLOW_MS)
+
+    _open_settings_child(page, "indexers", "settings-sources")
+    page.get_by_test_id("test-prowlarr").click()
+    expect(page.get_by_test_id("test-prowlarr-status")).to_have_text(
+        re.compile("connected", re.I), timeout=SLOW_MS)
+
+    _open_general(page)
     page.get_by_test_id("test-romm").click()
     expect(page.get_by_test_id("test-romm-status")).to_have_text(
         re.compile("connected", re.I), timeout=SLOW_MS)
 
 
 def test_settings_shows_sources(ui):
-    # Collection stats moved to System -> Status in PR-G (asserted in
-    # test_system_journey.py); Settings > General keeps the sources card.
+    # The sources card moved from General to Settings > Indexers.
     page = ui["page"]
-    _open_general(page)
+    _open_settings_child(page, "indexers", "settings-sources")
     expect(page.get_by_test_id("settings-sources")).to_contain_text(
         re.compile("vimm", re.I), timeout=SLOW_MS)
+
+
+def test_settings_indexers_ddl_sources(ui):
+    # DDL sources CRUD: builtin Vimm row is not deletable; a custom source
+    # round-trips add -> visible -> delete (state left clean for later tests).
+    page = ui["page"]
+    _open_settings_child(page, "indexers", "idx-ddl-list")
+
+    vimm_row = page.locator('[data-testid="idx-ddl-list"] > div', has_text="Vimm").first
+    expect(vimm_row).to_be_visible(timeout=SLOW_MS)
+    expect(vimm_row.locator('[data-testid^="idx-ddl-delete-"]')).to_have_count(0)
+
+    page.get_by_test_id("idx-ddl-name").fill("E2E Custom Source")
+    page.get_by_test_id("idx-ddl-url").fill("https://example.invalid/roms")
+    page.get_by_test_id("idx-ddl-add").click()
+    row = page.locator('[data-testid="idx-ddl-list"] > div', has_text="E2E Custom Source").first
+    expect(row).to_be_visible(timeout=SLOW_MS)
+
+    row.locator('[data-testid^="idx-ddl-delete-"]').click()
+    page.get_by_test_id("confirm-ok").click()
+    expect(page.get_by_test_id("idx-ddl-list")).not_to_contain_text(
+        "E2E Custom Source", timeout=SLOW_MS)

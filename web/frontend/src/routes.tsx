@@ -12,6 +12,8 @@ import { Wishlist } from './routes/wanted/Wishlist'
 import { Requests } from './routes/wanted/Requests'
 import { Settings } from './routes/settings/Settings'
 import { MediaManagement } from './routes/settings/MediaManagement'
+import { Indexers } from './routes/settings/Indexers'
+import { DownloadClients } from './routes/settings/DownloadClients'
 import { Profiles } from './routes/settings/Profiles'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
 import { ReleaseProfileEditor } from './routes/settings/ReleaseProfileEditor'
@@ -41,6 +43,8 @@ export const router = createBrowserRouter([
       { path: 'wanted/requests', element: <Requests /> },
       { path: 'settings', element: <Navigate to="/settings/media-management" replace /> },
       { path: 'settings/media-management', element: <MediaManagement /> },
+      { path: 'settings/indexers', element: <Indexers /> },
+      { path: 'settings/download-clients', element: <DownloadClients /> },
       { path: 'settings/general', element: <Settings /> },
       { path: 'settings/profiles', element: <Profiles /> },
       { path: 'settings/profiles/quality/new', element: <QualityProfileEditor /> },
