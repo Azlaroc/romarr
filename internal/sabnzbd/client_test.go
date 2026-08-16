@@ -73,7 +73,13 @@ func TestGetQueue(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"queue": map[string]interface{}{
 				"slots": []map[string]interface{}{
-					{"nzo_id": "nzo_1", "filename": "Game.nzb", "status": "Downloading", "mb": 5000.0, "mbleft": 2500.0},
+					// Real SABnzbd returns mb/mbleft as STRINGS; a bare-number
+					// form is kept alongside to pin that both parse (#294 —
+					// the string form used to fail the whole queue decode
+					// silently, so progress never surfaced).
+					{"nzo_id": "nzo_1", "filename": "Game.nzb", "status": "Downloading", "mb": "5000.00", "mbleft": "2500.00"},
+					{"nzo_id": "nzo_2", "filename": "Other.nzb", "status": "Downloading", "mb": 800.0, "mbleft": 200.0},
+					{"nzo_id": "nzo_3", "filename": "Weird.nzb", "status": "Downloading", "mb": "unknown", "mbleft": ""},
 				},
 			},
 		})
@@ -85,11 +91,20 @@ func TestGetQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(slots) != 1 {
-		t.Fatalf("expected 1 slot, got %d", len(slots))
+	if len(slots) != 3 {
+		t.Fatalf("expected 3 slots, got %d", len(slots))
 	}
 	if slots[0].NZOID != "nzo_1" {
 		t.Errorf("nzo_id=%q", slots[0].NZOID)
+	}
+	if slots[0].MB != 5000 || slots[0].MBLeft != 2500 {
+		t.Errorf("string-form mb/mbleft = %v/%v, want 5000/2500", slots[0].MB, slots[0].MBLeft)
+	}
+	if slots[1].MB != 800 || slots[1].MBLeft != 200 {
+		t.Errorf("number-form mb/mbleft = %v/%v, want 800/200", slots[1].MB, slots[1].MBLeft)
+	}
+	if slots[2].MB != 0 || slots[2].MBLeft != 0 {
+		t.Errorf("junk mb/mbleft = %v/%v, want 0/0 (degrade, not fail)", slots[2].MB, slots[2].MBLeft)
 	}
 }
 

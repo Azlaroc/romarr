@@ -143,8 +143,9 @@ func TestDownloadNZBCompletedFlow(t *testing.T) {
 	writeFileT(t, filepath.Join(storage, "rom.sfc"), []byte("rom"))
 
 	sab := newSabMock(t)
+	// String-form mb/mbleft: the shape the real SABnzbd API serves (#294).
 	sab.queueSlots = []map[string]interface{}{
-		{"nzo_id": sab.nzoID, "mb": 100.0, "mbleft": 25.0, "status": "Downloading"},
+		{"nzo_id": sab.nzoID, "mb": "100.00", "mbleft": "25.00", "status": "Downloading"},
 	}
 	sab.histSlots = []map[string]interface{}{
 		{"nzo_id": sab.nzoID, "status": "Completed", "storage": storage},
