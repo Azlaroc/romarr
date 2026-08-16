@@ -91,6 +91,11 @@ func main() {
 	}
 	defer database.Close()
 
+	// Runtime settings live in the DB (row wins over env, env is the
+	// fresh-install default); legacy settings.json imports once.
+	cfg.AttachSettings(database)
+	download.ImportLegacySettings(cfg, database)
+
 	// Initialize qBittorrent client
 	qb := qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass)
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gamarr/internal/config"
 	"gamarr/internal/db"
@@ -94,6 +95,9 @@ func TestNormalizeEndpoints(t *testing.T) {
 		if decodeMap(t, rr)["running"] == false {
 			break
 		}
+		// Throttled: an unthrottled poll storm can trip the router's own
+		// per-IP API rate limit before the background run finishes.
+		time.Sleep(5 * time.Millisecond)
 	}
 	if deadline == 0 {
 		t.Fatal("preview never finished")
@@ -122,6 +126,7 @@ func TestNormalizeEndpoints(t *testing.T) {
 		if decodeMap(t, rr)["running"] == false {
 			break
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "New (USA).gb")); err != nil {
 		t.Errorf("apply did not rename on disk: %v", err)

@@ -924,6 +924,29 @@
           }
         }
       }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get runtime settings",
+        "description": "Merged runtime settings document (admin): stored DB rows where present, env-derived defaults otherwise. Keys: extract_archives, normalize_roms, convert_roms, remove_torrent_after_import, seed_janitor_enabled, scheduler_auto_download, scheduler_min_score.",
+        "responses": {
+          "200": {
+            "description": "Merged settings document"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update runtime settings",
+        "description": "Sparse merge (admin): only keys present in the body change. A JSON null deletes the stored row so the env default applies again. Unknown keys are ignored. Values are validated before anything is applied (scheduler_min_score must be an integer >= 1).",
+        "responses": {
+          "200": {
+            "description": "Merged settings document after the update"
+          },
+          "400": {
+            "description": "A declared key failed validation; nothing was applied"
+          }
+        }
+      }
     }
   }
 }

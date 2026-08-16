@@ -1,21 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useAddDDLSource,
   useConfig,
   useDDLSources,
   useDeleteDDLSource,
   useResetSource,
+  useSaveSetting,
+  useSettings,
   useSources,
   useSourcesHealth,
 } from '../../api/queries'
 import type { SourceHealth } from '../../api/types'
+import { isForbidden } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
+import { AdminNotice } from '../../components/ui/AdminNotice'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
+import { Toggle } from '../../components/ui/Toggle'
 import { useToast } from '../../components/ui/Toast'
 
 export function Indexers() {
@@ -24,10 +29,78 @@ export function Indexers() {
       <PageHeader title="Settings" subtitle="Indexers" />
       <div className="space-y-6">
         <SearchSources />
+        <WishlistSearch />
         <DDLSources />
         <ProwlarrCard />
       </div>
     </>
+  )
+}
+
+// Wishlist Search: the scheduler's grab knobs — the RSS-sync analog, which
+// the arrs keep under Settings › Indexers.
+function WishlistSearch() {
+  const { data: settings, error } = useSettings()
+  const save = useSaveSetting()
+  const { toast } = useToast()
+  const [minScore, setMinScore] = useState('')
+
+  // Sync the local input once settings arrive (no dirty tracking: saves on blur).
+  useEffect(() => {
+    if (settings?.scheduler_min_score !== undefined) setMinScore(String(settings.scheduler_min_score))
+  }, [settings?.scheduler_min_score])
+
+  if (isForbidden(error)) {
+    return (
+      <Card title="Wishlist search">
+        <AdminNotice />
+      </Card>
+    )
+  }
+
+  const saveKey = async (patch: Record<string, unknown>) => {
+    try {
+      await save.mutateAsync(patch)
+      toast('Settings saved', 'success')
+    } catch {
+      toast('Failed to save', 'error')
+    }
+  }
+
+  const saveMinScore = () => {
+    const n = Number(minScore)
+    if (!Number.isInteger(n) || n < 1) {
+      toast('Minimum score must be a whole number ≥ 1', 'error')
+      setMinScore(settings?.scheduler_min_score !== undefined ? String(settings.scheduler_min_score) : '')
+      return
+    }
+    if (n !== settings?.scheduler_min_score) saveKey({ scheduler_min_score: n })
+  }
+
+  return (
+    <Card title="Wishlist search">
+      <div className="space-y-3" data-testid="idx-wishlist-search">
+        <Toggle
+          checked={!!settings?.scheduler_auto_download}
+          onChange={(checked) => saveKey({ scheduler_auto_download: checked })}
+          label="Automatic download"
+          hint="Let scheduled wishlist searches grab the best candidate; off = search-only cycles"
+          data-testid="idx-autodl-toggle"
+        />
+        <div className="max-w-xs">
+          <Input
+            label="Minimum score"
+            type="number"
+            min={1}
+            value={minScore}
+            onChange={(e) => setMinScore(e.target.value)}
+            onBlur={saveMinScore}
+            hint="Candidates scoring below this are never auto-grabbed (1–100)"
+            data-testid="idx-minscore-input"
+          />
+        </div>
+      </div>
+    </Card>
   )
 }
 

@@ -189,13 +189,32 @@ def test_settings_media_management(ui):
     expect(page.get_by_test_id("mm-root-folders")).to_be_attached(timeout=SLOW_MS)
 
     # Toggle round-trip on one pipeline setting; end-state must equal start-state
-    # (settings.json is shared session state — API journeys read these flags).
+    # (the DB settings table is shared session state — API journeys read
+    # these flags).
     toggle = page.get_by_test_id("setting-extract")
     initial = toggle.is_checked()
     toggle.click()
     expect(toggle).to_be_checked(checked=not initial, timeout=SLOW_MS)
     toggle.click()
     expect(toggle).to_be_checked(checked=initial, timeout=SLOW_MS)
+
+
+def test_settings_download_handling_toggles(ui):
+    # Tier-A knobs promoted from read-only env rows to real controls: a
+    # state-neutral round-trip on Remove-torrent-after-import.
+    page = ui["page"]
+    _open_settings_child(page, "download-clients", "dc-handling")
+    toggle = page.get_by_test_id("dc-remove-toggle")
+    initial = toggle.is_checked()
+    toggle.click()
+    expect(toggle).to_be_checked(checked=not initial, timeout=SLOW_MS)
+    toggle.click()
+    expect(toggle).to_be_checked(checked=initial, timeout=SLOW_MS)
+
+    # The Wishlist Search card on Indexers carries the scheduler grab knobs.
+    _open_settings_child(page, "indexers", "idx-wishlist-search")
+    expect(page.get_by_test_id("idx-autodl-toggle")).to_be_attached(timeout=SLOW_MS)
+    expect(page.get_by_test_id("idx-minscore-input")).to_be_attached(timeout=SLOW_MS)
 
 
 def test_settings_connection_tests(ui):

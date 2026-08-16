@@ -88,8 +88,8 @@ func (s *Scheduler) Status() map[string]interface{} {
 	return map[string]interface{}{
 		"enabled":        s.cfg.SchedulerEnabled,
 		"interval_hours": s.cfg.SchedulerIntervalHours,
-		"auto_download":  s.cfg.SchedulerAutoDownload,
-		"min_score":      s.cfg.SchedulerMinScore,
+		"auto_download":  s.cfg.AutoDownload(),
+		"min_score":      s.cfg.MinScore(),
 		"selector_mode":  s.cfg.SelectorMode,
 		"running":        s.running,
 		"last_run":       s.lastRun.Format(time.RFC3339),
@@ -159,10 +159,7 @@ func (s *Scheduler) run() {
 
 	totalResults := 0
 	autoDownloads := repairGrabs
-	minScore := s.cfg.SchedulerMinScore
-	if minScore <= 0 {
-		minScore = 70
-	}
+	minScore := s.cfg.MinScore()
 
 	var owned func(title, platformSlug string) *db.LibraryItem
 	var ownedByHash func(md5, sha1 string) *db.LibraryItem
@@ -267,7 +264,7 @@ func (s *Scheduler) run() {
 					"In library — removed from wishlist", "", nil)
 			}
 		case selection.ActionGrab, selection.ActionGrabSet:
-			if !s.cfg.SchedulerAutoDownload {
+			if !s.cfg.AutoDownload() {
 				continue
 			}
 			grabbed := 0
@@ -318,7 +315,7 @@ func (s *Scheduler) run() {
 // shadow mode's executor: grab results[0] when it clears the score bar, log,
 // webhook, and delete the wishlist row at grab time. Returns grabs made (0/1).
 func (s *Scheduler) legacyGrab(item db.WishlistItem, results []*models.SearchResult, minScore int) int {
-	if !s.cfg.SchedulerAutoDownload || len(results) == 0 || results[0].Score < minScore {
+	if !s.cfg.AutoDownload() || len(results) == 0 || results[0].Score < minScore {
 		return 0
 	}
 	best := results[0]

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -481,7 +482,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 	os.RemoveAll(tmpDir)
 	m.jobs.Update(jobID, "imported_at", time.Now().Unix())
 
-	if m.cfg.RemoveAfterImport {
+	if m.cfg.RemoveTorrentAfterImport() {
 		m.qb.DeleteTorrent(torrent.Hash, true)
 		slog.Info("removed torrent after import", "name", torrent.Name)
 	}
@@ -1196,24 +1197,69 @@ func pathExists(p string) bool {
 }
 
 // LoadSettings loads settings from disk.
+// DB keys for the three pipeline toggles.
+const (
+	settingExtractArchives = "extract_archives"
+	settingNormalizeROMs   = "normalize_roms"
+	settingConvertROMs     = "convert_roms"
+)
+
 func (m *Manager) LoadSettings() *Settings {
-	settingsFile := filepath.Join(m.cfg.DataDir, "settings.json")
-	data, err := os.ReadFile(settingsFile)
+	// Per-key fallback: each toggle falls through to its env-derived default
+	// individually when it has no stored row (the old settings.json store
+	// could only fall back whole-file).
+	s := &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs, ConvertROMs: m.cfg.ConvertROMs}
+	if m.jobs == nil {
+		return s
+	}
+	if v, ok := m.jobs.GetSetting(settingExtractArchives); ok {
+		s.ExtractArchives = v == "true"
+	}
+	if v, ok := m.jobs.GetSetting(settingNormalizeROMs); ok {
+		s.NormalizeROMs = v == "true"
+	}
+	if v, ok := m.jobs.GetSetting(settingConvertROMs); ok {
+		s.ConvertROMs = v == "true"
+	}
+	return s
+}
+
+// SaveSettings persists all three toggles to the settings table.
+func (m *Manager) SaveSettings(s *Settings) {
+	if m.jobs == nil {
+		return
+	}
+	m.jobs.SetSetting(settingExtractArchives, strconv.FormatBool(s.ExtractArchives))
+	m.jobs.SetSetting(settingNormalizeROMs, strconv.FormatBool(s.NormalizeROMs))
+	m.jobs.SetSetting(settingConvertROMs, strconv.FormatBool(s.ConvertROMs))
+}
+
+// ImportLegacySettings migrates a pre-DB settings.json into the settings
+// table exactly once: only when none of the three keys has a row yet (fresh
+// DB, or a restored legacy backup) and the file parses. The file is renamed
+// with a .migrated suffix so the import never repeats; a corrupt file is
+// left in place, logged, and env defaults apply.
+func ImportLegacySettings(cfg *config.Config, jobs *db.JobStore) {
+	if jobs.SettingsCount(settingExtractArchives, settingNormalizeROMs, settingConvertROMs) > 0 {
+		return
+	}
+	fp := filepath.Join(cfg.DataDir, "settings.json")
+	data, err := os.ReadFile(fp)
 	if err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs, ConvertROMs: m.cfg.ConvertROMs}
+		return
 	}
 	var s Settings
 	if err := json.Unmarshal(data, &s); err != nil {
-		return &Settings{ExtractArchives: m.cfg.ExtractArchives, NormalizeROMs: m.cfg.NormalizeROMs, ConvertROMs: m.cfg.ConvertROMs}
+		slog.Warn("legacy settings.json unreadable; keeping env defaults", "error", err)
+		return
 	}
-	return &s
-}
-
-// SaveSettings saves settings to disk.
-func (m *Manager) SaveSettings(s *Settings) {
-	os.MkdirAll(m.cfg.DataDir, 0755)
-	data, _ := json.MarshalIndent(s, "", "  ")
-	os.WriteFile(filepath.Join(m.cfg.DataDir, "settings.json"), data, 0644)
+	jobs.SetSetting(settingExtractArchives, strconv.FormatBool(s.ExtractArchives))
+	jobs.SetSetting(settingNormalizeROMs, strconv.FormatBool(s.NormalizeROMs))
+	jobs.SetSetting(settingConvertROMs, strconv.FormatBool(s.ConvertROMs))
+	if err := os.Rename(fp, fp+".migrated"); err != nil {
+		slog.Warn("could not rename migrated settings.json", "error", err)
+	}
+	slog.Info("migrated settings.json into the database")
 }
 
 // Settings for download behavior.
