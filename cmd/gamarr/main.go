@@ -106,6 +106,11 @@ func main() {
 	cfg.SetSourcesRegistry(database.LoadSourceRegistry(cfg.Sources))
 	download.ImportLegacyDDLSources(cfg, database)
 
+	// The IA driver's item-metadata cache persists in the DB: restarts and
+	// registry edits warm from stored listings instead of refetching against
+	// archive.org's anonymous rate budget.
+	search.SetIACache(database)
+
 	// Initialize qBittorrent client
 	qb := qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass)
 

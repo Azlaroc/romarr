@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,6 +55,8 @@ type Driver struct {
 	limit   int
 	http    *http.Client
 
+	store CacheStore // optional persistent tier; nil = memory-only
+
 	mu    sync.RWMutex
 	cache map[string]cacheEntry // item -> parsed files
 }
@@ -61,6 +64,14 @@ type Driver struct {
 type cacheEntry struct {
 	files []iaFile
 	at    time.Time
+}
+
+// CacheStore persists item metadata across process restarts (the second
+// cache tier; the in-memory map stays first). files is the JSON-encoded
+// []iaFile. Implementations must be safe for concurrent use.
+type CacheStore interface {
+	GetItemMetadata(item string) (files []byte, fetchedAt time.Time, ok bool)
+	PutItemMetadata(item string, files []byte, fetchedAt time.Time)
 }
 
 // Option configures a Driver.
@@ -73,6 +84,11 @@ func WithBaseURL(base string) Option {
 
 // WithHTTPClient injects a custom client (timeouts, transport).
 func WithHTTPClient(c *http.Client) Option { return func(d *Driver) { d.http = c } }
+
+// WithCache attaches a persistent metadata store consulted between the
+// in-memory map and the network. Survives restarts, so a boot no longer
+// costs one metadata fetch per mapped item against IA's anonymous budget.
+func WithCache(store CacheStore) Option { return func(d *Driver) { d.store = store } }
 
 // WithLimit caps releases returned per Search.
 func WithLimit(n int) Option {
@@ -241,7 +257,11 @@ func (d *Driver) searchItem(ctx context.Context, item, platformSlug string, qWor
 	return out, nil
 }
 
-// listing fetches and caches an item's file list.
+// listing fetches an item's file list through three tiers: the in-memory
+// map (within TTL), the persistent store (within TTL — warms the map), then
+// the network (writes both). On a network failure a stale store copy is
+// served instead of failing the search (stale-if-error: an IA outage or 429
+// degrades results rather than blanking them).
 func (d *Driver) listing(ctx context.Context, item string) ([]iaFile, error) {
 	d.mu.RLock()
 	if e, ok := d.cache[item]; ok && time.Since(e.at) < metadataTTL {
@@ -250,6 +270,45 @@ func (d *Driver) listing(ctx context.Context, item string) ([]iaFile, error) {
 	}
 	d.mu.RUnlock()
 
+	var stale []iaFile
+	if d.store != nil {
+		if raw, at, ok := d.store.GetItemMetadata(item); ok {
+			var files []iaFile
+			if err := json.Unmarshal(raw, &files); err == nil {
+				if time.Since(at) < metadataTTL {
+					d.mu.Lock()
+					d.cache[item] = cacheEntry{files: files, at: at}
+					d.mu.Unlock()
+					return files, nil
+				}
+				stale = files
+			}
+			// Corrupt rows are treated as a miss and overwritten on fetch.
+		}
+	}
+
+	files, err := d.fetchListing(ctx, item)
+	if err != nil {
+		if stale != nil {
+			slog.Warn("archiveorg metadata fetch failed; serving stale cached listing", "item", item, "error", err)
+			return stale, nil
+		}
+		return nil, err
+	}
+
+	now := time.Now()
+	d.mu.Lock()
+	d.cache[item] = cacheEntry{files: files, at: now}
+	d.mu.Unlock()
+	if d.store != nil {
+		if raw, err := json.Marshal(files); err == nil {
+			d.store.PutItemMetadata(item, raw, now)
+		}
+	}
+	return files, nil
+}
+
+func (d *Driver) fetchListing(ctx context.Context, item string) ([]iaFile, error) {
 	u := d.baseURL + "/metadata/" + url.PathEscape(item)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -268,10 +327,6 @@ func (d *Driver) listing(ctx context.Context, item string) ([]iaFile, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxMetadataSize)).Decode(&md); err != nil {
 		return nil, fmt.Errorf("archiveorg metadata %s: decode: %w", item, err)
 	}
-
-	d.mu.Lock()
-	d.cache[item] = cacheEntry{files: md.Files, at: time.Now()}
-	d.mu.Unlock()
 	return md.Files, nil
 }
 
