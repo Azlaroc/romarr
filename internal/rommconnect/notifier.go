@@ -59,9 +59,11 @@ type Notifier struct {
 	pending   map[string]*slugTimes
 	notBefore time.Time // retry gate after any rejection or failure
 	failing   bool
+	started   bool
 
-	stop chan struct{}
-	done chan struct{}
+	stopOnce sync.Once
+	stop     chan struct{}
+	done     chan struct{}
 }
 
 // NewNotifier builds a notifier around a Connect client.
@@ -109,8 +111,18 @@ func (n *Notifier) enqueueAt(fsSlug string, now time.Time) {
 	n.pending[fsSlug] = &slugTimes{first: now, last: now}
 }
 
-// Start launches the flush loop.
+// Start launches the flush loop. Notifier instances are single-use: a
+// runtime re-enable constructs a fresh Notifier rather than restarting this
+// one (started guards the accidental double-Start, which would otherwise
+// double-close done).
 func (n *Notifier) Start() {
+	n.mu.Lock()
+	if n.started {
+		n.mu.Unlock()
+		return
+	}
+	n.started = true
+	n.mu.Unlock()
 	go func() {
 		defer close(n.done)
 		t := time.NewTicker(n.opts.Tick)
@@ -127,10 +139,18 @@ func (n *Notifier) Start() {
 }
 
 // Stop halts the flush loop. Pending notifications are dropped (see the
-// in-memory note on Notifier).
+// in-memory note on Notifier). Idempotent, and safe on a never-started
+// notifier (it must not block forever waiting on a loop that doesn't exist).
 func (n *Notifier) Stop() {
-	close(n.stop)
-	<-n.done
+	n.stopOnce.Do(func() {
+		close(n.stop)
+		n.mu.Lock()
+		started := n.started
+		n.mu.Unlock()
+		if started {
+			<-n.done
+		}
+	})
 }
 
 // flushDue fires one scan for every platform whose burst has settled. It runs

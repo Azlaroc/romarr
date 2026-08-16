@@ -3,7 +3,9 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 // settingSpec declares one runtime-settings key: its type and validation.
@@ -12,8 +14,9 @@ import (
 // silently ignored (legacy clients send them).
 type settingSpec struct {
 	Key  string
-	Kind string // "bool" | "int"
-	Min  int    // int kind: minimum legal value
+	Kind string   // "bool" | "int" | "enum" | "string"
+	Min  int      // int kind: minimum legal value
+	Enum []string // enum kind: allowed values
 }
 
 var settingSpecs = []settingSpec{
@@ -24,6 +27,16 @@ var settingSpecs = []settingSpec{
 	{Key: "seed_janitor_enabled", Kind: "bool"},
 	{Key: "scheduler_auto_download", Kind: "bool"},
 	{Key: "scheduler_min_score", Kind: "int", Min: 1},
+	{Key: "watcher_enabled", Kind: "bool"},
+	{Key: "watcher_interval_seconds", Kind: "int", Min: 1},
+	{Key: "scheduler_enabled", Kind: "bool"},
+	{Key: "scheduler_interval_hours", Kind: "int", Min: 1},
+	{Key: "selector_mode", Kind: "enum", Enum: []string{"off", "shadow", "enforce"}},
+	{Key: "selector_set_timeout_hours", Kind: "int", Min: 1},
+	{Key: "romm_sync_enabled", Kind: "bool"},
+	{Key: "romm_sync_interval_seconds", Kind: "int", Min: 60},
+	{Key: "romm_connect_enabled", Kind: "bool"},
+	{Key: "romm_exclude_platforms", Kind: "string"},
 }
 
 // handleGetSettings returns the merged runtime settings document: stored
@@ -39,6 +52,16 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"seed_janitor_enabled":        s.cfg.SeedJanitor(),
 		"scheduler_auto_download":     s.cfg.AutoDownload(),
 		"scheduler_min_score":         s.cfg.MinScore(),
+		"watcher_enabled":             s.cfg.WatcherOn(),
+		"watcher_interval_seconds":    s.cfg.WatcherIntervalSeconds(),
+		"scheduler_enabled":           s.cfg.SchedulerOn(),
+		"scheduler_interval_hours":    s.cfg.SchedulerIntervalHrs(),
+		"selector_mode":               s.cfg.SelectorModeEffective(),
+		"selector_set_timeout_hours":  s.cfg.DiscSetTimeoutHours(),
+		"romm_sync_enabled":           s.cfg.RomMSyncOn(),
+		"romm_sync_interval_seconds":  s.cfg.RomMSyncIntervalSeconds(),
+		"romm_connect_enabled":        s.cfg.RomMConnectOn(),
+		"romm_exclude_platforms":      strings.Join(s.cfg.RomMExcludeList(), ","),
 	})
 }
 
@@ -87,10 +110,25 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			changes = append(changes, change{key: spec.Key, value: strconv.Itoa(n)})
+		case "enum":
+			v, ok := raw.(string)
+			if !ok || !slices.Contains(spec.Enum, v) {
+				writeError(w, 400, fmt.Sprintf("%s must be one of %s", spec.Key, strings.Join(spec.Enum, "|")))
+				return
+			}
+			changes = append(changes, change{key: spec.Key, value: v})
+		case "string":
+			v, ok := raw.(string)
+			if !ok {
+				writeError(w, 400, spec.Key+" must be a string")
+				return
+			}
+			changes = append(changes, change{key: spec.Key, value: v})
 		}
 	}
 
 	jobs := s.mgr.Jobs()
+	changedKeys := make([]string, 0, len(changes))
 	for _, c := range changes {
 		if c.delete {
 			jobs.DeleteSetting(c.key)
@@ -98,6 +136,13 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "failed to persist "+c.key)
 			return
 		}
+		changedKeys = append(changedKeys, c.key)
+	}
+
+	// Re-arm affected loops synchronously: when this PUT returns, the new
+	// state is live (the supervisor serializes concurrent applies).
+	if s.sup != nil && len(changedKeys) > 0 {
+		s.sup.Apply(changedKeys)
 	}
 
 	s.handleGetSettings(w, r)

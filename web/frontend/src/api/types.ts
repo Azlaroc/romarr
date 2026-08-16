@@ -192,9 +192,20 @@ export interface Settings {
   seed_janitor_enabled?: boolean
   scheduler_auto_download?: boolean
   scheduler_min_score?: number
+  watcher_enabled?: boolean
+  watcher_interval_seconds?: number
+  scheduler_enabled?: boolean
+  scheduler_interval_hours?: number
+  selector_mode?: string
+  selector_set_timeout_hours?: number
+  romm_sync_enabled?: boolean
+  romm_sync_interval_seconds?: number
+  romm_connect_enabled?: boolean
+  romm_exclude_platforms?: string
 }
 
-/** GET /api/settings/env — read-only, boot-time env config (admin). */
+/** GET /api/settings/env — read-only, boot-time env config (admin): deploy
+ * contracts only; everything else is editable via /api/settings. */
 export interface SettingsEnv {
   paths: {
     roms_path: string
@@ -202,12 +213,6 @@ export interface SettingsEnv {
     roms_free_bytes: number
     vault_free_bytes: number
     platform_dir_count: number
-  }
-  selector: { mode: string }
-  scheduler: { enabled: boolean; interval_hours: number }
-  romm: { sync_enabled: boolean; sync_interval_seconds: number; connect_enabled: boolean }
-  downloads: {
-    watcher_interval_seconds: number
   }
   converto: { available: boolean; version: string }
 }

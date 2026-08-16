@@ -25,6 +25,7 @@ import (
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
 	"gamarr/internal/selection"
+	"gamarr/internal/supervise"
 	"gamarr/internal/webhook"
 )
 
@@ -186,7 +187,6 @@ func main() {
 	}
 
 	sched := scheduler.New(cfg, database, searchFn, downloadFn, webhookFn)
-	sched.Start()
 
 	// Configure circuit breaker
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)
@@ -198,44 +198,42 @@ func main() {
 	go mgr.RecoverOrphanedNZBDownloads()
 	go mgr.ScanLibraryDirs()
 
-	// Start torrent completion watcher
-	watcher := download.NewWatcher(cfg, mgr)
-	watcher.Start()
-
-	// RomM library sync — when configured, RomM owns the ROM side of the
-	// library and the fs scanner above only walks the PC vault.
-	// Connect plane: tell RomM which platform folders changed after imports,
-	// instead of leaving new files invisible until a manual scan. The account
-	// behind ROMM_API_USER needs the tasks.run scope (admin role in RomM 5.x).
-	if cfg.HasRomMAPI() && cfg.RomMConnectEnabled {
-		connectNotifier := rommconnect.NewNotifier(
-			rommconnect.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
-			rommconnect.NotifierOptions{
-				FlushIdle: time.Duration(cfg.RomMConnectFlushIdleS) * time.Second,
-				Tick:      time.Duration(cfg.RomMConnectTickS) * time.Second,
-				OnEvent: func(event, detail string) {
-					database.LogActivity(event, "RomM Connect", detail, "", nil)
+	// Background loops (scheduler, torrent watcher, RomM sync, RomM Connect
+	// notifier) live under one supervisor: it boots them here and re-arms
+	// them when their runtime settings change. RomM notes: when sync is
+	// configured RomM owns the ROM side of the library and the fs scanner
+	// only walks the PC vault; the Connect notifier tells RomM which platform
+	// folders changed after imports (ROMM_API_USER needs the tasks.run scope
+	// — admin role in RomM 5.x).
+	sup := supervise.New(cfg, sched, supervise.Builders{
+		Watcher: func() *download.Watcher { return download.NewWatcher(cfg, mgr) },
+		RomMSync: func() *romm.Syncer {
+			return romm.NewSyncer(
+				romm.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
+				database,
+				romm.SyncOptions{
+					RomsRoot:         cfg.GamesRomsPath,
+					Interval:         time.Duration(cfg.RomMSyncIntervalSeconds()) * time.Second,
+					ExcludePlatforms: cfg.RomMExcludeList(),
+					StateFile:        filepath.Join(cfg.DataDir, "romm_sync.json"),
 				},
-			},
-		)
-		connectNotifier.Start()
-		mgr.ImportNotify = connectNotifier.Enqueue
-	}
-
-	var rommSync *romm.Syncer
-	if cfg.HasRomMAPI() && cfg.RomMSyncEnabled {
-		rommSync = romm.NewSyncer(
-			romm.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
-			database,
-			romm.SyncOptions{
-				RomsRoot:         cfg.GamesRomsPath,
-				Interval:         time.Duration(cfg.RomMSyncIntervalS) * time.Second,
-				ExcludePlatforms: cfg.RomMExcludePlatforms,
-				StateFile:        filepath.Join(cfg.DataDir, "romm_sync.json"),
-			},
-		)
-		rommSync.Start()
-	}
+			)
+		},
+		Connect: func() (*rommconnect.Notifier, func(string)) {
+			n := rommconnect.NewNotifier(
+				rommconnect.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
+				rommconnect.NotifierOptions{
+					FlushIdle: time.Duration(cfg.RomMConnectFlushIdleS) * time.Second,
+					Tick:      time.Duration(cfg.RomMConnectTickS) * time.Second,
+					OnEvent: func(event, detail string) {
+						database.LogActivity(event, "RomM Connect", detail, "", nil)
+					},
+				},
+			)
+			return n, n.Enqueue
+		},
+	}, mgr.SetImportNotify)
+	sup.StartAll()
 
 	// Periodic cleanup: remove stale downloading jobs and old finished jobs
 	// (>7d). The stale horizon tracks the disc-set timeout — deleting a
@@ -262,16 +260,11 @@ func main() {
 	}()
 
 	// Create HTTP router
-	// On-demand bulk library rename (preview/apply). The notify closure
-	// defers the nil-check to call time: ImportNotify is only assigned when
-	// RomM Connect is enabled.
-	ren := renamer.New(cfg, database, func(fsSlug string) {
-		if mgr.ImportNotify != nil {
-			mgr.ImportNotify(fsSlug)
-		}
-	})
+	// On-demand bulk library rename (preview/apply). NotifyImport is
+	// nil-safe, so this works whether or not RomM Connect is attached.
+	ren := renamer.New(cfg, database, mgr.NotifyImport)
 
-	router := api.NewRouter(cfg, mgr, sab, sched, rommSync, ren)
+	router := api.NewRouter(cfg, mgr, sab, sched, sup, ren)
 
 	// Start HTTP server
 	server := &http.Server{
@@ -300,10 +293,8 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	watcher.Stop()
-	rommSync.Stop()
+	sup.StopAll()
 	ren.Stop()
-	sched.Stop()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 	}

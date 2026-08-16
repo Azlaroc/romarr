@@ -24,11 +24,11 @@ import (
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
-	"gamarr/internal/romm"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
 	"gamarr/internal/selection"
+	"gamarr/internal/supervise"
 	"gamarr/internal/torznab"
 	"gamarr/web"
 )
@@ -41,15 +41,15 @@ type Server struct {
 	sessions  *SessionStore
 	scheduler *scheduler.Scheduler
 	oidc      *OIDCHandler
-	rommSync  *romm.Syncer
+	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer, ren *renamer.Runner) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, sup *supervise.Supervisor, ren *renamer.Runner) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync, renamer: ren}
+	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{

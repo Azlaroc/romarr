@@ -8,14 +8,16 @@ interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
   hint?: string
   error?: string
+  /** Arr convention: advanced fields carry the orange label accent. */
+  advanced?: boolean
   // Allow data-* passthrough (e.g. data-testid) on this custom component.
   [key: `data-${string}`]: unknown
 }
 
-export function Input({ label, hint, error, className = '', ...rest }: Props) {
+export function Input({ label, hint, error, advanced, className = '', ...rest }: Props) {
   return (
     <label className="block">
-      {label && <span className="mb-1 block text-xs font-medium text-slate-400">{label}</span>}
+      {label && <span className={`mb-1 block text-xs font-medium ${advanced ? 'text-[#ff902b]' : 'text-slate-400'}`}>{label}</span>}
       <input className={`${inputCls} ${error ? 'border-red-500/70' : ''} ${className}`} {...rest} />
       {error ? (
         <span className="mt-1 block text-xs text-red-400">{error}</span>

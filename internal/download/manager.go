@@ -46,9 +46,11 @@ type Manager struct {
 	sab        *sabnzbd.Client
 	norm       *normalize.Normalizer
 	NotifyFunc NotifyCallback
-	// ImportNotify, when set, is told the RomM fs_slug of every completed
-	// non-PC library import (the Connect plane's enqueue). Must not block.
-	ImportNotify func(fsSlug string)
+	// importNotify holds a func(fsSlug string) told the RomM fs_slug of
+	// every completed non-PC library import (the Connect plane's enqueue).
+	// Swappable at runtime (the notifier re-arms), read from import
+	// goroutines — hence atomic. Must not block.
+	importNotify atomic.Value
 
 	// importing single-flights torrent imports per job ID: the watcher tick,
 	// a restart-resumed tick, and the manual organize button may all try to
@@ -67,6 +69,22 @@ func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
 	}
 
 	return mgr
+}
+
+// importNotifyFn is the concrete type stored in importNotify (atomic.Value
+// requires a consistent type; a typed nil func means "no notifier").
+type importNotifyFn func(fsSlug string)
+
+// SetImportNotify swaps the import-notification callback; nil detaches it.
+func (m *Manager) SetImportNotify(fn func(fsSlug string)) {
+	m.importNotify.Store(importNotifyFn(fn))
+}
+
+// NotifyImport dispatches an import notification if a callback is attached.
+func (m *Manager) NotifyImport(fsSlug string) {
+	if fn, _ := m.importNotify.Load().(importNotifyFn); fn != nil {
+		fn(fsSlug)
+	}
 }
 
 // Jobs returns the job store.

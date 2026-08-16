@@ -37,6 +37,7 @@ type Scheduler struct {
 	downloadFn    DownloadFunc
 	webhookFn     WebhookFunc
 	running       bool
+	loopLive      bool // a loop() goroutine exists (distinct from a cycle running)
 	lastRun       time.Time
 	lastResults   int
 	autoDownloads int
@@ -57,23 +58,67 @@ func New(cfg *config.Config, jobs *db.JobStore, searchFn SearchFunc, downloadFn 
 	}
 }
 
-// Start begins the scheduler loop if enabled.
+// Start begins the scheduler loop if enabled (boot compatibility wrapper).
 func (s *Scheduler) Start() {
-	if !s.cfg.SchedulerEnabled {
+	if !s.EnsureRunning() {
 		slog.Info("scheduler disabled")
-		return
 	}
-	go s.loop()
-	slog.Info("scheduler started", "interval_hours", s.cfg.SchedulerIntervalHours)
 }
 
-// Stop halts the scheduler.
-func (s *Scheduler) Stop() {
+// EnsureRunning starts the loop if the config wants it and none is live.
+// Returns whether a loop is live afterwards. Safe to call repeatedly — this
+// is the re-arm entry point for runtime settings changes.
+func (s *Scheduler) EnsureRunning() bool {
+	if !s.cfg.SchedulerOn() {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loopLive {
+		return true
+	}
+	// The previous loop's channel was closed by StopLoop; every loop needs a
+	// fresh one. In-flight cycles hold a snapshot of the OLD channel, which
+	// stays closed — they wind down promptly, exactly like a shutdown.
+	s.stopCh = make(chan struct{})
+	s.loopLive = true
+	go s.loop(s.stopCh)
+	slog.Info("scheduler started", "interval_hours", s.cfg.SchedulerIntervalHrs())
+	return true
+}
+
+// StopLoop halts the periodic loop AND interrupts any in-flight cycle
+// (including a manual RunNow on a never-started loop — cycles snapshot the
+// current channel, so closing it always reaches them). Status keeps working
+// and cycle counters survive, so a re-enable doesn't zero the history.
+func (s *Scheduler) StopLoop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	select {
 	case <-s.stopCh:
+		// Already closed by a previous stop.
 	default:
 		close(s.stopCh)
 	}
+	s.loopLive = false
+}
+
+// Stop halts the scheduler (shutdown path).
+func (s *Scheduler) Stop() { s.StopLoop() }
+
+// LoopRunning reports whether the periodic loop is live.
+func (s *Scheduler) LoopRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.loopLive
+}
+
+// stopChan returns the current loop's stop channel. Cycles snapshot it once
+// at entry so a re-arm (which swaps the channel) reads never race.
+func (s *Scheduler) stopChan() chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stopCh
 }
 
 // RunNow triggers an immediate search cycle.
@@ -81,16 +126,18 @@ func (s *Scheduler) RunNow() {
 	go s.run()
 }
 
-// Status returns the current scheduler status.
+// Status returns the current scheduler status. "enabled" reports actual
+// loop liveness, not the config flag — a runtime disable is visible here
+// immediately.
 func (s *Scheduler) Status() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return map[string]interface{}{
-		"enabled":        s.cfg.SchedulerEnabled,
-		"interval_hours": s.cfg.SchedulerIntervalHours,
+		"enabled":        s.loopLive,
+		"interval_hours": s.cfg.SchedulerIntervalHrs(),
 		"auto_download":  s.cfg.AutoDownload(),
 		"min_score":      s.cfg.MinScore(),
-		"selector_mode":  s.cfg.SelectorMode,
+		"selector_mode":  s.cfg.SelectorModeEffective(),
 		"running":        s.running,
 		"last_run":       s.lastRun.Format(time.RFC3339),
 		"last_results":   s.lastResults,
@@ -98,19 +145,19 @@ func (s *Scheduler) Status() map[string]interface{} {
 	}
 }
 
-func (s *Scheduler) loop() {
-	interval := time.Duration(s.cfg.SchedulerIntervalHours) * time.Hour
-	if interval < time.Hour {
-		interval = 24 * time.Hour
-	}
-	ticker := time.NewTicker(interval)
+// loop ticks at the interval read when the loop started. An interval change
+// re-arms via StopLoop+EnsureRunning (a fresh goroutine, not a fresh
+// Scheduler — cycle counters survive): with ticks this long, waiting for the
+// next tick to re-read would delay the change by up to a full interval.
+func (s *Scheduler) loop(stop chan struct{}) {
+	ticker := time.NewTicker(time.Duration(s.cfg.SchedulerIntervalHrs()) * time.Hour)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			s.run()
-		case <-s.stopCh:
+		case <-stop:
 			return
 		}
 	}
@@ -133,12 +180,12 @@ func (s *Scheduler) run() {
 
 	slog.Info("scheduler: starting wishlist search")
 
-	// Unset/unknown SELECTOR_MODE behaves as shadow (the Load default), so a
-	// hand-built config in tests matches a deployed default.
-	mode := s.cfg.SelectorMode
-	if mode != "off" && mode != "enforce" {
-		mode = "shadow"
-	}
+	// Snapshot the stop channel once: a re-arm swaps s.stopCh, and an
+	// in-flight cycle should keep honoring the channel it started under
+	// (which StopLoop closed) — it winds down exactly like a shutdown.
+	stop := s.stopChan()
+
+	mode := s.cfg.SelectorModeEffective()
 
 	// Degraded disc-set repair runs ahead of the wishlist loop: its work list
 	// comes from library markers, not the wishlist — the degraded finalize
@@ -179,13 +226,13 @@ func (s *Scheduler) run() {
 		// interrupts the wait immediately.
 		if i == 0 {
 			select {
-			case <-s.stopCh:
+			case <-stop:
 				return
 			default:
 			}
 		} else {
 			select {
-			case <-s.stopCh:
+			case <-stop:
 				return
 			case <-time.After(s.rateLimit):
 			}

@@ -20,16 +20,24 @@ import { Card } from '../../components/ui/Card'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { ShowAdvancedButton } from '../../components/ui/ShowAdvancedButton'
 import { Toggle } from '../../components/ui/Toggle'
 import { useToast } from '../../components/ui/Toast'
+import { useShowAdvanced } from '../../lib/useShowAdvanced'
 
 export function Indexers() {
+  const [showAdvanced, setShowAdvanced] = useShowAdvanced()
   return (
     <>
-      <PageHeader title="Settings" subtitle="Indexers" />
+      <PageHeader
+        title="Settings"
+        subtitle="Indexers"
+        actions={<ShowAdvancedButton show={showAdvanced} onChange={setShowAdvanced} />}
+      />
       <div className="space-y-6">
         <SearchSources />
-        <WishlistSearch />
+        <WishlistSearch showAdvanced={showAdvanced} />
         <DDLSources />
         <ProwlarrCard />
       </div>
@@ -37,18 +45,26 @@ export function Indexers() {
   )
 }
 
-// Wishlist Search: the scheduler's grab knobs — the RSS-sync analog, which
-// the arrs keep under Settings › Indexers.
-function WishlistSearch() {
+// Wishlist Search: the scheduler's search/grab knobs — the RSS-sync analog,
+// which the arrs keep under Settings › Indexers.
+function WishlistSearch({ showAdvanced }: { showAdvanced: boolean }) {
   const { data: settings, error } = useSettings()
   const save = useSaveSetting()
   const { toast } = useToast()
   const [minScore, setMinScore] = useState('')
+  const [intervalHrs, setIntervalHrs] = useState('')
+  const [setTimeout_, setSetTimeout] = useState('')
 
-  // Sync the local input once settings arrive (no dirty tracking: saves on blur).
+  // Sync local inputs once settings arrive (no dirty tracking: saves on blur).
   useEffect(() => {
     if (settings?.scheduler_min_score !== undefined) setMinScore(String(settings.scheduler_min_score))
   }, [settings?.scheduler_min_score])
+  useEffect(() => {
+    if (settings?.scheduler_interval_hours !== undefined) setIntervalHrs(String(settings.scheduler_interval_hours))
+  }, [settings?.scheduler_interval_hours])
+  useEffect(() => {
+    if (settings?.selector_set_timeout_hours !== undefined) setSetTimeout(String(settings.selector_set_timeout_hours))
+  }, [settings?.selector_set_timeout_hours])
 
   if (isForbidden(error)) {
     return (
@@ -67,19 +83,26 @@ function WishlistSearch() {
     }
   }
 
-  const saveMinScore = () => {
-    const n = Number(minScore)
-    if (!Number.isInteger(n) || n < 1) {
-      toast('Minimum score must be a whole number ≥ 1', 'error')
-      setMinScore(settings?.scheduler_min_score !== undefined ? String(settings.scheduler_min_score) : '')
+  const saveInt = (key: string, raw: string, min: number, current: number | undefined, reset: (v: string) => void, what: string) => {
+    const n = Number(raw)
+    if (!Number.isInteger(n) || n < min) {
+      toast(`${what} must be a whole number ≥ ${min}`, 'error')
+      if (current !== undefined) reset(String(current))
       return
     }
-    if (n !== settings?.scheduler_min_score) saveKey({ scheduler_min_score: n })
+    if (n !== current) saveKey({ [key]: n })
   }
 
   return (
     <Card title="Wishlist search">
       <div className="space-y-3" data-testid="idx-wishlist-search">
+        <Toggle
+          checked={!!settings?.scheduler_enabled}
+          onChange={(checked) => saveKey({ scheduler_enabled: checked })}
+          label="Scheduled wishlist search"
+          hint="Periodically search every wishlist entry; disabling stops automatic cycles (manual Run Now keeps working)"
+          data-testid="idx-scheduler-toggle"
+        />
         <Toggle
           checked={!!settings?.scheduler_auto_download}
           onChange={(checked) => saveKey({ scheduler_auto_download: checked })}
@@ -89,16 +112,64 @@ function WishlistSearch() {
         />
         <div className="max-w-xs">
           <Input
-            label="Minimum score"
+            label="Search interval (hours)"
             type="number"
             min={1}
-            value={minScore}
-            onChange={(e) => setMinScore(e.target.value)}
-            onBlur={saveMinScore}
-            hint="Candidates scoring below this are never auto-grabbed (1–100)"
-            data-testid="idx-minscore-input"
+            value={intervalHrs}
+            onChange={(e) => setIntervalHrs(e.target.value)}
+            onBlur={() => saveInt('scheduler_interval_hours', intervalHrs, 1, settings?.scheduler_interval_hours, setIntervalHrs, 'Search interval')}
+            hint="Hours between automatic wishlist cycles"
+            data-testid="idx-interval-input"
           />
         </div>
+        {showAdvanced && (
+          <>
+            <div className="max-w-xs">
+              <Input
+                label="Minimum score"
+                type="number"
+                min={1}
+                value={minScore}
+                onChange={(e) => setMinScore(e.target.value)}
+                onBlur={() => saveInt('scheduler_min_score', minScore, 1, settings?.scheduler_min_score, setMinScore, 'Minimum score')}
+                hint="Candidates scoring below this are never auto-grabbed (1–100)"
+                advanced
+                data-testid="idx-minscore-input"
+              />
+            </div>
+            <div className="max-w-xs">
+              <Select
+                label="Selector mode"
+                value={settings?.selector_mode ?? 'shadow'}
+                onChange={(v) => saveKey({ selector_mode: v })}
+                options={[
+                  { value: 'off', label: 'Off — legacy top-score grabs' },
+                  { value: 'shadow', label: 'Shadow — selector logs, legacy grabs' },
+                  { value: 'enforce', label: 'Enforce — selector drives grabs' },
+                ]}
+                advanced
+                data-testid="idx-selector-mode"
+              />
+              <p className="mt-1 text-xs text-slate-600">
+                Mode changes apply at the next cycle. Switching off↔enforce mid-flight changes when wishlist rows are
+                consumed — avoid flipping while a cycle is running.
+              </p>
+            </div>
+            <div className="max-w-xs">
+              <Input
+                label="Disc-set timeout (hours)"
+                type="number"
+                min={1}
+                value={setTimeout_}
+                onChange={(e) => setSetTimeout(e.target.value)}
+                onBlur={() => saveInt('selector_set_timeout_hours', setTimeout_, 1, settings?.selector_set_timeout_hours, setSetTimeout, 'Disc-set timeout')}
+                hint="How long a multi-disc set may wait for stragglers before degrading to the discs on hand"
+                advanced
+                data-testid="idx-settimeout-input"
+              />
+            </div>
+          </>
+        )}
       </div>
     </Card>
   )

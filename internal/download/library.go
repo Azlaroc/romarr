@@ -19,7 +19,7 @@ import (
 // and only vault scan rows are cleared — the sync's full reconcile retires
 // any legacy ROM scan rows.
 func (m *Manager) ScanLibraryDirs() {
-	rommOwned := m.cfg.HasRomMAPI() && m.cfg.RomMSyncEnabled
+	rommOwned := m.cfg.HasRomMAPI() && m.cfg.RomMSyncOn()
 
 	// Clear previous scan entries so we always reflect current disk state
 	if rommOwned {
@@ -262,8 +262,8 @@ func (m *Manager) TrackInLibrary(title, platformName, platformSlug string, isPC 
 	// disc-set barrier, manual imports), so this is the one place RomM gets
 	// told which platform folder changed. Enqueue only — the notifier batches
 	// and never blocks an import.
-	if !isPC && m.ImportNotify != nil {
-		m.ImportNotify(platform.ToRommFSSlug(platformSlug))
+	if !isPC {
+		m.NotifyImport(platform.ToRommFSSlug(platformSlug))
 	}
 
 	// A scheduler grab consumes its wishlist row at import time. The

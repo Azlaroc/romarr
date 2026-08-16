@@ -26,21 +26,6 @@ func (s *Server) handleSettingsEnv(w http.ResponseWriter, r *http.Request) {
 			"vault_free_bytes":   freeBytes(cfg.GamesVaultPath),
 			"platform_dir_count": platformDirCount(cfg.GamesRomsPath),
 		},
-		"selector": map[string]interface{}{
-			"mode": cfg.SelectorMode,
-		},
-		"scheduler": map[string]interface{}{
-			"enabled":        cfg.SchedulerEnabled,
-			"interval_hours": cfg.SchedulerIntervalHours,
-		},
-		"romm": map[string]interface{}{
-			"sync_enabled":          cfg.RomMSyncEnabled,
-			"sync_interval_seconds": cfg.RomMSyncIntervalS,
-			"connect_enabled":       cfg.RomMConnectEnabled,
-		},
-		"downloads": map[string]interface{}{
-			"watcher_interval_seconds": cfg.WatcherIntervalS,
-		},
 		"converto": s.convertoInfo(r.Context()),
 	})
 }

@@ -35,10 +35,11 @@ func (s *Scheduler) repairDegradedSets(mode string) int {
 		return 0
 	}
 	minScore := s.cfg.MinScore()
+	stop := s.stopChan()
 	grabbedTotal := 0
 	for _, item := range rows {
 		select {
-		case <-s.stopCh:
+		case <-stop:
 			return grabbedTotal
 		default:
 		}
@@ -93,7 +94,7 @@ func (s *Scheduler) repairDegradedSets(mode string) int {
 		// Rate-limit between repair searches, same as the wishlist loop; a
 		// Stop() interrupts the wait immediately.
 		select {
-		case <-s.stopCh:
+		case <-stop:
 			return grabbedTotal
 		case <-time.After(s.rateLimit):
 		}
