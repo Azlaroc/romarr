@@ -21,7 +21,6 @@ import (
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
-	"gamarr/internal/monitor"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
@@ -38,7 +37,6 @@ import (
 type Server struct {
 	cfg       *config.Config
 	mgr       *download.Manager
-	mon       *monitor.GamarrMonitor
 	sab       *sabnzbd.Client
 	sessions  *SessionStore
 	scheduler *scheduler.Scheduler
@@ -48,10 +46,10 @@ type Server struct {
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMonitor, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer, ren *renamer.Runner) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, rommSync *romm.Syncer, ren *renamer.Runner) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, mon: mon, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync, renamer: ren}
+	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, rommSync: rommSync, renamer: ren}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -161,18 +159,11 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Post("/api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
 	r.Post("/api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
 	r.Post("/api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))
-	r.Post("/api/test/nzbget", requireAdmin(s.handleTestNZBGet))
 	r.Post("/api/test/romm", requireAdmin(s.handleTestRomM))
 
 	// Source health
 	r.Get("/api/sources/health", s.handleSourcesHealth)
 	r.Post("/api/sources/{name}/reset", s.handleSourceReset)
-
-	// Monitoring
-	r.Get("/api/monitor/status", s.handleMonitorStatus)
-	r.Post("/api/monitor/analyze", s.handleMonitorAnalyze)
-	r.Post("/api/monitor/actions/{actionID}/approve", s.handleMonitorApprove)
-	r.Post("/api/monitor/actions/{actionID}/dismiss", s.handleMonitorDismiss)
 
 	// Admin dashboard & user management
 	r.Get("/api/admin/dashboard", requireAdmin(s.handleAdminDashboard))
@@ -274,9 +265,6 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, mon *monitor.GamarrMon
 	r.Get("/api/calendar", s.handleCalendar)
 	r.Get("/api/calendar/recent", s.handleCalendarRecent)
 
-	// Metadata & enrichment
-	s.RegisterMetadataRoutes(r)
-
 	// Metrics
 	r.Get("/metrics", s.handleMetrics)
 
@@ -377,7 +365,7 @@ func logMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
-		if !strings.HasPrefix(r.URL.Path, "/api/downloads") && !strings.HasPrefix(r.URL.Path, "/api/monitor") {
+		if !strings.HasPrefix(r.URL.Path, "/api/downloads") {
 			slog.Debug("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "duration", time.Since(start).String())
 		}
 	})
@@ -957,48 +945,4 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"status": "ok", "version": "1.0.0"})
-}
-
-func (s *Server) handleMonitorStatus(w http.ResponseWriter, r *http.Request) {
-	if s.mon == nil {
-		writeJSON(w, 200, map[string]interface{}{"enabled": false, "error": "Monitor not initialized"})
-		return
-	}
-	writeJSON(w, 200, s.mon.GetStatus())
-}
-
-func (s *Server) handleMonitorAnalyze(w http.ResponseWriter, r *http.Request) {
-	if s.mon == nil {
-		writeError(w, 500, "Monitor not initialized")
-		return
-	}
-	s.mon.TriggerManual()
-	time.Sleep(100 * time.Millisecond)
-	status := s.mon.GetStatus()
-	writeJSON(w, 200, map[string]interface{}{"success": true, "enabled": status.Enabled, "diagnosis": status.Diagnosis,
-		"provider": status.Provider, "model": status.Model, "auto_fix": status.AutoFix,
-		"interval": status.Interval, "last_checked": status.LastChecked,
-		"recent_errors": status.RecentErrors, "pending_actions": status.PendingActions,
-		"action_history": status.ActionHistory,
-	})
-}
-
-func (s *Server) handleMonitorApprove(w http.ResponseWriter, r *http.Request) {
-	if s.mon == nil {
-		writeError(w, 500, "Monitor not initialized")
-		return
-	}
-	actionID := chi.URLParam(r, "actionID")
-	ok, msg := s.mon.ExecuteApproved(actionID)
-	writeJSON(w, 200, map[string]interface{}{"success": ok, "message": msg})
-}
-
-func (s *Server) handleMonitorDismiss(w http.ResponseWriter, r *http.Request) {
-	if s.mon == nil {
-		writeError(w, 500, "Monitor not initialized")
-		return
-	}
-	actionID := chi.URLParam(r, "actionID")
-	dismissed := s.mon.ActionQueue().Dismiss(actionID)
-	writeJSON(w, 200, map[string]interface{}{"success": dismissed})
 }

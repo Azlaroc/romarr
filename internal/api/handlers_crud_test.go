@@ -1,14 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
 )
@@ -178,60 +175,17 @@ func TestLibraryListAndDelete(t *testing.T) {
 
 // ── Downloads (jobs) ───────────────────────────────────────────────────────────
 
-func TestDownloadNZBRoutesToNZBGet(t *testing.T) {
-	t.Run("not configured", func(t *testing.T) {
-		env := newTestEnv(t, nil)
-		rr := env.do("POST", "/api/download", `{
-			"download_protocol":"nzb",
-			"download_url":"https://indexer.example/game.nzb",
-			"title":"Game"
-		}`)
-		wantStatus(t, rr, http.StatusBadRequest)
-		if !strings.Contains(rr.Body.String(), "not configured") {
-			t.Errorf("body=%s", rr.Body.String())
-		}
-	})
-
-	t.Run("configured", func(t *testing.T) {
-		var gotMethod string
-		mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var req struct {
-				Method string `json:"method"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode request: %v", err)
-			}
-			gotMethod = req.Method
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"jsonrpc": "2.0",
-				"id":      1,
-				"error":   map[string]interface{}{"code": -1, "message": "test stop"},
-			})
-		}))
-		defer mock.Close()
-
-		env := newTestEnv(t, func(c *config.Config) {
-			c.NZBGetURL = mock.URL
-			c.NZBGetCategory = "games"
-		})
-		rr := env.do("POST", "/api/download", `{
-			"download_protocol":"nzb",
-			"download_url":"https://indexer.example/game.nzb",
-			"title":"Game"
-		}`)
-		wantStatus(t, rr, http.StatusOK)
-		response := decodeMap(t, rr)
-		if response["success"] != true || response["job_id"] == "" {
-			t.Fatalf("response=%v", response)
-		}
-		if gotMethod != "append" {
-			t.Errorf("NZBGet method=%q, want append", gotMethod)
-		}
-		job, ok := env.jobs.Get(response["job_id"].(string))
-		if !ok || job["status"] != "error" || job["source_client"] != "nzbget" {
-			t.Errorf("job=%v", job)
-		}
-	})
+func TestDownloadNZBWithoutClient(t *testing.T) {
+	env := newTestEnv(t, nil)
+	rr := env.do("POST", "/api/download", `{
+		"download_protocol":"nzb",
+		"download_url":"https://indexer.example/game.nzb",
+		"title":"Game"
+	}`)
+	wantStatus(t, rr, http.StatusBadRequest)
+	if !strings.Contains(rr.Body.String(), "not configured") {
+		t.Errorf("body=%s", rr.Body.String())
+	}
 }
 
 func TestDownloadsListClearAndDelete(t *testing.T) {
@@ -899,16 +853,16 @@ func TestNotifications(t *testing.T) {
 	})
 }
 
-// ── Calendar / scheduler / monitor (unconfigured fallbacks) ────────────────────
+// ── Calendar / scheduler (unconfigured fallbacks) ──────────────────────────────
 
-func TestCalendarWithoutRAWG(t *testing.T) {
+func TestCalendarWithoutProvider(t *testing.T) {
 	env := newTestEnv(t, nil)
 
 	rr := env.do("GET", "/api/calendar", "")
 	wantStatus(t, rr, 200)
 	m := decodeMap(t, rr)
 	if m["total"] != float64(0) {
-		t.Errorf("total = %v, want 0 without RAWG key", m["total"])
+		t.Errorf("total = %v, want 0 without a metadata provider", m["total"])
 	}
 	if _, ok := m["entries"].([]interface{}); !ok {
 		t.Errorf("entries should be a JSON array, got %T", m["entries"])
@@ -921,8 +875,8 @@ func TestCalendarWithoutRAWG(t *testing.T) {
 	}
 }
 
-func TestSchedulerAndMonitorNil(t *testing.T) {
-	env := newTestEnv(t, nil) // router built with nil scheduler + nil monitor
+func TestSchedulerNil(t *testing.T) {
+	env := newTestEnv(t, nil) // router built with nil scheduler
 
 	rr := env.do("GET", "/api/scheduler/status", "")
 	wantStatus(t, rr, 200)
@@ -931,15 +885,6 @@ func TestSchedulerAndMonitorNil(t *testing.T) {
 	}
 
 	rr = env.do("POST", "/api/scheduler/run", "")
-	wantStatus(t, rr, 500)
-
-	rr = env.do("GET", "/api/monitor/status", "")
-	wantStatus(t, rr, 200)
-	if m := decodeMap(t, rr); m["enabled"] != false {
-		t.Errorf("monitor enabled = %v, want false", m["enabled"])
-	}
-
-	rr = env.do("POST", "/api/monitor/analyze", "")
 	wantStatus(t, rr, 500)
 }
 

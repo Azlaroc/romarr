@@ -26,7 +26,6 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/normalize"
-	"gamarr/internal/nzbget"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/sabnzbd"
@@ -40,15 +39,12 @@ type NotifyCallback func(userID, notifType, title, message string)
 
 // Manager handles download orchestration.
 type Manager struct {
-	cfg          *config.Config
-	jobs         *db.JobStore
-	qb           *qbit.Client
-	transmission *TransmissionClient
-	deluge       *DelugeClient
-	nzbget       *nzbget.Client
-	sab          *sabnzbd.Client
-	norm         *normalize.Normalizer
-	NotifyFunc   NotifyCallback
+	cfg        *config.Config
+	jobs       *db.JobStore
+	qb         *qbit.Client
+	sab        *sabnzbd.Client
+	norm       *normalize.Normalizer
+	NotifyFunc NotifyCallback
 	// ImportNotify, when set, is told the RomM fs_slug of every completed
 	// non-PC library import (the Connect plane's enqueue). Must not block.
 	ImportNotify func(fsSlug string)
@@ -63,19 +59,6 @@ type Manager struct {
 func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
 	mgr := &Manager{cfg: cfg, jobs: jobs, qb: qb, norm: normalize.New(cfg)}
 
-	// Initialize optional download clients.
-	if cfg.HasTransmission() {
-		mgr.transmission = NewTransmissionClient(cfg)
-		slog.Info("Transmission client initialized", "url", cfg.TransmissionURL)
-	}
-	if cfg.HasDeluge() {
-		mgr.deluge = NewDelugeClient(cfg)
-		slog.Info("Deluge client initialized", "url", cfg.DelugeURL)
-	}
-	if cfg.HasNZBGet() {
-		mgr.nzbget = nzbget.New(cfg.NZBGetURL, cfg.NZBGetUser, cfg.NZBGetPass)
-		slog.Info("NZBGet client initialized", "url", cfg.NZBGetURL)
-	}
 	if cfg.HasSABnzbd() {
 		// The download path receives its SABnzbd client per call; this one
 		// exists so restart recovery can reattach watchers without a caller.
@@ -90,15 +73,6 @@ func (m *Manager) Jobs() *db.JobStore { return m.jobs }
 
 // QB returns the qBittorrent client.
 func (m *Manager) QB() *qbit.Client { return m.qb }
-
-// Transmission returns the Transmission client (may be nil).
-func (m *Manager) Transmission() *TransmissionClient { return m.transmission }
-
-// Deluge returns the Deluge client (may be nil).
-func (m *Manager) Deluge() *DelugeClient { return m.deluge }
-
-// NZBGet returns the NZBGet client (may be nil).
-func (m *Manager) NZBGet() *nzbget.Client { return m.nzbget }
 
 // newJobID generates an 8-char job ID.
 func newJobID() string {
@@ -129,8 +103,6 @@ type TorrentSpec struct {
 // infohash — from the spec or parsed out of a magnet link — with a per-job
 // qBittorrent tag as the fallback for .torrent URLs whose hash is unknown
 // until qBittorrent resolves them (the watcher learns it from the tag).
-// Torrents that only Transmission/Deluge could take are rejected outright:
-// nothing ever watched those clients, so an add there was a silent black hole.
 func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 	if spec.URL == "" {
 		return "", fmt.Errorf("no download URL")
@@ -485,11 +457,11 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 			return
 		}
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": "Moved to GameVault",
+			"status": "completed", "detail": "Moved to library",
 		})
 		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "torrent")
 		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "torrent", "prowlarr", "torrent:"+torrent.Hash, jobID, "", "")
-		m.jobs.LogActivity("download_completed", title, "Organized to GameVault", jobID, nil)
+		m.jobs.LogActivity("download_completed", title, "Organized to library", jobID, nil)
 		slog.Info("PC game imported", "name", sanitizeLog(title), "dest", sanitizeLog(dest))
 	} else {
 		if _, err := m.fulfillLocalROM(tmp, fulfillMeta{
@@ -912,11 +884,11 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 			return
 		}
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "completed", "detail": "Moved to GameVault",
+			"status": "completed", "detail": "Moved to library",
 		})
 		writeMetadataSidecar(dest, title, platf, platSlug, isPC, "ddl")
 		m.TrackInLibrary(title, platf, platSlug, isPC, dest, 0, "ddl", "ddl", "ddl:"+dest, jobID, md5, sha1)
-		m.jobs.LogActivity("download_completed", title, "DDL to GameVault", jobID, nil)
+		m.jobs.LogActivity("download_completed", title, "DDL to library", jobID, nil)
 		slog.Info("DDL PC game organized", "file", sanitizeLog(filename), "dest", sanitizeLog(dest))
 	} else if platSlug != "" {
 		var set DiscSet

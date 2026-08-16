@@ -28,7 +28,7 @@ type fulfillMeta struct {
 	Platform     string // display name, e.g. "PS1"
 	PlatformSlug string // internal slug (pre-ToRommFSSlug), never ""
 	Source       string // "ddl" | "torrent" | "nzb" — library source + sidecar tag
-	SourceClient string // "ddl" | "prowlarr" | "sabnzbd" | "nzbget"
+	SourceClient string // "ddl" | "prowlarr" | "sabnzbd"
 	SourceID     string // fixed library source_id; "" derives Source+":"+finalPath
 	MD5, SHA1    string // expected content hashes; both empty => verify skipped
 	// DiscSet marks this payload as one member of a multi-disc group: it

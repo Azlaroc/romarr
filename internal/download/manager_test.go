@@ -31,37 +31,16 @@ func TestNewJobID(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
-	t.Run("no optional clients", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		jobs := newTestJobs(t)
-		m := New(cfg, jobs, nil)
-		if m.Transmission() != nil {
-			t.Error("Transmission client should be nil when not configured")
-		}
-		if m.Deluge() != nil {
-			t.Error("Deluge client should be nil when not configured")
-		}
-		if m.Jobs() != jobs {
-			t.Error("Jobs() should return the injected store")
-		}
-	})
-
-	t.Run("all clients configured", func(t *testing.T) {
-		cfg := newTestConfig(t)
-		cfg.TransmissionURL = "http://127.0.0.1:1"
-		cfg.DelugeURL = "http://127.0.0.1:1"
-		qb := qbit.New("http://127.0.0.1:1", "u", "p")
-		m := New(cfg, newTestJobs(t), qb)
-		if m.Transmission() == nil {
-			t.Error("Transmission client should be initialized")
-		}
-		if m.Deluge() == nil {
-			t.Error("Deluge client should be initialized")
-		}
-		if m.QB() != qb {
-			t.Error("QB() should return the injected client")
-		}
-	})
+	cfg := newTestConfig(t)
+	jobs := newTestJobs(t)
+	qb := qbit.New("http://127.0.0.1:1", "u", "p")
+	m := New(cfg, jobs, qb)
+	if m.Jobs() != jobs {
+		t.Error("Jobs() should return the injected store")
+	}
+	if m.QB() != qb {
+		t.Error("QB() should return the injected client")
+	}
 }
 
 func TestDownloadTorrentValidation(t *testing.T) {
@@ -375,8 +354,8 @@ func TestOrganizeTorrent(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		job := waitJobStatus(t, jobs, jobID, "completed", 10*time.Second)
-		if detail, _ := job["detail"].(string); !strings.Contains(detail, "GameVault") {
-			t.Errorf("detail = %q, want GameVault", detail)
+		if detail, _ := job["detail"].(string); !strings.Contains(detail, "library") {
+			t.Errorf("detail = %q, want library", detail)
 		}
 		if !pathExists(filepath.Join(cfg.GamesVaultPath, "Cool.Game-FitGirl", "setup.exe")) {
 			t.Error("game not imported to vault")

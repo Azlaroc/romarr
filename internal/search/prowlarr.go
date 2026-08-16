@@ -46,15 +46,26 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 	var allItems []map[string]interface{}
 	hadError := false
 
-	for _, indexerID := range cfg.ProwlarrGameIndexers {
-		reqURL := fmt.Sprintf("%s/api/v1/search?query=%s&indexerIds=%d&type=search&limit=50",
-			cfg.ProwlarrURL, url.QueryEscape(query), indexerID)
+	// An empty indexer list means unscoped search: one request with no
+	// indexerIds filter, which Prowlarr fans out to every configured indexer.
+	// Explicit IDs restrict the search to those indexers, one request each.
+	reqURLs := []string{fmt.Sprintf("%s/api/v1/search?query=%s&type=search&limit=50",
+		cfg.ProwlarrURL, url.QueryEscape(query))}
+	if len(cfg.ProwlarrGameIndexers) > 0 {
+		reqURLs = reqURLs[:0]
+		for _, indexerID := range cfg.ProwlarrGameIndexers {
+			reqURLs = append(reqURLs, fmt.Sprintf("%s/api/v1/search?query=%s&indexerIds=%d&type=search&limit=50",
+				cfg.ProwlarrURL, url.QueryEscape(query), indexerID))
+		}
+	}
+
+	for _, reqURL := range reqURLs {
 		req, _ := http.NewRequest("GET", reqURL, nil)
 		req.Header.Set("X-Api-Key", cfg.ProwlarrAPIKey)
 
 		resp, err := client.Do(req)
 		if err != nil {
-			slog.Warn("indexer error", "indexer", indexerID, "error", err)
+			slog.Warn("indexer error", "url", reqURL, "error", err)
 			hadError = true
 			continue
 		}

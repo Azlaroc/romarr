@@ -156,24 +156,3 @@ func TestDDLSource_JSON(t *testing.T) {
 		t.Errorf("platforms=%d", len(decoded.Platforms))
 	}
 }
-
-func TestMonitorStatus_JSON(t *testing.T) {
-	status := MonitorStatus{
-		Enabled:  true,
-		Provider: "ollama",
-		Model:    "qwen3:1.7b",
-		AutoFix:  true,
-		Interval: 300,
-	}
-
-	data, _ := json.Marshal(status)
-	var decoded map[string]interface{}
-	json.Unmarshal(data, &decoded)
-
-	if decoded["enabled"] != true {
-		t.Error("expected enabled=true")
-	}
-	if decoded["provider"] != "ollama" {
-		t.Errorf("provider=%v", decoded["provider"])
-	}
-}

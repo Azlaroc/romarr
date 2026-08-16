@@ -17,7 +17,6 @@ import (
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
-	"gamarr/internal/monitor"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
 	"gamarr/internal/romm"
@@ -104,30 +103,6 @@ func main() {
 
 	// Initialize download manager
 	mgr := download.New(cfg, database, qb)
-
-	// Initialize AI monitor
-	mon := monitor.New(cfg, monitor.Callbacks{
-		GetJobs: func() []struct {
-			ID   string
-			Data map[string]interface{}
-		} {
-			items := database.Items()
-			result := make([]struct {
-				ID   string
-				Data map[string]interface{}
-			}, len(items))
-			for i, item := range items {
-				result[i].ID = item.ID
-				result[i].Data = item.Data
-			}
-			return result
-		},
-		QBReauth: func() bool {
-			return cfg.HasQBittorrent() && qb.Login()
-		},
-		RunOrphanRecovery: func() { go mgr.RecoverOrphanedTorrents() },
-	})
-	mon.Start()
 
 	// Set up webhook notification callback
 	mgr.NotifyFunc = func(userID, notifType, title, message string) {
@@ -291,7 +266,7 @@ func main() {
 		}
 	})
 
-	router := api.NewRouter(cfg, mgr, mon, sab, sched, rommSync, ren)
+	router := api.NewRouter(cfg, mgr, sab, sched, rommSync, ren)
 
 	// Start HTTP server
 	server := &http.Server{
@@ -324,7 +299,6 @@ func main() {
 	rommSync.Stop()
 	ren.Stop()
 	sched.Stop()
-	mon.Stop()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 	}

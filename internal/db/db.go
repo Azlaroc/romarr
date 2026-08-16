@@ -99,10 +99,10 @@ func (s *JobStore) loadAll() {
 
 // recoverableInFlight reports whether an in-flight job survives a restart:
 // torrent jobs persist their infohash (or association tag) and the completion
-// watcher re-drives them from stored state; NZBGet jobs persist an nzb_id and
-// SABnzbd jobs an nzo_id the NZB recovery reconnects to. Everything else
-// (DDL workers, pre-persistence usenet jobs) dies with the process and is
-// marked interrupted.
+// watcher re-drives them from stored state; SABnzbd jobs persist an nzo_id
+// the NZB recovery reconnects to. Everything else (DDL workers,
+// pre-persistence usenet jobs) dies with the process and is marked
+// interrupted.
 func recoverableInFlight(data map[string]interface{}) bool {
 	if st, _ := data["source_type"].(string); st == "torrent" {
 		if h, _ := data["torrent_hash"].(string); h != "" {
@@ -112,17 +112,7 @@ func recoverableInFlight(data map[string]interface{}) bool {
 			return true
 		}
 	}
-	switch client, _ := data["source_client"].(string); client {
-	case "nzbget":
-		switch v := data["nzb_id"].(type) {
-		case float64:
-			return v > 0
-		case int64:
-			return v > 0
-		case int:
-			return v > 0
-		}
-	case "sabnzbd":
+	if client, _ := data["source_client"].(string); client == "sabnzbd" {
 		if id, _ := data["nzo_id"].(string); id != "" {
 			return true
 		}

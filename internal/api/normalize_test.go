@@ -52,7 +52,7 @@ exit 0
 	t.Cleanup(func() { store.Close() })
 	mgr := download.New(cfg, store, qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass))
 	ren := renamer.New(cfg, store, nil)
-	router := NewRouter(cfg, mgr, nil, nil, nil, nil, ren)
+	router := NewRouter(cfg, mgr, nil, nil, nil, ren)
 	return &testEnv{t: t, cfg: cfg, jobs: store, mgr: mgr, router: router}, romsRoot
 }
 

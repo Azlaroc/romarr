@@ -2,19 +2,12 @@ import { useConfig, useSettingsEnv } from '../../api/queries'
 import { isForbidden } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { AdminNotice } from '../../components/ui/AdminNotice'
-import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 
 const TESTABLE_CLIENTS = [
   { id: 'qbittorrent', label: 'qBittorrent' },
   { id: 'sabnzbd', label: 'SABnzbd' },
-  { id: 'nzbget', label: 'NZBGet' },
-] as const
-
-const READONLY_CLIENTS = [
-  { id: 'transmission', label: 'Transmission' },
-  { id: 'deluge', label: 'Deluge' },
 ] as const
 
 export function DownloadClients() {
@@ -32,8 +25,6 @@ export function DownloadClients() {
 function Clients() {
   const { data: config } = useConfig()
 
-  const extras = READONLY_CLIENTS.filter((c) => config?.[c.id]?.configured)
-
   return (
     <Card title="Download clients">
       <div className="space-y-3" data-testid="dc-clients">
@@ -48,19 +39,6 @@ function Clients() {
             configured: config?.[c.id]?.configured,
           }))}
         />
-        {extras.length > 0 && (
-          <div className="space-y-2">
-            {extras.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded bg-slate-800 p-3" data-testid={`dc-${c.id}`}>
-                <div className="min-w-0">
-                  <div className="text-sm text-white">{c.label}</div>
-                  <div className="mt-0.5 truncate text-xs text-slate-500">{config?.[c.id]?.url}</div>
-                </div>
-                <Badge color="slate">configured</Badge>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </Card>
   )

@@ -169,17 +169,6 @@ export interface ActivityPage {
   page: number
 }
 
-export interface MonitorStatus {
-  enabled?: boolean
-  provider?: string
-  model?: string
-  diagnosis?: string
-  auto_fix?: boolean
-  interval?: number
-  pending_actions?: MonitorAction[]
-  action_history?: MonitorAction[]
-}
-
 /** Per-integration status block in GET /api/config. */
 export interface ServiceConfig {
   configured?: boolean
@@ -188,14 +177,9 @@ export interface ServiceConfig {
 
 export interface AppConfig {
   romm_url?: string
-  gamevault_url?: string
-  rawg?: { configured?: boolean }
   prowlarr?: ServiceConfig
   qbittorrent?: ServiceConfig
   sabnzbd?: ServiceConfig
-  nzbget?: ServiceConfig
-  transmission?: ServiceConfig
-  deluge?: ServiceConfig
   romm?: ServiceConfig
   [k: string]: unknown
 }
@@ -348,7 +332,7 @@ export interface RequestsPage {
   total: number
 }
 
-/** GET /api/calendar[.../recent] entry (RAWG-backed; empty without RAWG_API_KEY). */
+/** GET /api/calendar[.../recent] entry (empty until a metadata provider is wired). */
 export interface CalendarEntry {
   id: number
   name: string
@@ -450,14 +434,6 @@ export interface BackupInfo {
   filename: string
   size: number
   created_at: string // RFC3339
-}
-
-export interface MonitorAction {
-  id: string
-  action: string
-  description?: string
-  risk?: string
-  params?: unknown
 }
 
 export interface TotpSetupResponse {

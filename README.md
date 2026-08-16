@@ -23,7 +23,6 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 - **Search scoring** -- composite 0-100 score based on title match, platform relevance, seeder count, file size, and safety analysis
 - **Safety scoring** -- analyzes file names, sizes, and scene group trust to detect malware, crack-only uploads, and suspicious downloads
 - **Duplicate detection** -- search results show an `in_library` flag when a game already exists in your library
-- **Release calendar** -- browse upcoming and recently released games via RAWG.io API integration
 
 ### Quality Control
 
@@ -33,7 +32,7 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 
 ### Downloads
 
-- **5 download clients** -- qBittorrent, Transmission, Deluge (torrents), SABnzbd and NZBGet (Usenet/NZB)
+- **Download clients** -- qBittorrent (torrents), SABnzbd (Usenet/NZB), plus direct-download sources
 - **Download monitoring** -- real-time progress tracking with auto-organize on completion
 - **Retry and recovery** -- configurable retry attempts with backoff, orphan torrent recovery on startup
 - **Archive extraction** -- auto-extract 7z, zip, and rar archives after download
@@ -62,8 +61,6 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 
 ### Integrations
 
-- **RAWG.io metadata** -- cover art, descriptions, ratings, release dates
-- **GameVault** -- link library items to your GameVault server
 - **RomM** -- link library items to your RomM instance
 - **ClamAV** (optional) -- scan downloaded files for malware
 
@@ -74,7 +71,6 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 - **Rate limiting** -- per-category limits (login, search, download, general API)
 - **Security headers** -- request size limits, CORS, standard hardening
 - **Prometheus metrics** at `/metrics`
-- **AI monitor** (optional) -- Ollama/OpenAI-powered download analysis and auto-fix suggestions
 
 ### Technical
 
@@ -188,8 +184,7 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 |----------|---------|-------------|
 | `PROWLARR_URL` | `http://prowlarr:9696` | Prowlarr URL |
 | `PROWLARR_API_KEY` | | Prowlarr API key |
-| `PROWLARR_GAME_INDEXERS` | `7,5,15,9,8,3,4` | Comma-separated indexer IDs to search |
-| `RAWG_API_KEY` | | RAWG.io API key (enables metadata, calendar) |
+| `PROWLARR_GAME_INDEXERS` | | Comma-separated indexer IDs to restrict searches to (empty = search all configured indexers) |
 
 ### Download Clients
 
@@ -200,20 +195,9 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 | `QB_PASS` | | qBittorrent password |
 | `QB_SAVE_PATH` | `/data/incoming/` | Download save path |
 | `QB_CATEGORY` | `games` | Torrent category |
-| `TRANSMISSION_URL` | | Transmission RPC URL |
-| `TRANSMISSION_USER` | | Transmission username |
-| `TRANSMISSION_PASS` | | Transmission password |
-| `DELUGE_URL` | | Deluge Web UI URL |
-| `DELUGE_PASS` | | Deluge password |
 | `SABNZBD_URL` | | SABnzbd URL |
 | `SABNZBD_API_KEY` | | SABnzbd API key |
 | `SABNZBD_CATEGORY` | `games` | NZB download category |
-| `NZBGET_URL` | | NZBGet URL (for example `http://nzbget:6789`) |
-| `NZBGET_USER` | | NZBGet control username |
-| `NZBGET_PASS` | | NZBGet control password |
-| `NZBGET_CATEGORY` | `games` | NZB download category |
-
-Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SABnzbd is used first to preserve existing deployments.
 
 ### Library and Organization
 
@@ -223,7 +207,6 @@ Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SA
 | `GAMES_ROMS_PATH` | `/data/roms` | ROM storage directory |
 | `RENAME_ENABLED` | `false` | Rename files on import |
 | `RENAME_PATTERN` | `{title} ({platform}).{ext}` | Rename pattern |
-| `GAMEVAULT_URL` | | GameVault server URL |
 | `ROMM_URL` | | RomM server URL (also the API base for the RomM integration) |
 | `ROMM_API_USER` | | RomM API username (read access; enables the RomM integration) |
 | `ROMM_API_PASS` | | RomM API password |
@@ -246,17 +229,6 @@ Configure either SABnzbd or NZBGet for NZB downloads. If both are configured, SA
 | `MAX_RETRIES` | `2` | Download retry attempts |
 | `RETRY_BACKOFF_SECONDS` | `60` | Seconds between retries |
 
-### AI Monitor (optional)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_MONITOR_ENABLED` | `false` | Enable AI-powered download monitoring |
-| `AI_PROVIDER` | `ollama` | AI provider (`ollama`, `openai`) |
-| `AI_API_URL` | `http://localhost:11434/v1` | AI API endpoint |
-| `AI_MODEL` | `llama3.2` | Model name |
-| `AI_MONITOR_INTERVAL` | `300` | Analysis interval in seconds |
-| `AI_AUTO_FIX` | `true` | Automatically apply AI suggestions |
-
 ### ClamAV (optional)
 
 | Variable | Default | Description |
@@ -277,13 +249,11 @@ internal/
   api/                           HTTP handlers + chi router + auth + rate limiting
   search/                        Source drivers (Torznab, DDL archive, web-scrape)
   sources/                       Runtime sources registry (embedded defaults + loader)
-  download/                      Download manager (qBit, Transmission, Deluge, Usenet, DDL)
+  download/                      Download manager (qBit, Usenet, DDL)
   sabnzbd/                       SABnzbd client
-  nzbget/                        NZBGet JSON-RPC client
   safety/                        Safety scoring engine
   scheduler/                     Scheduled wishlist searches
-  monitor/                       AI-powered download monitoring
-  metadata/                      RAWG.io API client
+  metadata/                      Metadata-provider seam (no active provider yet)
   organize/                      File organization and rename
   platform/                      Platform definitions, detection, category mapping
   qbit/                          qBittorrent API client

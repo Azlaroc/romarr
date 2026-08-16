@@ -77,11 +77,6 @@ export function Library() {
                 RomM <ExternalLink className="h-3.5 w-3.5" />
               </a>
             )}
-            {config?.gamevault_url && (
-              <a href={config.gamevault_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-orange-600/30 bg-orange-600/15 px-3 py-2 text-sm font-medium text-orange-400 hover:bg-orange-600/25">
-                GameVault <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            )}
           </>
         }
       />
