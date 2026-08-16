@@ -32,7 +32,7 @@ func ArchiveOrgPlatformSlugs(reg *sources.Registry) []string {
 // with the empty embedded defaults it is a no-op — enabling a platform is a
 // registry edit, not a code change.
 func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string) []*models.SearchResult {
-	if reg == nil || len(reg.ArchiveOrg.Items) == 0 {
+	if !reg.ArchiveOrgActive() {
 		return nil
 	}
 	if IsCircuitOpen("archiveorg") {

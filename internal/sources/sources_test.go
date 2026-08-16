@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -108,5 +109,53 @@ func TestApplyEnvOverrides(t *testing.T) {
 				t.Errorf("Vimm.BaseURL = %q, want %q", r.Vimm.BaseURL, wantV)
 			}
 		})
+	}
+}
+
+func TestEnabledFlagSemantics(t *testing.T) {
+	// Absent field → enabled: registry files written before the flag existed
+	// keep working unchanged.
+	var legacy Registry
+	if err := json.Unmarshal([]byte(`{
+		"version": 1,
+		"vimm": {"base_url": "v", "platform_systems": {"snes": "SNES"}},
+		"archiveorg": {"base_url": "a", "items": {"psx": "item"}}
+	}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if !legacy.Vimm.IsEnabled() || !legacy.ArchiveOrg.IsEnabled() {
+		t.Error("absent enabled field must mean enabled")
+	}
+	if !legacy.VimmActive() || !legacy.ArchiveOrgActive() {
+		t.Error("legacy registry with mappings must be active")
+	}
+
+	// Explicit false → disabled, regardless of mappings.
+	var off Registry
+	if err := json.Unmarshal([]byte(`{
+		"version": 1,
+		"vimm": {"base_url": "v", "enabled": false, "platform_systems": {"snes": "SNES"}},
+		"archiveorg": {"base_url": "a", "enabled": false, "items": {"psx": "item"}}
+	}`), &off); err != nil {
+		t.Fatal(err)
+	}
+	if off.Vimm.IsEnabled() || off.ArchiveOrg.IsEnabled() {
+		t.Error("enabled:false must disable")
+	}
+	if off.VimmActive() || off.ArchiveOrgActive() {
+		t.Error("disabled specs must not be active")
+	}
+
+	// Enabled but nothing mapped → inactive (the driver can't produce
+	// correctly-slugged results without a mapping).
+	empty := Registry{Vimm: VimmSpec{BaseURL: "v"}, ArchiveOrg: ArchiveOrgSpec{BaseURL: "a"}}
+	if empty.VimmActive() || empty.ArchiveOrgActive() {
+		t.Error("specs with no mappings must not be active")
+	}
+
+	// Nil receiver tolerated.
+	var nilReg *Registry
+	if nilReg.VimmActive() || nilReg.ArchiveOrgActive() {
+		t.Error("nil registry must not be active")
 	}
 }

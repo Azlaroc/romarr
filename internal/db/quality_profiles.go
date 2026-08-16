@@ -119,7 +119,10 @@ func (s *JobStore) migrateQualityProfiles() {
 	s.db.QueryRow("SELECT COUNT(*) FROM quality_profiles").Scan(&count)
 	if count == 0 {
 		pcRanking, _ := json.Marshal([]string{"FitGirl", "DODI", "PLAZA", "Vimm"})
-		romRanking, _ := json.Marshal([]string{"Vimm"})
+		// Internet Archive, not Vimm: Vimm is registry-disabled on real
+		// deployments (dead scrape target), so a fresh install's ROM profile
+		// should prefer the source that actually serves.
+		romRanking, _ := json.Marshal([]string{"Internet Archive"})
 		regions, _ := json.Marshal(defaultRegionPriority)
 		formats, _ := json.Marshal(defaultFormatPreference)
 		s.db.Exec(
@@ -128,7 +131,7 @@ func (s *JobStore) migrateQualityProfiles() {
 		)
 		s.db.Exec(
 			"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"ROM Default", string(romRanking), 0, 0, 0, "Vimm", "", 1, string(regions), string(formats), 1,
+			"ROM Default", string(romRanking), 0, 0, 0, "Internet Archive", "", 1, string(regions), string(formats), 1,
 		)
 	}
 }
