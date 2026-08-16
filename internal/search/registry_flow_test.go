@@ -119,3 +119,78 @@ func TestRegistryFlow_LegacyEnvOverride(t *testing.T) {
 		})
 	}
 }
+
+// TestSourceEnableGuards proves the drivers are inert — no HTTP issued, nil
+// results — when the registry disables them, maps no platforms, or (Vimm)
+// has no system mapping for the requested platform. The dead-base_url
+// workaround these guards replace relied on connection failures, which
+// burned circuit-breaker state and logged warnings every cycle.
+func TestSourceEnableGuards(t *testing.T) {
+	t.Cleanup(func() {
+		RecordSearchSuccess("vimm")
+		RecordSearchSuccess("archiveorg")
+	})
+	off := false
+
+	cases := []struct {
+		name string
+		reg  func(base string) *sources.Registry
+		slug string
+	}{
+		{"vimm disabled", func(base string) *sources.Registry {
+			return &sources.Registry{Vimm: sources.VimmSpec{BaseURL: base, Enabled: &off,
+				PlatformSystems: map[string]string{"snes": "SNES"}}}
+		}, "snes"},
+		{"vimm empty platform map", func(base string) *sources.Registry {
+			return &sources.Registry{Vimm: sources.VimmSpec{BaseURL: base}}
+		}, "snes"},
+		{"vimm unmapped platform", func(base string) *sources.Registry {
+			return &sources.Registry{Vimm: sources.VimmSpec{BaseURL: base,
+				PlatformSystems: map[string]string{"snes": "SNES"}}}
+		}, "psx"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := newRecordingServer(t, 200, "<html></html>")
+			got := SearchVimm(tc.reg(rs.URL), "mario", tc.slug)
+			if got != nil {
+				t.Errorf("results = %d, want none", len(got))
+			}
+			if rs.hit() {
+				t.Error("guarded Vimm search still issued HTTP")
+			}
+		})
+	}
+
+	t.Run("vimm nil registry", func(t *testing.T) {
+		if got := SearchVimm(nil, "mario", "snes"); got != nil {
+			t.Errorf("nil registry: results = %d, want none", len(got))
+		}
+	})
+
+	t.Run("archiveorg disabled", func(t *testing.T) {
+		rs := newRecordingServer(t, 200, "{}")
+		reg := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{BaseURL: rs.URL, Enabled: &off,
+			Items: map[string]string{"psx": "some-item"}}}
+		if got := SearchArchiveOrg(reg, "mario", "psx"); got != nil {
+			t.Errorf("results = %d, want none", len(got))
+		}
+		if rs.hit() {
+			t.Error("disabled archive.org search still issued HTTP")
+		}
+	})
+
+	// Positive control: enabled + mapped issues the request (the guards must
+	// not overshoot). TestRegistryFlow covers the full positive wire path;
+	// this pins that an explicit enabled:true behaves like the absent field.
+	t.Run("vimm explicitly enabled", func(t *testing.T) {
+		on := true
+		rs := newRecordingServer(t, 200, "<html></html>")
+		reg := &sources.Registry{Vimm: sources.VimmSpec{BaseURL: rs.URL, Enabled: &on,
+			PlatformSystems: map[string]string{"snes": "SNES"}}}
+		SearchVimm(reg, "mario", "snes")
+		if !rs.hit() {
+			t.Error("enabled Vimm search issued no HTTP")
+		}
+	})
+}

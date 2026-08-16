@@ -131,7 +131,19 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	entries, total := s.mgr.Jobs().GetActivity(page, 50)
+	// page_size (limit accepted as an alias) was silently ignored before —
+	// the window was pinned at 50 regardless of what the caller asked for.
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if pageSize < 1 {
+		pageSize, _ = strconv.Atoi(r.URL.Query().Get("limit"))
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+	entries, total := s.mgr.Jobs().GetActivity(page, pageSize)
 	if entries == nil {
 		entries = []db.ActivityEntry{}
 	}

@@ -26,17 +26,25 @@ func VimmPlatformSlugs(reg *sources.Registry) []string {
 
 var vimmGameRe = regexp.MustCompile(`<a\s+href=\s*"/vault/(\d+)"[^>]*>([^<]+)</a>`)
 
-// SearchVimm searches Vimm's Lair for ROMs.
+// SearchVimm searches Vimm's Lair for ROMs. Inert when the registry disables
+// the source or maps no platforms, and for a platform with no system mapping:
+// an unfiltered site search would return cross-platform hits tagged with the
+// requested slug, feeding mis-slugged results into the pipeline.
 func SearchVimm(reg *sources.Registry, query string, platformSlug string) []*models.SearchResult {
+	if !reg.VimmActive() {
+		return nil
+	}
 	if IsCircuitOpen("vimm") {
 		slog.Warn("vimm circuit open, skipping search")
 		return nil
 	}
 	params := url.Values{"p": {"list"}, "q": {query}}
 	if platformSlug != "" {
-		if sys, ok := reg.Vimm.PlatformSystems[platformSlug]; ok {
-			params.Set("system", sys)
+		sys, ok := reg.Vimm.PlatformSystems[platformSlug]
+		if !ok {
+			return nil // platform not opted into Vimm
 		}
+		params.Set("system", sys)
 	}
 	systemFromFilter := reg.Vimm.PlatformSystems[platformSlug]
 

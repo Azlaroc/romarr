@@ -481,7 +481,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Source metadata
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.Sources.VimmActive()},
 	}
 
 	writeJSON(w, 200, map[string]interface{}{
@@ -546,7 +546,7 @@ func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	healthData := search.GetAllSourceHealth()
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": true},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.Sources.VimmActive()},
 	}
 	// Attach health data to each source
 	for _, src := range sourceMeta {
