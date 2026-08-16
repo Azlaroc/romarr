@@ -27,16 +27,33 @@ var (
 	iaDriverMu  sync.Mutex
 	iaDriverReg *sources.Registry
 	iaDriver    *archiveorg.Driver
+	iaCache     archiveorg.CacheStore
 )
+
+// SetIACache attaches the persistent metadata store (the DB) to every driver
+// the memo builds from here on, and drops the current memo so an already-built
+// driver rebuilds with the cache. Called once at boot; also means a sources
+// edit's intentional memo drop rebuilds a driver that warms from the DB
+// instead of refetching.
+func SetIACache(store archiveorg.CacheStore) {
+	iaDriverMu.Lock()
+	defer iaDriverMu.Unlock()
+	iaCache = store
+	iaDriver = nil
+	iaDriverReg = nil
+}
 
 func archiveOrgDriver(reg *sources.Registry) *archiveorg.Driver {
 	iaDriverMu.Lock()
 	defer iaDriverMu.Unlock()
 	if iaDriver == nil || iaDriverReg != reg {
-		iaDriver = archiveorg.New(
-			reg.ArchiveOrg.Items,
+		opts := []archiveorg.Option{
 			archiveorg.WithBaseURL(baseOrDefault(reg.ArchiveOrg.BaseURL, "https://archive.org")),
-		)
+		}
+		if iaCache != nil {
+			opts = append(opts, archiveorg.WithCache(iaCache))
+		}
+		iaDriver = archiveorg.New(reg.ArchiveOrg.Items, opts...)
 		iaDriverReg = reg
 	}
 	return iaDriver
