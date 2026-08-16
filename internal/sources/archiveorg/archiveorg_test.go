@@ -130,19 +130,91 @@ func TestSearch_NonRomFilesIgnored(t *testing.T) {
 	}
 }
 
-func TestSearch_UnmappedOrEmptySlug(t *testing.T) {
+func TestSearch_UnmappedSlug(t *testing.T) {
 	srv := metadataServer(t)
 	defer srv.Close()
 	d := newDriver(t, srv.URL)
 
-	for _, slug := range []string{"", "n64"} {
-		rel, err := d.Search(context.Background(), driver.Query{Text: "mario", PlatformSlug: slug})
-		if err != nil {
-			t.Fatalf("slug %q: %v", slug, err)
+	rel, err := d.Search(context.Background(), driver.Query{Text: "mario", PlatformSlug: "n64"})
+	if err != nil {
+		t.Fatalf("unmapped slug: %v", err)
+	}
+	if rel != nil {
+		t.Errorf("unmapped slug: want nil, got %v", titles(rel))
+	}
+}
+
+func TestSearch_EmptySlugFansAcrossItems(t *testing.T) {
+	// "All platforms" (#291): an empty slug searches every mapped item and
+	// tags each release with its item's platform slug — it used to return
+	// nil, silently hiding every IA result behind the default UI filter.
+	metaFor := func(names ...string) string {
+		parts := make([]string, len(names))
+		for i, n := range names {
+			parts[i] = `{"name":"` + n + `","source":"original","format":"ZIP","size":"1000","md5":"aa","sha1":"bb"}`
 		}
-		if rel != nil {
-			t.Errorf("slug %q: want nil, got %v", slug, titles(rel))
-		}
+		return `{"server":"s","dir":"/d","files":[` + strings.Join(parts, ",") + `]}`
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metadata/item-gb", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(metaFor("Wario Land (World).zip")))
+	})
+	mux.HandleFunc("/metadata/item-psx", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(metaFor("Wario Kart Fake (USA).zip", "Unrelated Game (USA).zip")))
+	})
+	mux.HandleFunc("/metadata/item-broken", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := New(map[string]string{
+		"gb":     "item-gb",
+		"psx":    "item-psx",
+		"broken": "item-broken",
+	}, WithBaseURL(srv.URL))
+
+	rel, err := d.Search(context.Background(), driver.Query{Text: "wario"})
+	if err != nil {
+		t.Fatalf("fan search: %v", err)
+	}
+	if len(rel) != 2 {
+		t.Fatalf("want 2 fanned results, got %d: %v", len(rel), titles(rel))
+	}
+	// Deterministic slug order (gb < psx), per-item slug tagging.
+	if rel[0].PlatformSlug != "gb" || rel[1].PlatformSlug != "psx" {
+		t.Errorf("slugs = %q,%q, want gb,psx", rel[0].PlatformSlug, rel[1].PlatformSlug)
+	}
+	if !strings.Contains(rel[0].DownloadURL, "item-gb") || !strings.Contains(rel[1].DownloadURL, "item-psx") {
+		t.Errorf("download URLs not per-item: %q / %q", rel[0].DownloadURL, rel[1].DownloadURL)
+	}
+
+	// All items failing surfaces the error (circuit breaker food).
+	dBroken := New(map[string]string{"x": "item-broken"}, WithBaseURL(srv.URL))
+	if _, err := dBroken.Search(context.Background(), driver.Query{Text: "wario"}); err == nil {
+		t.Error("all-items-broken fan should return the error")
+	}
+}
+
+func TestSearch_EmptySlugHonorsLimit(t *testing.T) {
+	metaMany := `{"server":"s","dir":"/d","files":[
+		{"name":"Wario A (USA).zip","source":"original","format":"ZIP","size":"1","md5":"aa","sha1":"bb"},
+		{"name":"Wario B (USA).zip","source":"original","format":"ZIP","size":"1","md5":"aa","sha1":"bb"},
+		{"name":"Wario C (USA).zip","source":"original","format":"ZIP","size":"1","md5":"aa","sha1":"bb"}]}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metadata/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(metaMany))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := New(map[string]string{"a": "i1", "b": "i2"}, WithBaseURL(srv.URL))
+	rel, err := d.Search(context.Background(), driver.Query{Text: "wario", Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rel) != 4 {
+		t.Errorf("fan results = %d, want overall limit 4 (3 from first item, 1 from second)", len(rel))
 	}
 }
 

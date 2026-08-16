@@ -194,3 +194,33 @@ func TestSourceEnableGuards(t *testing.T) {
 		}
 	})
 }
+
+// TestArchiveOrgDriverMemoized proves the IA driver — and with it the 1h item
+// metadata cache — survives between searches on the same registry. The old
+// per-call construction refetched ~1MB of item metadata on every query,
+// burning IA's anonymous rate limit across a wishlist cycle.
+func TestArchiveOrgDriverMemoized(t *testing.T) {
+	t.Cleanup(func() { RecordSearchSuccess("archiveorg") })
+	metadata := `{"server":"stub","dir":"/it","files":[
+		{"name":"Some Game (USA).zip","source":"original","format":"ZIP","size":"1000","md5":"aa","sha1":"bb"}]}`
+
+	rs := newRecordingServer(t, 200, metadata)
+	reg := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{
+		BaseURL: rs.URL, Items: map[string]string{"psx": "it"}}}
+
+	_ = SearchArchiveOrg(reg, "some game", "psx")
+	_ = SearchArchiveOrg(reg, "another query", "psx")
+	if got := len(rs.requestURIs()); got != 1 {
+		t.Errorf("metadata fetches for two searches on one registry = %d, want 1 (cache dead?)", got)
+	}
+
+	// A different registry instance (fresh config / test isolation) must get
+	// a fresh driver, not the previous registry's cache.
+	rs2 := newRecordingServer(t, 200, metadata)
+	reg2 := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{
+		BaseURL: rs2.URL, Items: map[string]string{"psx": "it"}}}
+	_ = SearchArchiveOrg(reg2, "some game", "psx")
+	if !rs2.hit() {
+		t.Error("new registry did not get a fresh driver")
+	}
+}
