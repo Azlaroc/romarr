@@ -14,6 +14,9 @@ import { Settings } from './routes/settings/Settings'
 import { MediaManagement } from './routes/settings/MediaManagement'
 import { Indexers } from './routes/settings/Indexers'
 import { DownloadClients } from './routes/settings/DownloadClients'
+import { Connect } from './routes/settings/Connect'
+import { Metadata } from './routes/settings/Metadata'
+import { Tags } from './routes/settings/Tags'
 import { Profiles } from './routes/settings/Profiles'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
 import { ReleaseProfileEditor } from './routes/settings/ReleaseProfileEditor'
@@ -45,6 +48,9 @@ export const router = createBrowserRouter([
       { path: 'settings/media-management', element: <MediaManagement /> },
       { path: 'settings/indexers', element: <Indexers /> },
       { path: 'settings/download-clients', element: <DownloadClients /> },
+      { path: 'settings/connect', element: <Connect /> },
+      { path: 'settings/metadata', element: <Metadata /> },
+      { path: 'settings/tags', element: <Tags /> },
       { path: 'settings/general', element: <Settings /> },
       { path: 'settings/profiles', element: <Profiles /> },
       { path: 'settings/profiles/quality/new', element: <QualityProfileEditor /> },

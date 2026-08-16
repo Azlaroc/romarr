@@ -21,6 +21,8 @@ import type {
   SourceInfo,
   SourceHealth,
   DDLSource,
+  Webhook,
+  Tag,
   Stats,
   ActivityPage,
   MonitorStatus,
@@ -61,6 +63,8 @@ export const keys = {
   sources: ['sources'] as const,
   sourcesHealth: ['sources-health'] as const,
   ddlSources: ['ddl-sources'] as const,
+  webhooks: ['webhooks'] as const,
+  tags: ['tags'] as const,
   stats: ['stats'] as const,
   activity: (page: number) => ['activity', page] as const,
   monitor: ['monitor'] as const,
@@ -389,6 +393,63 @@ export function useSaveSetting() {
 export function useTestConnection() {
   return useMutation({
     mutationFn: (service: string) => api.post<TestResult>(`/api/test/${service}`),
+  })
+}
+
+// ---------- webhooks & tags (Settings > Connect / Tags) ----------
+
+export function useWebhooks() {
+  return useQuery({
+    queryKey: keys.webhooks,
+    queryFn: async () => pickArray<Webhook>(await api.get('/api/webhooks'), 'webhooks'),
+  })
+}
+
+export function useAddWebhook() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (hook: { name: string; url: string; type: string; events: string }) =>
+      api.post('/api/webhooks', hook),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.webhooks }),
+  })
+}
+
+export function useDeleteWebhook() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/webhooks/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.webhooks }),
+  })
+}
+
+/** Fires a real HTTP request at the stored webhook's URL; {success:false,error} on delivery failure. */
+export function useTestWebhook() {
+  return useMutation({
+    mutationFn: (req: { id: number } | { url: string; type?: string }) =>
+      api.post<{ success: boolean; error?: string }>('/api/webhooks/test', req),
+  })
+}
+
+export function useTags() {
+  return useQuery({
+    queryKey: keys.tags,
+    queryFn: async () => pickArray<Tag>(await api.get('/api/tags'), 'tags'),
+  })
+}
+
+export function useAddTag() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (tag: { name: string; color?: string }) => api.post('/api/tags', tag),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tags }),
+  })
+}
+
+export function useDeleteTag() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/tags/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tags }),
   })
 }
 

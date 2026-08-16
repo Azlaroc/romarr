@@ -226,6 +226,24 @@ export interface SettingsEnv {
   converto: { available: boolean; version: string }
 }
 
+/** Row from GET /api/webhooks (envelope {success, webhooks}). */
+export interface Webhook {
+  id: number
+  name: string
+  url: string
+  type: string // "discord" | "generic"
+  enabled: boolean
+  events: string // comma-separated event names, or "*" for all
+  created_at: string
+}
+
+/** Row from GET /api/tags (envelope {success, tags}). */
+export interface Tag {
+  id: number
+  name: string
+  color: string
+}
+
 export interface AuthStatus {
   has_users: boolean
   authenticated: boolean
