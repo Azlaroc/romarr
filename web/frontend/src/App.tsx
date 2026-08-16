@@ -8,7 +8,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950">
       <Sidebar mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-      <div className="md:pl-56">
+      <div className="md:pl-[210px]">
         <Topbar onMenu={() => setMobileOpen((v) => !v)} />
         <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <Outlet />

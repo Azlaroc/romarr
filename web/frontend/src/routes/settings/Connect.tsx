@@ -97,7 +97,7 @@ function Webhooks() {
         </p>
         <div className="space-y-2" data-testid="cn-webhook-list">
           {hooks.map((h) => (
-            <div key={h.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3" data-testid={`cn-webhook-${h.id}`}>
+            <div key={h.id} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`cn-webhook-${h.id}`}>
               <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   <span className={`h-2 w-2 shrink-0 rounded-full ${h.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
@@ -184,14 +184,14 @@ function RomM() {
           <AdminNotice />
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+            <div className="flex items-center justify-between rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">Import scan notifications</div>
                 <div className="mt-0.5 text-xs text-slate-500">Ask RomM to rescan a platform right after an import lands</div>
               </div>
               <span className="shrink-0 text-sm text-slate-300">{env ? (env.romm.connect_enabled ? 'Enabled' : 'Disabled') : '…'}</span>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+            <div className="flex items-center justify-between rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">Ownership sync</div>
                 <div className="mt-0.5 text-xs text-slate-500">

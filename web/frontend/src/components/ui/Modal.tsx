@@ -20,7 +20,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:items-center" onMouseDown={onClose}>
       <div
-        className="my-8 w-full max-w-lg animate-slide-in rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl"
+        className="my-8 w-full max-w-lg animate-slide-in rounded border border-slate-800 bg-slate-900 shadow-2xl"
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}

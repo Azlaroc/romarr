@@ -17,7 +17,7 @@ export function Toggle({ checked, onChange, label, hint, disabled, ...rest }: Pr
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}
-        className="mt-0.5 h-4 w-4 rounded accent-accent-500"
+        className="mt-0.5 h-5 w-5 rounded-sm accent-accent-600"
         {...rest}
       />
       <span className="min-w-0">

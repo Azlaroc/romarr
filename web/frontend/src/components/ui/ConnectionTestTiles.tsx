@@ -42,7 +42,7 @@ export function ConnectionTestTiles({ services }: { services: TestService[] }) {
         <button
           key={svc.id}
           onClick={() => run(svc.id)}
-          className="rounded-lg border border-slate-700 bg-slate-800 p-3 text-left transition-colors hover:bg-slate-700"
+          className="rounded border border-slate-700 bg-slate-800 p-3 text-left transition-colors hover:bg-slate-700"
           data-testid={`test-${svc.id}`}
         >
           <div className="flex items-center gap-2">

@@ -70,7 +70,7 @@ function SearchSources() {
         {sources.map((s, i) => {
           const h = s.name ? (health[s.name] ?? s.health) : s.health
           return (
-            <div key={s.name ?? i} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3">
+            <div key={s.name ?? i} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   <span className={`h-2 w-2 shrink-0 rounded-full ${s.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
@@ -94,7 +94,7 @@ function SearchSources() {
           )
         })}
         {extras.map(([name, h]) => (
-          <div key={name} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3">
+          <div key={name} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
             <div className="min-w-0">
               <div className="flex items-center gap-3">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${h.circuit_open ? 'bg-red-500' : 'bg-emerald-500'}`} />
@@ -157,7 +157,7 @@ function DDLSources() {
       <div className="space-y-3">
         <div className="space-y-2" data-testid="idx-ddl-list">
           {rows.map((r, i) => (
-            <div key={`${r.name}-${i}`} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3" data-testid={`idx-ddl-${i}`}>
+            <div key={`${r.name}-${i}`} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`idx-ddl-${i}`}>
               <div className="min-w-0">
                 <div className="text-sm text-white">{r.name}</div>
                 <div className="mt-0.5 truncate text-xs text-slate-500">{r.url}</div>

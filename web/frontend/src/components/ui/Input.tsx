@@ -2,7 +2,7 @@ import type { InputHTMLAttributes } from 'react'
 
 /** Shared text/number input styling (extracted from the PR-A screens). */
 export const inputCls =
-  'w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-white placeholder-slate-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-60'
+  'w-full rounded border border-slate-700 bg-slate-800 px-4 py-1.5 text-sm text-slate-300 placeholder-slate-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-60'
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label?: string

@@ -58,14 +58,14 @@ export function Monitor() {
               </span>
               {data?.auto_fix && <Badge color="yellow">auto-fix</Badge>}
             </div>
-            <div className="rounded-lg bg-slate-800 p-3 text-sm text-slate-400">{data?.diagnosis || '—'}</div>
+            <div className="rounded bg-slate-800 p-3 text-sm text-slate-400">{data?.diagnosis || '—'}</div>
           </div>
         </Card>
 
         <Card title="Pending actions">
           <div className="space-y-2" data-testid="monitor-actions">
             {pending.map((a) => (
-              <div key={a.id} className="flex items-center gap-3 rounded-lg bg-slate-800 p-3" data-testid={`monitor-action-${a.id}`}>
+              <div key={a.id} className="flex items-center gap-3 rounded bg-slate-800 p-3" data-testid={`monitor-action-${a.id}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-white">{a.action}</span>

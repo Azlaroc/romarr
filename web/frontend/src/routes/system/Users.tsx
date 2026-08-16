@@ -87,7 +87,7 @@ export function Users() {
           {/* Container stays mounted; open mode has zero users. */}
           <div className="space-y-2" data-testid="users-table">
             {(users ?? []).map((u) => (
-              <div key={u.id} className="flex items-center gap-3 rounded-lg bg-slate-800 p-3" data-testid={`user-row-${u.id}`}>
+              <div key={u.id} className="flex items-center gap-3 rounded bg-slate-800 p-3" data-testid={`user-row-${u.id}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-white">{u.username}</span>
@@ -149,7 +149,7 @@ export function Users() {
           )}
           <div className="space-y-2" data-testid="invites-list">
             {invites.map((inv) => (
-              <div key={inv.id} className="flex items-center gap-3 rounded-lg bg-slate-800 p-3">
+              <div key={inv.id} className="flex items-center gap-3 rounded bg-slate-800 p-3">
                 <code className="min-w-0 flex-1 truncate text-xs text-slate-300">{inv.code}</code>
                 <Badge color={inv.role === 'admin' ? 'accent' : 'slate'}>{inv.role}</Badge>
                 <span className="text-xs text-slate-500">
