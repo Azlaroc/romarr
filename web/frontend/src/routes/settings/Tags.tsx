@@ -50,7 +50,7 @@ export function Tags() {
             </p>
             <div className="space-y-2" data-testid="tag-list">
               {tags.map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3" data-testid={`tag-row-${t.id}`}>
+                <div key={t.id} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`tag-row-${t.id}`}>
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: t.color || '#6366f1' }} />
                     <span className="truncate text-sm text-white">{t.name}</span>

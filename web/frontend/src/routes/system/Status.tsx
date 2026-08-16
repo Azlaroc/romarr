@@ -64,7 +64,7 @@ export function SystemStatus() {
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-slate-800 p-3 text-center">
+    <div className="rounded bg-slate-800 p-3 text-center">
       <div className="truncate text-lg font-bold text-slate-200">{value}</div>
       <div className="mt-1 text-xs text-slate-500">{label}</div>
     </div>
@@ -78,11 +78,11 @@ function CollectionBars({ platforms, total, jobs }: { platforms: Record<string, 
   return (
     <div data-testid="system-stats">
       <div className="mb-4 grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-slate-800 p-3 text-center">
+        <div className="rounded bg-slate-800 p-3 text-center">
           <div className="text-2xl font-bold text-accent-400">{total}</div>
           <div className="mt-1 text-xs text-slate-500">Library items</div>
         </div>
-        <div className="rounded-lg bg-slate-800 p-3 text-center">
+        <div className="rounded bg-slate-800 p-3 text-center">
           <div className="text-2xl font-bold text-slate-300">{jobs ?? 0}</div>
           <div className="mt-1 text-xs text-slate-500">Total jobs</div>
         </div>

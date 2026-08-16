@@ -14,7 +14,7 @@ export function Metadata() {
       <div className="space-y-6">
         <Card title="Sources">
           <div className="space-y-2" data-testid="md-sources">
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3">
+            <div className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">RomM</div>
                 <div className="mt-0.5 text-xs text-slate-500">
@@ -23,7 +23,7 @@ export function Metadata() {
               </div>
               <Badge color="emerald">library of record</Badge>
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-800 p-3">
+            <div className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">RAWG</div>
                 <div className="mt-0.5 text-xs text-slate-500">

@@ -98,7 +98,7 @@ export function MediaManagement() {
             </p>
             <div className="space-y-2">
               {NAMING_AUTHORITIES.map((row) => (
-                <div key={row.lane} className="flex items-start justify-between gap-4 rounded-lg bg-slate-800 p-3">
+                <div key={row.lane} className="flex items-start justify-between gap-4 rounded bg-slate-800 p-3">
                   <div className="min-w-0">
                     <div className="text-sm text-white">{row.lane}</div>
                     <div className="mt-0.5 text-xs text-slate-500">{row.note}</div>
@@ -128,7 +128,7 @@ export function MediaManagement() {
         {!forbidden && (
           <Card title="Root Folders">
             <div className="space-y-2" data-testid="mm-root-folders">
-              <div className="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+              <div className="flex items-center justify-between rounded bg-slate-800 p-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm text-white" data-testid="mm-roms-path">{env?.paths.roms_path ?? '…'}</div>
                   <div className="mt-0.5 text-xs text-slate-500">
@@ -137,7 +137,7 @@ export function MediaManagement() {
                 </div>
                 <span className="shrink-0 text-sm text-slate-300">{formatBytes(env?.paths.roms_free_bytes)} free</span>
               </div>
-              <div className="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+              <div className="flex items-center justify-between rounded bg-slate-800 p-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm text-white" data-testid="mm-vault-path">{env?.paths.vault_path ?? '…'}</div>
                   <div className="mt-0.5 text-xs text-slate-500">PC game vault</div>

@@ -51,7 +51,7 @@ function Clients() {
         {extras.length > 0 && (
           <div className="space-y-2">
             {extras.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg bg-slate-800 p-3" data-testid={`dc-${c.id}`}>
+              <div key={c.id} className="flex items-center justify-between rounded bg-slate-800 p-3" data-testid={`dc-${c.id}`}>
                 <div className="min-w-0">
                   <div className="text-sm text-white">{c.label}</div>
                   <div className="mt-0.5 truncate text-xs text-slate-500">{config?.[c.id]?.url}</div>
@@ -102,7 +102,7 @@ function CompletedDownloadHandling() {
     <Card title="Completed download handling">
       <div className="space-y-2" data-testid="dc-handling">
         {rows.map((r) => (
-          <div key={r.key} className="flex items-center justify-between gap-4 rounded-lg bg-slate-800 p-3">
+          <div key={r.key} className="flex items-center justify-between gap-4 rounded bg-slate-800 p-3">
             <div className="min-w-0">
               <div className="text-sm text-white">{r.label}</div>
               <div className="mt-0.5 text-xs text-slate-500">{r.hint}</div>

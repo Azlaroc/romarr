@@ -5,13 +5,27 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Roboto', '"open sans"', '"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
       },
       colors: {
-        // Surface ramp (kept from the previous UI for visual continuity).
+        // Arr-family surface ramp. Hex values sampled from Radarr's
+        // open-source dark theme (values only, no code copied):
+        //   950 pageBackground #202020 · 900 sidebar/header/modal #2a2a2a
+        //   850 toolbar #262626 · 800 card/input #333333 · 700 border/hover
+        //   600 dim #555 · 500 helpText #909293 · 400 disabled #999
+        //   300 text #ccc · 200 lightGray #ddd · 100 buttonText #eee
         slate: {
-          850: '#172033',
-          950: '#0b1120',
+          100: '#eeeeee',
+          200: '#dddddd',
+          300: '#cccccc',
+          400: '#999999',
+          500: '#909293',
+          600: '#555555',
+          700: '#404040',
+          800: '#333333',
+          850: '#262626',
+          900: '#2a2a2a',
+          950: '#202020',
         },
         // RomArr identity: a violet accent (distinct from Radarr-yellow /
         // Sonarr-blue). Exposed as CSS vars in index.css so it is swappable.
