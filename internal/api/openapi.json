@@ -947,6 +947,71 @@
           }
         }
       }
+    },
+    "/api/source-registry": {
+      "get": {
+        "summary": "List built-in source registry rows",
+        "description": "The built-in driver specs (vimm, archiveorg) with enabled/base_url/mapping and the computed active flag (admin).",
+        "responses": {
+          "200": {
+            "description": "Registry rows"
+          }
+        }
+      }
+    },
+    "/api/source-registry/{name}": {
+      "put": {
+        "summary": "Update a built-in source spec",
+        "description": "Sparse patch {enabled?, base_url?, mapping?} (admin). The registry is a closed set: unknown names 404. Writes hot-apply — the live registry swaps before the response returns.",
+        "responses": {
+          "200": {
+            "description": "Updated row"
+          },
+          "400": {
+            "description": "Validation failure"
+          },
+          "404": {
+            "description": "Unknown source"
+          }
+        }
+      }
+    },
+    "/api/ddl-sources": {
+      "get": {
+        "summary": "List DDL sources",
+        "description": "The built-in Vimm display row followed by custom rows with stable ids (admin).",
+        "responses": {
+          "200": {
+            "description": "Source rows"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a custom DDL source",
+        "description": "Body {name, url} (admin). Custom rows are placeholders until a generic DDL driver consumes them.",
+        "responses": {
+          "200": {
+            "description": "{success, id}"
+          },
+          "400": {
+            "description": "Missing name or url"
+          }
+        }
+      }
+    },
+    "/api/ddl-sources/{id}": {
+      "delete": {
+        "summary": "Delete a custom DDL source",
+        "description": "By stable id (admin); built-in rows have no id and cannot be deleted.",
+        "responses": {
+          "200": {
+            "description": "{success}"
+          },
+          "404": {
+            "description": "Unknown id"
+          }
+        }
+      }
     }
   }
 }

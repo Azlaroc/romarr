@@ -175,6 +175,11 @@ default).
 
 ### Sources Registry
 
+The registry is **database-managed**: `GAMARR_SOURCES_PATH`/`GAMARR_SOURCES_URL`
+(and the `VIMM_URL`/`ARCHIVEORG_URL` overrides) resolve a seed that imports on
+**first boot only**; afterwards edit sources in Settings › Indexers — changes
+apply immediately, no restart.
+
 The active indexer list (base URLs, per-platform path mappings) is loaded at startup from, in order: `GAMARR_SOURCES_PATH`, `GAMARR_SOURCES_URL`, or an embedded fallback. Legacy per-source env vars below continue to take precedence over registry values.
 
 | Variable | Default | Description |

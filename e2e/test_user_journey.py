@@ -298,6 +298,32 @@ def test_settings_indexers_ddl_sources(ui):
         "E2E Custom Source", timeout=SLOW_MS)
 
 
+def test_settings_source_registry_edit(ui):
+    # Built-in source registry is DB-backed and editable: toggle Vimm's
+    # enabled flag off and back on through the editor modal (state-neutral;
+    # the harness Vimm is inactive either way — dead URL, empty mapping).
+    page = ui["page"]
+    _open_settings_child(page, "indexers", "idx-src-list")
+    expect(page.get_by_test_id("idx-src-row-vimm")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("idx-src-row-archiveorg")).to_be_visible(timeout=SLOW_MS)
+
+    page.get_by_test_id("idx-src-edit-vimm").click()
+    toggle = page.get_by_test_id("idx-src-enabled")
+    expect(toggle).to_be_visible(timeout=SLOW_MS)
+    initial = toggle.is_checked()
+    toggle.click()
+    page.get_by_test_id("idx-src-save").click()
+    expect(page.get_by_test_id("idx-src-enabled")).not_to_be_attached(timeout=SLOW_MS)
+
+    # Reopen: the change persisted; flip it back.
+    page.get_by_test_id("idx-src-edit-vimm").click()
+    toggle = page.get_by_test_id("idx-src-enabled")
+    expect(toggle).to_be_checked(checked=not initial, timeout=SLOW_MS)
+    toggle.click()
+    page.get_by_test_id("idx-src-save").click()
+    expect(page.get_by_test_id("idx-src-enabled")).not_to_be_attached(timeout=SLOW_MS)
+
+
 def test_settings_connect_webhooks(ui):
     # Webhook CRUD on Settings > Connect: add -> visible -> delete (state
     # left clean). The Test button fires a real outbound HTTP call, so it is

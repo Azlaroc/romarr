@@ -29,6 +29,13 @@ type Config struct {
 	// until then.
 	settings atomic.Pointer[settingsHolder]
 
+	// sourcesPtr, when set, supersedes the Sources field: the DB-hydrated
+	// registry, installed at boot and swapped ONLY on a sources write. The
+	// IA driver memo is keyed on registry pointer identity, so per-request
+	// rebuilds would trash its metadata cache — reads are an atomic load of
+	// a long-lived pointer.
+	sourcesPtr atomic.Pointer[sources.Registry]
+
 	// Sources is the runtime source-driver registry. Drivers read base URLs
 	// and per-platform mappings from here instead of from hardcoded constants.
 	// Always non-nil after Load() returns.
@@ -308,6 +315,21 @@ func (c *Config) HasClamAV() bool {
 // after the DB opens; safe to call from tests with any SettingsSource.
 func (c *Config) AttachSettings(src SettingsSource) {
 	c.settings.Store(&settingsHolder{src: src})
+}
+
+// SourcesRegistry returns the live source registry: the DB-hydrated one when
+// installed, else the env-resolved Sources field (bare test configs).
+func (c *Config) SourcesRegistry() *sources.Registry {
+	if r := c.sourcesPtr.Load(); r != nil {
+		return r
+	}
+	return c.Sources
+}
+
+// SetSourcesRegistry installs a fresh registry pointer. Called at boot after
+// the DB seed and from the sources-write handler — never per request.
+func (c *Config) SetSourcesRegistry(r *sources.Registry) {
+	c.sourcesPtr.Store(r)
 }
 
 func (c *Config) settingStr(key string) (string, bool) {

@@ -73,8 +73,8 @@ export function Backup() {
 
         <Card title="Restore">
           <p className="mb-3 text-sm text-slate-400">
-            Upload a backup ZIP. Only gamarr.db, settings.json, and ddl_sources.json are restored; a restart is
-            required afterwards.
+            Upload a backup ZIP. Only gamarr.db is restored (legacy backups may also carry settings.json and
+            ddl_sources.json, which migrate into the database on next start); a restart is required afterwards.
           </p>
           <input
             ref={fileRef}

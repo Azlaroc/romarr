@@ -1291,21 +1291,42 @@ type Settings struct {
 	ConvertROMs bool `json:"convert_roms"`
 }
 
-// DDL source management
-
-func (m *Manager) LoadDDLSources() []map[string]interface{} {
-	fp := filepath.Join(m.cfg.DataDir, "ddl_sources.json")
+// ImportLegacyDDLSources migrates a pre-DB ddl_sources.json into the
+// ddl_sources table exactly once: only when the table is empty and the file
+// parses. The file is renamed with a .migrated suffix afterwards; built-in
+// rows that older builds persisted by mistake are skipped.
+func ImportLegacyDDLSources(cfg *config.Config, jobs *db.JobStore) {
+	if jobs.CountDDLSources() > 0 {
+		return
+	}
+	fp := filepath.Join(cfg.DataDir, "ddl_sources.json")
 	data, err := os.ReadFile(fp)
 	if err != nil {
-		return nil
+		return
 	}
-	var sources []map[string]interface{}
-	json.Unmarshal(data, &sources)
-	return sources
-}
-
-func (m *Manager) SaveDDLSources(sources []map[string]interface{}) {
-	os.MkdirAll(m.cfg.DataDir, 0755)
-	data, _ := json.MarshalIndent(sources, "", "  ")
-	os.WriteFile(filepath.Join(m.cfg.DataDir, "ddl_sources.json"), data, 0644)
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		slog.Warn("legacy ddl_sources.json unreadable; skipping import", "error", err)
+		return
+	}
+	imported := 0
+	for _, row := range rows {
+		if b, _ := row["builtin"].(bool); b {
+			continue
+		}
+		name, _ := row["name"].(string)
+		url, _ := row["url"].(string)
+		if name == "" || url == "" {
+			continue
+		}
+		if _, err := jobs.AddDDLSource(name, url); err == nil {
+			imported++
+		}
+	}
+	if err := os.Rename(fp, fp+".migrated"); err != nil {
+		slog.Warn("could not rename migrated ddl_sources.json", "error", err)
+	}
+	if imported > 0 {
+		slog.Info("migrated ddl_sources.json into the database", "rows", imported)
+	}
 }

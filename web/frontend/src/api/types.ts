@@ -137,14 +137,27 @@ export interface SourceHealth {
   circuit_retry_in_sec: number
 }
 
-/** Row from GET /api/ddl-sources — builtin rows come first and cannot be deleted;
- *  DELETE /api/ddl-sources/{idx} indexes into the CUSTOM rows only. */
+/** Row from GET /api/ddl-sources — the builtin row comes first and cannot be
+ *  deleted; custom rows carry stable ids for DELETE /api/ddl-sources/{id}. */
 export interface DDLSource {
+  id?: number
   name: string
   url: string
   type: string
   builtin?: boolean
+  enabled?: boolean
   platforms?: string[]
+}
+
+/** Row from GET /api/source-registry — the built-in driver specs. */
+export interface SourceRegistryRow {
+  name: string
+  label: string
+  builtin: boolean
+  enabled: boolean
+  base_url: string
+  mapping: Record<string, string>
+  active: boolean
 }
 
 export interface Stats {

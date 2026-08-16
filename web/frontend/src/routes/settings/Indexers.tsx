@@ -7,8 +7,10 @@ import {
   useResetSource,
   useSaveSetting,
   useSettings,
+  useSourceRegistry,
   useSources,
   useSourcesHealth,
+  useUpdateSourceSpec,
 } from '../../api/queries'
 import type { SourceHealth } from '../../api/types'
 import { isForbidden } from '../../api/client'
@@ -20,6 +22,7 @@ import { Card } from '../../components/ui/Card'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
+import { Modal } from '../../components/ui/Modal'
 import { Select } from '../../components/ui/Select'
 import { ShowAdvancedButton } from '../../components/ui/ShowAdvancedButton'
 import { Toggle } from '../../components/ui/Toggle'
@@ -37,6 +40,7 @@ export function Indexers() {
       />
       <div className="space-y-6">
         <SearchSources />
+        <SourceRegistryCard />
         <WishlistSearch showAdvanced={showAdvanced} />
         <DDLSources />
         <ProwlarrCard />
@@ -261,6 +265,121 @@ function SearchSources() {
   )
 }
 
+// SourceRegistryCard edits the built-in driver specs (Vimm, Internet
+// Archive): enabled flag, base URL, and the platform→item/system mapping.
+// Edits hot-apply — the backend swaps the live registry on save.
+function SourceRegistryCard() {
+  const { data: rows = [], error } = useSourceRegistry()
+  const update = useUpdateSourceSpec()
+  const { toast } = useToast()
+  const [editing, setEditing] = useState<string | null>(null)
+  const [enabled, setEnabled] = useState(false)
+  const [baseUrl, setBaseUrl] = useState('')
+  const [mappingText, setMappingText] = useState('')
+
+  if (isForbidden(error)) {
+    return (
+      <Card title="Sources">
+        <AdminNotice />
+      </Card>
+    )
+  }
+
+  const openEditor = (name: string) => {
+    const row = rows.find((r) => r.name === name)
+    if (!row) return
+    setEnabled(row.enabled)
+    setBaseUrl(row.base_url)
+    setMappingText(JSON.stringify(row.mapping ?? {}, null, 2))
+    setEditing(name)
+  }
+
+  const saveEditor = async () => {
+    if (!editing) return
+    let mapping: Record<string, string>
+    try {
+      mapping = JSON.parse(mappingText)
+      if (typeof mapping !== 'object' || mapping === null || Array.isArray(mapping)) throw new Error('not an object')
+      for (const v of Object.values(mapping)) {
+        if (typeof v !== 'string') throw new Error('values must be strings')
+      }
+    } catch {
+      toast('Mapping must be a JSON object of platform → identifier strings', 'error')
+      return
+    }
+    try {
+      await update.mutateAsync({ name: editing, patch: { enabled, base_url: baseUrl, mapping } })
+      toast('Source saved', 'success')
+      setEditing(null)
+    } catch {
+      toast('Failed to save source', 'error')
+    }
+  }
+
+  const editingRow = rows.find((r) => r.name === editing)
+
+  return (
+    <Card title="Sources">
+      <div className="space-y-2" data-testid="idx-src-list">
+        <p className="text-xs text-slate-500">
+          Built-in search drivers. Edits apply immediately — no restart. A source is active only when enabled AND it
+          has platforms mapped.
+        </p>
+        {rows.map((r) => (
+          <div key={r.name} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`idx-src-row-${r.name}`}>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${r.active ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+              <div className="min-w-0">
+                <div className="text-sm text-white">{r.label}</div>
+                <div className="mt-0.5 truncate text-xs text-slate-500">
+                  {r.base_url || 'no base URL'} · {Object.keys(r.mapping ?? {}).length} platforms mapped
+                  {!r.enabled && ' · disabled'}
+                </div>
+              </div>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => openEditor(r.name)} data-testid={`idx-src-edit-${r.name}`}>
+              Edit
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <Modal open={editing !== null} onClose={() => setEditing(null)} title={`Edit ${editingRow?.label ?? ''}`}>
+        <div className="space-y-4 p-4">
+          <Toggle
+            checked={enabled}
+            onChange={setEnabled}
+            label="Enabled"
+            hint="Disabled sources are skipped by every search"
+            data-testid="idx-src-enabled"
+          />
+          <Input label="Base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} data-testid="idx-src-baseurl" />
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-400">
+              Platform mapping (JSON: platform slug → {editingRow?.name === 'archiveorg' ? 'archive.org item' : 'site system id'})
+            </span>
+            <textarea
+              value={mappingText}
+              onChange={(e) => setMappingText(e.target.value)}
+              rows={8}
+              className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-xs text-slate-300 focus:border-accent-500 focus:outline-none"
+              data-testid="idx-src-mapping"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={saveEditor} disabled={update.isPending} data-testid="idx-src-save">
+              Save
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </Card>
+  )
+}
+
 function DDLSources() {
   const { data: rows = [] } = useDDLSources()
   const add = useAddDDLSource()
@@ -269,9 +388,7 @@ function DDLSources() {
 
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
-  const [deleting, setDeleting] = useState<{ customIdx: number; name: string } | null>(null)
-
-  const builtinCount = rows.filter((r) => r.builtin).length
+  const [deleting, setDeleting] = useState<{ id: number; name: string } | null>(null)
 
   const submit = async () => {
     try {
@@ -287,7 +404,7 @@ function DDLSources() {
   const confirmDelete = async () => {
     if (!deleting) return
     try {
-      await del.mutateAsync(deleting.customIdx)
+      await del.mutateAsync(deleting.id)
       toast('Source removed', 'success')
     } catch {
       toast('Failed to remove source', 'error')
@@ -299,21 +416,24 @@ function DDLSources() {
   return (
     <Card title="DDL sources">
       <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Custom rows are placeholders for future direct-download drivers — search does not consume them yet.
+        </p>
         <div className="space-y-2" data-testid="idx-ddl-list">
           {rows.map((r, i) => (
-            <div key={`${r.name}-${i}`} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`idx-ddl-${i}`}>
+            <div key={r.id ?? `builtin-${i}`} className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3" data-testid={`idx-ddl-${i}`}>
               <div className="min-w-0">
                 <div className="text-sm text-white">{r.name}</div>
                 <div className="mt-0.5 truncate text-xs text-slate-500">{r.url}</div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Badge color={r.builtin ? 'slate' : 'accent'}>{r.builtin ? 'built-in' : r.type}</Badge>
-                {!r.builtin && (
+                {!r.builtin && r.id !== undefined && (
                   <Button
                     size="sm"
                     variant="danger"
-                    onClick={() => setDeleting({ customIdx: i - builtinCount, name: r.name })}
-                    data-testid={`idx-ddl-delete-${i}`}
+                    onClick={() => setDeleting({ id: r.id!, name: r.name })}
+                    data-testid={`idx-ddl-delete-${r.id}`}
                   >
                     Delete
                   </Button>

@@ -21,6 +21,7 @@ import type {
   SourceInfo,
   SourceHealth,
   DDLSource,
+  SourceRegistryRow,
   Webhook,
   Tag,
   Stats,
@@ -60,6 +61,7 @@ export const keys = {
   downloads: ['downloads'] as const,
   wishlist: ['wishlist'] as const,
   sources: ['sources'] as const,
+  sourceRegistry: ['source-registry'] as const,
   sourcesHealth: ['sources-health'] as const,
   ddlSources: ['ddl-sources'] as const,
   webhooks: ['webhooks'] as const,
@@ -172,7 +174,7 @@ export function useResetSource() {
   })
 }
 
-/** Builtin rows come first; DELETE indexes into the custom rows only. */
+/** Builtin rows come first; custom rows carry stable ids for DELETE. */
 export function useDDLSources() {
   return useQuery({
     queryKey: keys.ddlSources,
@@ -191,8 +193,29 @@ export function useAddDDLSource() {
 export function useDeleteDDLSource() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (customIdx: number) => api.del(`/api/ddl-sources/${customIdx}`),
+    mutationFn: (id: number) => api.del(`/api/ddl-sources/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.ddlSources }),
+  })
+}
+
+/** Built-in source registry rows (vimm, archiveorg) — DB-backed, editable. */
+export function useSourceRegistry() {
+  return useQuery({
+    queryKey: keys.sourceRegistry,
+    queryFn: async () => pickArray<SourceRegistryRow>(await api.get('/api/source-registry'), 'sources'),
+  })
+}
+
+export function useUpdateSourceSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, patch }: { name: string; patch: Partial<Pick<SourceRegistryRow, 'enabled' | 'base_url' | 'mapping'>> }) =>
+      api.put(`/api/source-registry/${name}`, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.sourceRegistry })
+      qc.invalidateQueries({ queryKey: keys.sources })
+      qc.invalidateQueries({ queryKey: keys.ddlSources })
+    },
   })
 }
 
