@@ -165,6 +165,26 @@ export interface Settings {
   convert_roms?: boolean
 }
 
+/** GET /api/settings/env — read-only, boot-time env config (admin). */
+export interface SettingsEnv {
+  paths: {
+    roms_path: string
+    vault_path: string
+    roms_free_bytes: number
+    vault_free_bytes: number
+    platform_dir_count: number
+  }
+  selector: { mode: string }
+  scheduler: { enabled: boolean; interval_hours: number; auto_download: boolean; min_score: number }
+  romm: { sync_enabled: boolean; sync_interval_seconds: number; connect_enabled: boolean }
+  downloads: {
+    remove_torrent_after_import: boolean
+    seed_janitor_enabled: boolean
+    watcher_interval_seconds: number
+  }
+  converto: { available: boolean; version: string }
+}
+
 export interface AuthStatus {
   has_users: boolean
   authenticated: boolean

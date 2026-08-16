@@ -166,9 +166,36 @@ def test_wishlist_add_and_delete(ui):
 
 # ── settings: connection tests against the stubs ──────────────────────────────
 
-def test_settings_connection_tests(ui):
+def _open_general(page):
+    """Settings now lands on Media Management; General holds tests/sources/security."""
+    _nav(page, "settings", "Settings")
+    page.get_by_test_id("nav-settings-general").click()
+    expect(page.get_by_test_id("test-qbittorrent")).to_be_visible(timeout=SLOW_MS)
+
+
+def test_settings_media_management(ui):
+    # Bare /settings redirects to the Media Management sub-page (arr-style IA).
     page = ui["page"]
     _nav(page, "settings", "Settings")
+    expect(page.get_by_test_id("mm-cards")).to_be_attached(timeout=SLOW_MS)
+    expect(page.get_by_test_id("mm-importing")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("mm-naming")).to_be_attached()
+    expect(page.get_by_test_id("mm-conversion")).to_be_attached()
+    expect(page.get_by_test_id("mm-root-folders")).to_be_attached(timeout=SLOW_MS)
+
+    # Toggle round-trip on one pipeline setting; end-state must equal start-state
+    # (settings.json is shared session state — API journeys read these flags).
+    toggle = page.get_by_test_id("setting-extract")
+    initial = toggle.is_checked()
+    toggle.click()
+    expect(toggle).to_be_checked(checked=not initial, timeout=SLOW_MS)
+    toggle.click()
+    expect(toggle).to_be_checked(checked=initial, timeout=SLOW_MS)
+
+
+def test_settings_connection_tests(ui):
+    page = ui["page"]
+    _open_general(page)
 
     page.get_by_test_id("test-qbittorrent").click()
     expect(page.get_by_test_id("test-qbittorrent-status")).to_have_text(
@@ -190,8 +217,8 @@ def test_settings_connection_tests(ui):
 
 def test_settings_shows_sources(ui):
     # Collection stats moved to System -> Status in PR-G (asserted in
-    # test_system_journey.py); Settings keeps the sources card.
+    # test_system_journey.py); Settings > General keeps the sources card.
     page = ui["page"]
-    _nav(page, "settings", "Settings")
+    _open_general(page)
     expect(page.get_by_test_id("settings-sources")).to_contain_text(
         re.compile("vimm", re.I), timeout=SLOW_MS)

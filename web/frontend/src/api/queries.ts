@@ -23,6 +23,7 @@ import type {
   ActivityPage,
   MonitorStatus,
   Settings,
+  SettingsEnv,
   AuthStatus,
   LoginResponse,
   TestResult,
@@ -49,6 +50,8 @@ import type {
 
 export const keys = {
   config: ['config'] as const,
+  settings: ['settings'] as const,
+  settingsEnv: ['settings-env'] as const,
   platforms: ['platforms'] as const,
   library: (p: LibraryParams) => ['library', p] as const,
   downloads: ['downloads'] as const,
@@ -160,7 +163,12 @@ export function useMonitor() {
 }
 
 export function useSettings() {
-  return useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') })
+  return useQuery({ queryKey: keys.settings, queryFn: () => api.get<Settings>('/api/settings') })
+}
+
+/** Read-only env-derived runtime config (admin) — paths, scheduler, RomM, download handling. */
+export function useSettingsEnv() {
+  return useQuery({ queryKey: keys.settingsEnv, queryFn: () => api.get<SettingsEnv>('/api/settings/env') })
 }
 
 /** Topbar bell — unread notification count, tolerant of the response shape. */
@@ -326,7 +334,7 @@ export function useSaveSetting() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (patch: Partial<Settings>) => api.put('/api/settings', patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.settings }),
   })
 }
 
