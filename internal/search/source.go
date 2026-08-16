@@ -84,9 +84,13 @@ func (s archiveOrgSource) Search(_ context.Context, query, platformSlug string) 
 // Vimm. The downstream split/score is order-independent, so this governs only
 // iteration order. Myrient is intentionally absent — it shut down 2026-03-31.
 func BuildSources(cfg *config.Config) []Source {
+	// SourcesRegistry: the DB-hydrated registry pointer, swapped only on a
+	// sources write — per-search reads see a long-lived pointer, which the
+	// IA driver memo depends on for its metadata cache.
+	reg := cfg.SourcesRegistry()
 	return []Source{
-		archiveOrgSource{cfg.Sources},
+		archiveOrgSource{reg},
 		prowlarrSource{cfg},
-		vimmSource{cfg.Sources},
+		vimmSource{reg},
 	}
 }

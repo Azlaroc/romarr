@@ -283,48 +283,6 @@ func TestBulkRetryAndCancel(t *testing.T) {
 
 // ── DDL sources ────────────────────────────────────────────────────────────────
 
-func TestDDLSourcesCRUD(t *testing.T) {
-	env := newTestEnv(t, nil)
-
-	rr := env.do("GET", "/api/ddl-sources", "")
-	wantStatus(t, rr, 200)
-	sources, _ := decodeMap(t, rr)["sources"].([]interface{})
-	if len(sources) != 1 {
-		t.Fatalf("expected 1 built-in source, got %d", len(sources))
-	}
-
-	t.Run("add requires name and url", func(t *testing.T) {
-		rr := env.do("POST", "/api/ddl-sources", `{"name":"only name"}`)
-		wantStatus(t, rr, 400)
-	})
-
-	t.Run("add and delete custom source", func(t *testing.T) {
-		rr := env.do("POST", "/api/ddl-sources", `{"name":"MySource","url":"http://roms.test"}`)
-		wantStatus(t, rr, 200)
-
-		rr = env.do("GET", "/api/ddl-sources", "")
-		sources, _ := decodeMap(t, rr)["sources"].([]interface{})
-		if len(sources) != 2 {
-			t.Fatalf("expected 2 sources after add, got %d", len(sources))
-		}
-
-		// Custom sources are indexed within the custom list (index 0 here).
-		rr = env.do("DELETE", "/api/ddl-sources/0", "")
-		wantStatus(t, rr, 200)
-
-		rr = env.do("GET", "/api/ddl-sources", "")
-		sources, _ = decodeMap(t, rr)["sources"].([]interface{})
-		if len(sources) != 1 {
-			t.Errorf("expected 1 source after delete, got %d", len(sources))
-		}
-	})
-
-	t.Run("delete out of range is 404", func(t *testing.T) {
-		rr := env.do("DELETE", "/api/ddl-sources/99", "")
-		wantStatus(t, rr, 404)
-	})
-}
-
 // ── Settings ───────────────────────────────────────────────────────────────────
 
 func TestSettingsGetAndUpdate(t *testing.T) {

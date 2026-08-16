@@ -25,14 +25,9 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
-	// Add database file
+	// The database is the whole manifest now: settings, the source
+	// registry, and custom DDL sources all live inside gamarr.db.
 	addFileToZip(zw, filepath.Join(dataDir, "gamarr.db"), "gamarr.db")
-
-	// Add settings file
-	addFileToZip(zw, filepath.Join(dataDir, "settings.json"), "settings.json")
-
-	// Add DDL sources
-	addFileToZip(zw, filepath.Join(dataDir, "ddl_sources.json"), "ddl_sources.json")
 }
 
 // handleBackupCreate handles POST /api/backup/create — creates a named backup.
@@ -77,8 +72,6 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 
 	dataDir := s.cfg.DataDir
 	addFileToZip(zw, filepath.Join(dataDir, "gamarr.db"), "gamarr.db")
-	addFileToZip(zw, filepath.Join(dataDir, "settings.json"), "settings.json")
-	addFileToZip(zw, filepath.Join(dataDir, "ddl_sources.json"), "ddl_sources.json")
 
 	zw.Close()
 	f.Close()
@@ -185,7 +178,9 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	restored := []string{}
 
 	for _, f := range zr.File {
-		// Only restore known files
+		// Only restore known files. The legacy JSON names stay accepted:
+		// old backups restore their files, and the guarded importers
+		// migrate them into the database on next boot.
 		switch f.Name {
 		case "gamarr.db", "settings.json", "ddl_sources.json":
 			// OK

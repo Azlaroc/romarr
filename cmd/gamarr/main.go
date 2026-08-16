@@ -97,6 +97,15 @@ func main() {
 	cfg.AttachSettings(database)
 	download.ImportLegacySettings(cfg, database)
 
+	// The source registry is DB-backed too: the env-resolved registry
+	// (GAMARR_SOURCES_PATH/URL, VIMM_URL, ARCHIVEORG_URL) seeds it on first
+	// boot only; afterwards the DB is authoritative and edits hot-apply.
+	if os.Getenv("GAMARR_SOURCES_PATH") != "" || os.Getenv("GAMARR_SOURCES_URL") != "" {
+		slog.Info("sources registry is database-managed; GAMARR_SOURCES_PATH/URL seed it on first boot only")
+	}
+	cfg.SetSourcesRegistry(database.LoadSourceRegistry(cfg.Sources))
+	download.ImportLegacyDDLSources(cfg, database)
+
 	// Initialize qBittorrent client
 	qb := qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass)
 

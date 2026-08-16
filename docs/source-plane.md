@@ -97,14 +97,17 @@ archive.org branch is a no-op until an operator opts a platform in via
 }
 ```
 
-Two loading properties worth knowing before you edit the file:
+Loading properties worth knowing:
 
-- The registry file is a **full replace** of the embedded defaults (a plain
-  whole-document unmarshal, no merge) and is read **once at startup** — edits
-  require a process restart to take effect.
-- A malformed registry file logs a warning and **silently falls back to the
-  embedded defaults** — validate the JSON (`jq .`) before restarting, or you
-  quietly get default behaviour instead of your overrides.
+- **The registry is database-managed.** The file (or `GAMARR_SOURCES_URL`)
+  seeds the `source_registry` table on **first boot only** — after that the
+  database is authoritative and file edits have no effect. Edit sources in
+  Settings › Indexers (or `PUT /api/source-registry/{name}`); changes apply
+  immediately, no restart.
+- When it IS consulted (first boot), the file is a **full replace** of the
+  embedded defaults (a plain whole-document unmarshal, no merge), and a
+  malformed file logs a warning and **silently falls back to the embedded
+  defaults** — validate the JSON (`jq .`) before first boot.
 
 ### Verified per-title collection items (2026-08)
 
@@ -144,20 +147,13 @@ are frequently auth-gated — prefer open sources.
 
 ## Disabling a source
 
-There is no per-source `enabled` flag yet. To take a source whose fetch lane is
-dead upstream (e.g. Vimm while its download hosts reject all requests) out of
-every search, dead-port it in the registry:
-
-```json
-"vimm": { "base_url": "http://127.0.0.1:1/", "platform_systems": {} }
-```
-
-- **Emptying `platform_systems` alone is not enough**: the Vimm search then
-  runs *without* its `system=` filter and returns cross-platform hits tagged
-  with whatever slug was queried (`Platform: "Unknown"`) — mis-slugged results
-  enter the pipeline. The dead port makes the search fail instantly instead;
-  after three consecutive failures the circuit breaker holds the source open
-  and skips the HTTP call entirely.
+Flip the source's **Enabled** toggle in Settings › Indexers (or PUT
+`{"enabled": false}` to `/api/source-registry/{name}`) — every search skips it
+immediately. A source is *active* only when enabled AND it has platforms
+mapped: an enabled source with an empty mapping is skipped too (the old
+empty-mapping fall-through that returned cross-platform, mis-slugged hits is
+guarded by the Active predicates). The legacy dead-port trick
+(`"base_url": "http://127.0.0.1:1/"`) still works but is obsolete.
 - A hashless-but-live search paired with a dead fetch lane is the worst
   combination: the search keeps feeding the selector candidates whose download
   always fails, so every scheduler cycle produces a guaranteed error job. If a

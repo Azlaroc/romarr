@@ -142,10 +142,13 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// Activity
 	r.Get("/api/activity", s.handleActivity)
 
-	// DDL sources
-	r.Get("/api/ddl-sources", s.handleDDLSources)
-	r.Post("/api/ddl-sources", s.handleAddDDLSource)
-	r.Delete("/api/ddl-sources/{idx}", s.handleDeleteDDLSource)
+	// Source registry (built-in drivers) + custom DDL sources (admin only —
+	// source curation is configuration, matching /api/settings)
+	r.Get("/api/source-registry", requireAdmin(s.handleSourceRegistry))
+	r.Put("/api/source-registry/{name}", requireAdmin(s.handleUpdateSourceRegistry))
+	r.Get("/api/ddl-sources", requireAdmin(s.handleDDLSources))
+	r.Post("/api/ddl-sources", requireAdmin(s.handleAddDDLSource))
+	r.Delete("/api/ddl-sources/{id}", requireAdmin(s.handleDeleteDDLSource))
 
 	// Settings & config (admin only)
 	r.Get("/api/settings", requireAdmin(s.handleGetSettings))
@@ -470,7 +473,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Source metadata
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.Sources.VimmActive()},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()},
+		{"name": "archiveorg", "label": "Internet Archive", "color": "#0ea5e9", "source_type": "ddl", "enabled": s.cfg.SourcesRegistry().ArchiveOrgActive()},
+		{"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.SourcesRegistry().VimmActive()},
 	}
 
 	writeJSON(w, 200, map[string]interface{}{
@@ -535,7 +540,9 @@ func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	healthData := search.GetAllSourceHealth()
 	sourceMeta := []map[string]interface{}{
-		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()}, {"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.Sources.VimmActive()},
+		{"name": "prowlarr", "label": "Prowlarr", "color": "#f97316", "source_type": "torrent", "enabled": s.cfg.HasProwlarr()},
+		{"name": "archiveorg", "label": "Internet Archive", "color": "#0ea5e9", "source_type": "ddl", "enabled": s.cfg.SourcesRegistry().ArchiveOrgActive()},
+		{"name": "vimm", "label": "Vimm's Lair", "color": "#6366f1", "source_type": "ddl", "enabled": s.cfg.SourcesRegistry().VimmActive()},
 	}
 	// Attach health data to each source
 	for _, src := range sourceMeta {
@@ -864,11 +871,16 @@ func (s *Server) handleOrganizeTorrent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDDLSources(w http.ResponseWriter, r *http.Request) {
 	builtIn := []map[string]interface{}{
-		{"name": "Vimm's Lair", "url": s.cfg.Sources.Vimm.BaseURL, "type": "vimm", "builtin": true,
-			"platforms": search.VimmPlatformSlugs(s.cfg.Sources)},
+		{"name": "Vimm's Lair", "url": s.cfg.SourcesRegistry().Vimm.BaseURL, "type": "vimm", "builtin": true,
+			"platforms": search.VimmPlatformSlugs(s.cfg.SourcesRegistry())},
 	}
-	custom := s.mgr.LoadDDLSources()
-	all := append(builtIn, custom...)
+	all := builtIn
+	for _, row := range s.mgr.Jobs().ListDDLSources() {
+		all = append(all, map[string]interface{}{
+			"id": row.ID, "name": row.Name, "url": row.URL, "type": "custom",
+			"builtin": false, "enabled": row.Enabled,
+		})
+	}
 	writeJSON(w, 200, map[string]interface{}{"sources": all})
 }
 
@@ -884,21 +896,25 @@ func (s *Server) handleAddDDLSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Name and URL required")
 		return
 	}
-	sources := s.mgr.LoadDDLSources()
-	sources = append(sources, map[string]interface{}{"name": req.Name, "url": req.URL, "type": "custom"})
-	s.mgr.SaveDDLSources(sources)
-	writeJSON(w, 200, map[string]interface{}{"success": true})
+	id, err := s.mgr.Jobs().AddDDLSource(req.Name, req.URL)
+	if err != nil {
+		writeError(w, 500, "Failed to add source")
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"success": true, "id": id})
 }
 
 func (s *Server) handleDeleteDDLSource(w http.ResponseWriter, r *http.Request) {
-	idx, _ := strconv.Atoi(chi.URLParam(r, "idx"))
-	sources := s.mgr.LoadDDLSources()
-	if idx < 0 || idx >= len(sources) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, 400, "Invalid id")
+		return
+	}
+	ok, err := s.mgr.Jobs().DeleteDDLSource(id)
+	if err != nil || !ok {
 		writeError(w, 404, "Not found")
 		return
 	}
-	sources = append(sources[:idx], sources[idx+1:]...)
-	s.mgr.SaveDDLSources(sources)
 	writeJSON(w, 200, map[string]interface{}{"success": true})
 }
 

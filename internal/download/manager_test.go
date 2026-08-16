@@ -963,26 +963,44 @@ func TestImportLegacySettings(t *testing.T) {
 	})
 }
 
-func TestDDLSourcesRoundTrip(t *testing.T) {
-	cfg := newTestConfig(t)
-	m := New(cfg, newTestJobs(t), nil)
+func TestImportLegacyDDLSources(t *testing.T) {
+	t.Run("imports custom rows, skips builtins, renames the file", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		writeFileT(t, filepath.Join(cfg.DataDir, "ddl_sources.json"), []byte(
+			`[{"name":"Vimm's Lair","url":"http://v","builtin":true},`+
+				`{"name":"MySite","url":"https://example.test/roms","type":"custom"},`+
+				`{"name":"","url":"https://nameless.example"}]`))
 
-	if got := m.LoadDDLSources(); got != nil {
-		t.Errorf("LoadDDLSources with no file = %v, want nil", got)
-	}
+		ImportLegacyDDLSources(cfg, jobs)
 
-	sources := []map[string]interface{}{
-		{"name": "Myrient", "url": "https://example.test/roms"},
-		{"name": "Other", "enabled": true},
-	}
-	m.SaveDDLSources(sources)
-	got := m.LoadDDLSources()
-	if len(got) != 2 {
-		t.Fatalf("loaded %d sources, want 2", len(got))
-	}
-	if got[0]["name"] != "Myrient" {
-		t.Errorf("first source = %v", got[0])
-	}
+		rows := jobs.ListDDLSources()
+		if len(rows) != 1 || rows[0].Name != "MySite" {
+			t.Fatalf("imported rows = %+v, want only MySite", rows)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.DataDir, "ddl_sources.json.migrated")); err != nil {
+			t.Error("ddl_sources.json was not renamed")
+		}
+		// Second call is a no-op (rows exist).
+		ImportLegacyDDLSources(cfg, jobs)
+		if len(jobs.ListDDLSources()) != 1 {
+			t.Error("re-import duplicated rows")
+		}
+	})
+
+	t.Run("skips when rows already exist", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		jobs := newTestJobs(t)
+		jobs.AddDDLSource("Existing", "https://existing.example")
+		writeFileT(t, filepath.Join(cfg.DataDir, "ddl_sources.json"),
+			[]byte(`[{"name":"MySite","url":"https://example.test"}]`))
+
+		ImportLegacyDDLSources(cfg, jobs)
+
+		if rows := jobs.ListDDLSources(); len(rows) != 1 || rows[0].Name != "Existing" {
+			t.Errorf("rows = %+v, want only Existing", rows)
+		}
+	})
 }
 
 func TestDownloadTorrentTargetFileAddMode(t *testing.T) {
