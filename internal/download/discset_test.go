@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -289,6 +290,16 @@ func TestDiscSetReFinalizeAfterRepairFlipsMarker(t *testing.T) {
 	if got := jobString(t, jobs, "repair-job", "detail"); got != "Disc set complete (2 discs)" {
 		t.Errorf("detail = %q", got)
 	}
+	// The repair re-finalize leaves a playlist even though normalize is inert
+	// in the harness (fallback writer — #stem-divergence heal).
+	setDir := filepath.Join(cfg.GamesRomsPath, "psx", "Test Game (USA)")
+	m3u, err := os.ReadFile(filepath.Join(setDir, "Test Game (USA).m3u"))
+	if err != nil {
+		t.Fatalf("post-repair m3u missing: %v", err)
+	}
+	if !strings.Contains(string(m3u), "(Disc 1)") || !strings.Contains(string(m3u), "(Disc 2)") {
+		t.Errorf("m3u = %q, want both discs", m3u)
+	}
 }
 
 func TestDiscSetSweepAllFailedNoLibraryRow(t *testing.T) {
@@ -470,5 +481,63 @@ func TestDiscSetJobPersistenceRoundTrip(t *testing.T) {
 	got := discSetFromJob(job)
 	if got != set {
 		t.Errorf("round-trip = %+v, want %+v", got, set)
+	}
+}
+
+func TestEnsureSetPlaylist(t *testing.T) {
+	// Divergent stems (the post-repair DAT-rename split): the playlist lists
+	// both discs anyway — m3u entries don't need matching stems.
+	dir := filepath.Join(t.TempDir(), "Chrono Cross (USA)")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFileT(t, filepath.Join(dir, "Chrono Cross (USA) (Disc 1).chd"), []byte("d1"))
+	writeFileT(t, filepath.Join(dir, "Chrono Cross (USA, Canada) (Disc 2).chd"), []byte("d2"))
+	writeFileT(t, filepath.Join(dir, ".gamarr.json"), []byte("{}"))
+
+	ensureSetPlaylist(dir)
+
+	m3u, err := os.ReadFile(filepath.Join(dir, "Chrono Cross (USA).m3u"))
+	if err != nil {
+		t.Fatalf("fallback m3u missing: %v", err)
+	}
+	want := "Chrono Cross (USA) (Disc 1).chd\nChrono Cross (USA, Canada) (Disc 2).chd\n"
+	if string(m3u) != want {
+		t.Errorf("m3u = %q, want %q", m3u, want)
+	}
+
+	// Idempotent: an existing m3u (converto's or ours) is never rewritten.
+	ensureSetPlaylist(dir)
+	writeFileT(t, filepath.Join(dir, "Chrono Cross (USA) (Disc 3).chd"), []byte("d3"))
+	ensureSetPlaylist(dir)
+	m3u2, _ := os.ReadFile(filepath.Join(dir, "Chrono Cross (USA).m3u"))
+	if string(m3u2) != want {
+		t.Error("existing m3u was rewritten")
+	}
+}
+
+func TestEnsureSetPlaylistSelectivity(t *testing.T) {
+	// cue outranks bin per disc; a single indexed disc gets no playlist.
+	dir := filepath.Join(t.TempDir(), "Game (USA)")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFileT(t, filepath.Join(dir, "Game (USA) (Disc 1).cue"), []byte("c"))
+	writeFileT(t, filepath.Join(dir, "Game (USA) (Disc 1).bin"), []byte("b"))
+	ensureSetPlaylist(dir)
+	if pathExists(filepath.Join(dir, "Game (USA).m3u")) {
+		t.Error("single-disc dir must not get a playlist")
+	}
+
+	writeFileT(t, filepath.Join(dir, "Game (USA) (Disc 2).cue"), []byte("c"))
+	writeFileT(t, filepath.Join(dir, "Game (USA) (Disc 2).bin"), []byte("b"))
+	ensureSetPlaylist(dir)
+	m3u, err := os.ReadFile(filepath.Join(dir, "Game (USA).m3u"))
+	if err != nil {
+		t.Fatalf("m3u missing: %v", err)
+	}
+	want := "Game (USA) (Disc 1).cue\nGame (USA) (Disc 2).cue\n"
+	if string(m3u) != want {
+		t.Errorf("m3u = %q, want cue entries only", m3u)
 	}
 }

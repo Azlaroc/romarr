@@ -5,7 +5,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"gamarr/internal/db"
@@ -213,6 +216,9 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 	// source_id dedupe in TrackInLibrary.
 	finalPath := m.MaybeNormalize(lead.jobID, setPath, platSlug)
 	finalPath = m.MaybeConvert(lead.jobID, finalPath, platSlug, hashStatus)
+	if !degraded {
+		ensureSetPlaylist(finalPath)
+	}
 	writeMetadataSidecar(finalPath, title, platf, platSlug, false, source)
 	size := contentSize(finalPath)
 	// Per-disc release hashes stay unpersisted (one row vs many hashes is
@@ -272,6 +278,73 @@ func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, deg
 		fmt.Sprintf("%s (%s)", detail, platf), lead.jobID, nil)
 	slog.Info("disc set finalized", "set", discSetID, "title", sanitizeLog(title),
 		"discs", imported, "degraded", degraded)
+}
+
+// discTokenRe extracts the 1-based disc index from a "(Disc N)" filename tag.
+var discTokenRe = regexp.MustCompile(`\(Disc (\d+)\)`)
+
+// playlistExtRank orders per-disc file candidates for an .m3u entry: the
+// playable container wins (chd), then cue sheets, then raw images. .bin is
+// last-resort only — when a .cue exists it references the bins.
+var playlistExtRank = map[string]int{
+	".chd": 6, ".cue": 5, ".gdi": 4, ".iso": 3, ".cso": 2, ".rvz": 1, ".bin": 0,
+}
+
+// ensureSetPlaylist writes a fallback .m3u for a multi-disc set dir that has
+// none. Normalize's playlist step groups by filename stem, so a repaired set
+// whose DAT rename canonicalized one disc but not another ("Chrono Cross
+// (USA, Canada) (Disc 2)" next to "Chrono Cross (USA) (Disc 1)") reads as two
+// different games and gets no playlist — but an .m3u's entries don't need
+// matching stems, they just point at files. Lists the best playable file per
+// disc index, ascending; no-op when an .m3u already exists or fewer than two
+// indexed discs are present.
+func ensureSetPlaylist(setDir string) {
+	entries, err := os.ReadDir(setDir)
+	if err != nil {
+		return
+	}
+	best := map[int]string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.EqualFold(filepath.Ext(name), ".m3u") {
+			return // a playlist already exists (normalize grouped fine)
+		}
+		rank, playable := playlistExtRank[strings.ToLower(filepath.Ext(name))]
+		if !playable {
+			continue
+		}
+		m := discTokenRe.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		idx, _ := strconv.Atoi(m[1])
+		if cur, ok := best[idx]; !ok || rank > playlistExtRank[strings.ToLower(filepath.Ext(cur))] {
+			best[idx] = name
+		}
+	}
+	if len(best) < 2 {
+		return
+	}
+	indices := make([]int, 0, len(best))
+	for i := range best {
+		indices = append(indices, i)
+	}
+	sort.Ints(indices)
+	var b strings.Builder
+	for _, i := range indices {
+		b.WriteString(best[i])
+		b.WriteByte('\n')
+	}
+	m3uPath := filepath.Join(setDir, filepath.Base(setDir)+".m3u")
+	if err := os.WriteFile(m3uPath, []byte(b.String()), 0644); err != nil {
+		slog.Warn("set playlist write failed", "path", sanitizeLog(m3uPath), "error", err)
+		return
+	}
+	slog.Info("set playlist written (stem-divergence fallback)",
+		"path", sanitizeLog(m3uPath), "discs", len(indices))
 }
 
 // flattenSetMemberDir hoists an extracted disc's top-level entries out of its
