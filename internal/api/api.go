@@ -761,7 +761,10 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Unmatched jobs
+	// Unmatched jobs. Items() iterates a map (random order per call), so
+	// sort deterministically — disc-set members by index, everything else by
+	// title then id — or the queue reshuffles on every poll.
+	var unmatched []models.DownloadEntry
 	for _, item := range jobs.Items() {
 		if matchedJobIDs[item.ID] {
 			continue
@@ -772,7 +775,7 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		detail, _ := item.Data["detail"].(string)
 		setID, _ := item.Data["disc_set_id"].(string)
 
-		downloads = append(downloads, models.DownloadEntry{
+		unmatched = append(unmatched, models.DownloadEntry{
 			Type:      "job",
 			Title:     jTitle(item.Data),
 			Platform:  platf,
@@ -785,6 +788,20 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 			DiscTotal: jobIntValue(item.Data["disc_total"]),
 		})
 	}
+	sort.SliceStable(unmatched, func(i, j int) bool {
+		a, b := unmatched[i], unmatched[j]
+		if a.DiscSetID != b.DiscSetID {
+			return a.DiscSetID < b.DiscSetID
+		}
+		if a.DiscIndex != b.DiscIndex {
+			return a.DiscIndex < b.DiscIndex
+		}
+		if a.Title != b.Title {
+			return a.Title < b.Title
+		}
+		return a.JobID < b.JobID
+	})
+	downloads = append(downloads, unmatched...)
 
 	writeJSON(w, 200, map[string]interface{}{"downloads": downloads})
 }

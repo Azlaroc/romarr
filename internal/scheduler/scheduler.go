@@ -77,34 +77,50 @@ func (s *Scheduler) EnsureRunning() bool {
 	if s.loopLive {
 		return true
 	}
-	// The previous loop's channel was closed by StopLoop; every loop needs a
-	// fresh one. In-flight cycles hold a snapshot of the OLD channel, which
-	// stays closed — they wind down promptly, exactly like a shutdown.
-	s.stopCh = make(chan struct{})
+	// Reuse the current channel when it is open (the normal case — StopLoop
+	// re-opens after a runtime disable, so pending RunNow cycles share the
+	// same channel identity); replace it only if a shutdown Stop left it
+	// closed.
+	select {
+	case <-s.stopCh:
+		s.stopCh = make(chan struct{})
+	default:
+	}
 	s.loopLive = true
 	go s.loop(s.stopCh)
 	slog.Info("scheduler started", "interval_hours", s.cfg.SchedulerIntervalHrs())
 	return true
 }
 
-// StopLoop halts the periodic loop AND interrupts any in-flight cycle
-// (including a manual RunNow on a never-started loop — cycles snapshot the
-// current channel, so closing it always reaches them). Status keeps working
-// and cycle counters survive, so a re-enable doesn't zero the history.
+// StopLoop is the runtime disable: it halts the periodic loop, interrupts
+// any in-flight cycle (cycles snapshot the current channel, so closing it
+// always reaches them), then re-opens a fresh channel — manual RunNow keeps
+// working while the loop is down, by design. Cycle counters survive.
 func (s *Scheduler) StopLoop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	select {
-	case <-s.stopCh:
-		// Already closed by a previous stop.
-	default:
-		close(s.stopCh)
-	}
+	s.closeStopChLocked()
+	s.stopCh = make(chan struct{})
 	s.loopLive = false
 }
 
-// Stop halts the scheduler (shutdown path).
-func (s *Scheduler) Stop() { s.StopLoop() }
+// Stop is the shutdown path: like StopLoop but the channel STAYS closed, so
+// any cycle started after shutdown begins aborts on entry.
+func (s *Scheduler) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeStopChLocked()
+	s.loopLive = false
+}
+
+func (s *Scheduler) closeStopChLocked() {
+	select {
+	case <-s.stopCh:
+		// Already closed.
+	default:
+		close(s.stopCh)
+	}
+}
 
 // LoopRunning reports whether the periodic loop is live.
 func (s *Scheduler) LoopRunning() bool {

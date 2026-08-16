@@ -58,6 +58,31 @@ func TestEnsureRunningStopLoopCycle(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 }
 
+func TestRunNowSurvivesStopLoop(t *testing.T) {
+	// Regression: after a runtime disable (StopLoop), manual cycles must
+	// still work — an early version left the stop channel closed, so every
+	// later RunNow cycle aborted on entry. Runtime StopLoop re-opens the
+	// channel; only the shutdown Stop leaves it closed.
+	cfg := &config.Config{SchedulerEnabled: true, SchedulerIntervalHours: 1}
+	s := newRearmScheduler(t, cfg)
+
+	s.EnsureRunning()
+	s.StopLoop()
+	select {
+	case <-s.stopChan():
+		t.Fatal("stop channel closed after StopLoop — RunNow cycles would abort on entry")
+	default:
+	}
+
+	s.Stop()
+	select {
+	case <-s.stopChan():
+		// Shutdown: closed, and post-shutdown cycles abort. Correct.
+	default:
+		t.Fatal("stop channel open after shutdown Stop")
+	}
+}
+
 func TestEnsureRunningRespectsDisabled(t *testing.T) {
 	cfg := &config.Config{SchedulerEnabled: false}
 	s := newRearmScheduler(t, cfg)

@@ -57,6 +57,7 @@ func (s *Supervisor) StartAll() {
 }
 
 // StopAll is the shutdown path (reverse order; notifier detaches first).
+// Scheduler.Stop (not StopLoop) so post-shutdown cycles abort on entry.
 func (s *Supervisor) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,7 +65,7 @@ func (s *Supervisor) StopAll() {
 	s.stopRomMSyncLocked()
 	s.stopWatcherLocked()
 	if s.sched != nil {
-		s.sched.StopLoop()
+		s.sched.Stop()
 	}
 }
 
