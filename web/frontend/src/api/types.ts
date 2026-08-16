@@ -114,9 +114,37 @@ export interface WishlistItem {
 }
 
 export interface SourceInfo {
+  name?: string
   label: string
   source_type: string // "torrent" | "ddl"
   enabled: boolean
+  health?: SourceHealth
+}
+
+/** Per-source circuit/health snapshot from GET /api/sources/health (keyed by source name). */
+export interface SourceHealth {
+  name: string
+  search_ok: number
+  search_fail: number
+  download_ok: number
+  download_fail: number
+  last_error: string
+  last_error_kind?: string
+  last_error_at?: number
+  last_success_at: number
+  score: number
+  circuit_open: boolean
+  circuit_retry_in_sec: number
+}
+
+/** Row from GET /api/ddl-sources — builtin rows come first and cannot be deleted;
+ *  DELETE /api/ddl-sources/{idx} indexes into the CUSTOM rows only. */
+export interface DDLSource {
+  name: string
+  url: string
+  type: string
+  builtin?: boolean
+  platforms?: string[]
 }
 
 export interface Stats {
@@ -152,10 +180,23 @@ export interface MonitorStatus {
   action_history?: MonitorAction[]
 }
 
+/** Per-integration status block in GET /api/config. */
+export interface ServiceConfig {
+  configured?: boolean
+  url?: string
+}
+
 export interface AppConfig {
   romm_url?: string
   gamevault_url?: string
   rawg?: { configured?: boolean }
+  prowlarr?: ServiceConfig
+  qbittorrent?: ServiceConfig
+  sabnzbd?: ServiceConfig
+  nzbget?: ServiceConfig
+  transmission?: ServiceConfig
+  deluge?: ServiceConfig
+  romm?: ServiceConfig
   [k: string]: unknown
 }
 

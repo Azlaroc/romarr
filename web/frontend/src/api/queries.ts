@@ -19,6 +19,8 @@ import type {
   DownloadItem,
   WishlistItem,
   SourceInfo,
+  SourceHealth,
+  DDLSource,
   Stats,
   ActivityPage,
   MonitorStatus,
@@ -57,6 +59,8 @@ export const keys = {
   downloads: ['downloads'] as const,
   wishlist: ['wishlist'] as const,
   sources: ['sources'] as const,
+  sourcesHealth: ['sources-health'] as const,
+  ddlSources: ['ddl-sources'] as const,
   stats: ['stats'] as const,
   activity: (page: number) => ['activity', page] as const,
   monitor: ['monitor'] as const,
@@ -143,6 +147,50 @@ export function useSources() {
   return useQuery({
     queryKey: keys.sources,
     queryFn: async () => pickArray<SourceInfo>(await api.get('/api/sources'), 'sources'),
+  })
+}
+
+/** Health/circuit snapshots keyed by source name (empty until a source has been used). */
+export function useSourcesHealth() {
+  return useQuery({
+    queryKey: keys.sourcesHealth,
+    queryFn: async () =>
+      ((await api.get<{ sources?: Record<string, SourceHealth> }>('/api/sources/health'))?.sources ?? {}),
+  })
+}
+
+export function useResetSource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.post<{ success: boolean; error?: string }>(`/api/sources/${name}/reset`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.sources })
+      qc.invalidateQueries({ queryKey: keys.sourcesHealth })
+    },
+  })
+}
+
+/** Builtin rows come first; DELETE indexes into the custom rows only. */
+export function useDDLSources() {
+  return useQuery({
+    queryKey: keys.ddlSources,
+    queryFn: async () => pickArray<DDLSource>(await api.get('/api/ddl-sources'), 'sources'),
+  })
+}
+
+export function useAddDDLSource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (src: { name: string; url: string }) => api.post('/api/ddl-sources', src),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.ddlSources }),
+  })
+}
+
+export function useDeleteDDLSource() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (customIdx: number) => api.del(`/api/ddl-sources/${customIdx}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.ddlSources }),
   })
 }
 
