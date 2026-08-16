@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"gamarr/internal/models"
@@ -11,6 +12,35 @@ import (
 	"gamarr/internal/sources/archiveorg"
 	"gamarr/internal/sources/driver"
 )
+
+// The archive.org driver is memoized per registry instance so its 1h item
+// metadata cache actually lives between searches. Constructing a fresh driver
+// per call (the old behavior) refetched the mapped item's full metadata
+// (~1MB for a 3.5k-file item) on EVERY query — an 87-row wishlist cycle burned
+// 87 fetches against IA's ~60/hr anonymous rate limit and could trip the
+// circuit breaker mid-cycle. The registry loads once per process (restart to
+// reload), so pointer identity is the correct cache key: a new registry —
+// including every hand-built one in tests — gets a fresh driver. The driver's
+// internal cache is mutex-guarded, so sharing one instance across concurrent
+// searches is safe.
+var (
+	iaDriverMu  sync.Mutex
+	iaDriverReg *sources.Registry
+	iaDriver    *archiveorg.Driver
+)
+
+func archiveOrgDriver(reg *sources.Registry) *archiveorg.Driver {
+	iaDriverMu.Lock()
+	defer iaDriverMu.Unlock()
+	if iaDriver == nil || iaDriverReg != reg {
+		iaDriver = archiveorg.New(
+			reg.ArchiveOrg.Items,
+			archiveorg.WithBaseURL(baseOrDefault(reg.ArchiveOrg.BaseURL, "https://archive.org")),
+		)
+		iaDriverReg = reg
+	}
+	return iaDriver
+}
 
 // ArchiveOrgPlatformSlugs returns the slugs the archive.org driver is
 // configured to serve per the runtime registry.
@@ -40,10 +70,7 @@ func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string) []*mode
 		return nil
 	}
 
-	var src driver.SearchSource = archiveorg.New(
-		reg.ArchiveOrg.Items,
-		archiveorg.WithBaseURL(baseOrDefault(reg.ArchiveOrg.BaseURL, "https://archive.org")),
-	)
+	var src driver.SearchSource = archiveOrgDriver(reg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

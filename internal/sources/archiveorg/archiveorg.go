@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,30 +144,68 @@ var (
 	wordSplitRe  = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
-// Search implements driver.SearchSource. It requires a platform slug (searching
-// every configured item per query is prohibitively slow — same stance as the
-// Myrient driver); an unmapped or empty slug yields (nil, nil).
+// Search implements driver.SearchSource. With a platform slug it searches
+// that platform's mapped item; an unmapped slug yields (nil, nil). An empty
+// slug ("All platforms") fans across every mapped item in deterministic slug
+// order — affordable now that the driver is long-lived and its item metadata
+// cache holds between queries, where it used to mean N ~1MB refetches per
+// query (the reason the empty slug was previously rejected).
 func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, error) {
-	if q.PlatformSlug == "" {
-		return nil, nil
-	}
-	item, ok := d.items[q.PlatformSlug]
-	if !ok || item == "" {
-		return nil, nil
-	}
 	qWords := tokenize(q.Text)
 	if len(qWords) == 0 {
 		return nil, nil
 	}
-
-	files, err := d.listing(ctx, item)
-	if err != nil {
-		return nil, err
-	}
-
 	limit := q.Limit
 	if limit <= 0 || limit > d.limit {
 		limit = d.limit
+	}
+
+	if q.PlatformSlug != "" {
+		item, ok := d.items[q.PlatformSlug]
+		if !ok || item == "" {
+			return nil, nil
+		}
+		return d.searchItem(ctx, item, q.PlatformSlug, qWords, limit)
+	}
+
+	slugs := make([]string, 0, len(d.items))
+	for s := range d.items {
+		slugs = append(slugs, s)
+	}
+	sort.Strings(slugs)
+	var out []driver.Release
+	var firstErr error
+	for _, slug := range slugs {
+		if len(out) >= limit {
+			break
+		}
+		item := d.items[slug]
+		if item == "" {
+			continue
+		}
+		part, err := d.searchItem(ctx, item, slug, qWords, limit-len(out))
+		if err != nil {
+			// One broken item must not blank the whole fan; surface the
+			// error only when nothing at all could be searched.
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		out = append(out, part...)
+	}
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
+}
+
+// searchItem matches one item's file listing against the tokenized query,
+// tagging releases with the item's platform slug.
+func (d *Driver) searchItem(ctx context.Context, item, platformSlug string, qWords map[string]bool, limit int) ([]driver.Release, error) {
+	files, err := d.listing(ctx, item)
+	if err != nil {
+		return nil, err
 	}
 
 	var out []driver.Release
@@ -187,7 +226,7 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 		out = append(out, driver.Release{
 			Source:       driverName,
 			Title:        base,
-			PlatformSlug: q.PlatformSlug,
+			PlatformSlug: platformSlug,
 			Size:         size,
 			MD5:          strings.ToLower(f.MD5),
 			SHA1:         strings.ToLower(f.SHA1),
