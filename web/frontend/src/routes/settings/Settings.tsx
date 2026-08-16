@@ -108,14 +108,35 @@ function SearchSources() {
   )
 }
 
+const PIPELINE_TOGGLES = [
+  {
+    key: 'extract_archives',
+    testId: 'setting-extract',
+    label: 'Extract archives after download',
+    help: 'Auto-extract RAR/ZIP/7z in ROM downloads',
+  },
+  {
+    key: 'normalize_roms',
+    testId: 'setting-normalize',
+    label: 'Normalize ROM names at import',
+    help: 'DAT-canonical rename (No-Intro/Redump) + .m3u playlists for disc sets',
+  },
+  {
+    key: 'convert_roms',
+    testId: 'setting-convert',
+    label: 'Convert disc images to CHD',
+    help: 'Disc systems only; verify-before-replace, originals kept on mismatch',
+  },
+] as const
+
 function Options() {
   const { data } = useSettings()
   const save = useSaveSetting()
   const { toast } = useToast()
 
-  const toggle = async (checked: boolean) => {
+  const toggle = async (key: string, checked: boolean) => {
     try {
-      await save.mutateAsync({ extract_archives: checked })
+      await save.mutateAsync({ [key]: checked })
       toast('Settings saved', 'success')
     } catch {
       toast('Failed to save', 'error')
@@ -124,19 +145,23 @@ function Options() {
 
   return (
     <Card title="Options">
-      <label className="flex cursor-pointer items-center gap-3">
-        <input
-          type="checkbox"
-          checked={!!data?.extract_archives}
-          onChange={(e) => toggle(e.target.checked)}
-          className="h-4 w-4 accent-accent-500"
-          data-testid="setting-extract"
-        />
-        <div>
-          <div className="text-sm text-white">Extract archives after download</div>
-          <div className="text-xs text-slate-500">Auto-extract RAR/ZIP/7z in ROM downloads</div>
-        </div>
-      </label>
+      <div className="space-y-3">
+        {PIPELINE_TOGGLES.map((t) => (
+          <label key={t.key} className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              checked={!!data?.[t.key]}
+              onChange={(e) => toggle(t.key, e.target.checked)}
+              className="h-4 w-4 accent-accent-500"
+              data-testid={t.testId}
+            />
+            <div>
+              <div className="text-sm text-white">{t.label}</div>
+              <div className="text-xs text-slate-500">{t.help}</div>
+            </div>
+          </label>
+        ))}
+      </div>
     </Card>
   )
 }
