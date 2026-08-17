@@ -66,6 +66,7 @@ func (s *JobStore) migrateExtra() {
 	s.migrateSourceRegistry()
 	s.migrateDDLSources()
 	s.migrateIAItemMetadata()
+	s.migrateDat()
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS library_items (
