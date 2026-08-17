@@ -106,8 +106,12 @@ func TestClassFilters(t *testing.T) {
 }
 
 func TestSizeSanity(t *testing.T) {
-	// psx band floor is 1MB (platformSizeRange) — a 100KB "release" is a
-	// placeholder; profile override tightens further.
+	// Armed explicitly rather than leaning on an ambient table: the band is a
+	// definition an operator can change, so a test that asserts against
+	// whatever happens to be configured is asserting nothing.
+	armBands(t, bandTable{"psx": {1_000_000, 1_000_000_000}})
+
+	// A 100KB "release" is a placeholder; the profile override tightens further.
 	small := mk("Game (USA).zip", 80, withHash, func(r *models.SearchResult) { r.Size = 100e3 })
 	dec := Select([]*models.SearchResult{small}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile()})
 	if dec.Action != ActionSkip {

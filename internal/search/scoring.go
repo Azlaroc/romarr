@@ -6,48 +6,6 @@ import (
 	"gamarr/internal/models"
 )
 
-// platformSizeRange defines expected file size ranges (bytes) per platform slug.
-// min = suspiciously small, max = suspiciously large.
-var platformSizeRange = map[string][2]int64{
-	"nes":     {10e3, 5e6},   // 10KB - 5MB
-	"snes":    {100e3, 10e6}, // 100KB - 10MB
-	"gb":      {10e3, 5e6},   // 10KB - 5MB
-	"gbc":     {10e3, 10e6},  // 10KB - 10MB
-	"gba":     {100e3, 50e6}, // 100KB - 50MB
-	"n64":     {1e6, 100e6},  // 1MB - 100MB
-	"nds":     {1e6, 512e6},  // 1MB - 512MB
-	"3ds":     {10e6, 4e9},   // 10MB - 4GB
-	"psx":     {50e6, 1e9},   // 50MB - 1GB
-	"ps2":     {100e6, 8e9},  // 100MB - 8GB
-	"ps3":     {500e6, 50e9}, // 500MB - 50GB
-	"psp":     {50e6, 4e9},   // 50MB - 4GB
-	"genesis": {10e3, 10e6},  // 10KB - 10MB
-	"saturn":  {50e6, 1e9},   // 50MB - 1GB
-	"dc":      {50e6, 2e9},   // 50MB - 2GB
-	"ngc":     {100e6, 4e9},  // 100MB - 4GB
-	"wii":     {100e6, 8e9},  // 100MB - 8GB
-	"xbox":    {500e6, 8e9},  // 500MB - 8GB
-	"xbox360": {500e6, 16e9}, // 500MB - 16GB
-	"pc":      {50e6, 100e9}, // 50MB - 100GB
-	"switch":  {50e6, 32e9},  // 50MB - 32GB
-	"sms":     {10e3, 1e6},   // 10KB - 1MB
-	"gg":      {10e3, 2e6},   // 10KB - 2MB
-	"pce":     {50e3, 20e6},  // 50KB - 20MB
-	"a26":     {1e3, 64e3},   // 1KB - 64KB
-	"col":     {4e3, 64e3},   // 4KB - 64KB
-	"wiiu":    {500e6, 25e9}, // 500MB - 25GB
-}
-
-// PlatformSizeRange returns the plausible [min, max] size band in bytes for a
-// platform slug, falling back to the generic band for unknown slugs. Exported
-// for the selection engine's size-sanity filter.
-func PlatformSizeRange(slug string) (int64, int64) {
-	if r, ok := platformSizeRange[slug]; ok {
-		return r[0], r[1]
-	}
-	return 1e6, 50e9
-}
-
 // ScoreResults applies scoring to all results and returns them (modifies in place).
 func ScoreResults(results []*models.SearchResult, query string, platformFilter string) []*models.SearchResult {
 	for _, r := range results {
@@ -178,26 +136,27 @@ func scoreSeederCount(seeders int, sourceType, downloadProtocol string) int {
 }
 
 // scoreSizeRange scores by whether size is reasonable for the platform (0-15).
+// It reads the same resolver the ranking filter uses; scoring off a second
+// copy of the table is how a platform ended up scored against one band and
+// filtered against another.
 func scoreSizeRange(size int64, platformSlug string) int {
 	if size == 0 {
 		return 7 // unknown, neutral
 	}
 
-	slug := strings.ToLower(platformSlug)
-	rng, ok := platformSizeRange[slug]
-	if !ok {
-		// Default range for unknown platforms
-		rng = [2]int64{1e6, 50e9} // 1MB - 50GB
+	minSize, maxSize := PlatformSizeRange(platformSlug)
+	if minSize == 0 && maxSize == 0 {
+		return 7 // no definition for this platform: no opinion either way
 	}
 
-	minSize := rng[0]
-	maxSize := rng[1]
-
-	if size >= minSize && size <= maxSize {
+	within := func(lo, hi int64) bool {
+		return (lo <= 0 || size >= lo) && (hi <= 0 || size <= hi)
+	}
+	if within(minSize, maxSize) {
 		return 15 // ideal range
 	}
 	// Slightly outside range
-	if size >= minSize/2 && size <= maxSize*2 {
+	if within(minSize/2, maxSize*2) {
 		return 10
 	}
 	// Suspiciously tiny or huge
