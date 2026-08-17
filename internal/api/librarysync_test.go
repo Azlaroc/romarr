@@ -55,7 +55,7 @@ func TestLibrarySyncTrigger(t *testing.T) {
 		StateFile: filepath.Join(t.TempDir(), "romm_sync.json"),
 	})
 	cfg := &config.Config{RomMURL: stub.URL, RomMAPIUser: "u", RomMAPIPass: "p", RomMSyncEnabled: true}
-	sup := supervise.New(cfg, nil, supervise.Builders{
+	sup := supervise.New(cfg, nil, nil, supervise.Builders{
 		RomMSync: func() *romm.Syncer { return syncer },
 	}, nil)
 	sup.StartAll()

@@ -230,3 +230,33 @@ func TestDatEndpointsSurviveANilService(t *testing.T) {
 	wantStatus(t, env.do("POST", "/api/dat/authorities/no-intro/refresh", ""), http.StatusServiceUnavailable)
 	wantStatus(t, env.do("GET", "/api/dat/status", ""), 200)
 }
+
+// A settingSpec without its line in the hand-written handleGetSettings map
+// is a silently invisible knob — the UI would render nothing and a PUT would
+// look like it did nothing.
+func TestDatCadenceKnobsAreVisibleAndValidated(t *testing.T) {
+	env := newTestEnv(t, nil)
+
+	body := decodeMap(t, env.do("GET", "/api/settings", ""))
+	if _, ok := body["dat_auto_refresh_enabled"]; !ok {
+		t.Fatal("dat_auto_refresh_enabled missing from the settings document")
+	}
+	if _, ok := body["dat_refresh_interval_days"]; !ok {
+		t.Fatal("dat_refresh_interval_days missing from the settings document")
+	}
+	if on, _ := body["dat_auto_refresh_enabled"].(bool); on {
+		t.Fatal("the cadence must default off")
+	}
+
+	wantStatus(t, env.do("PUT", "/api/settings", `{"dat_refresh_interval_days":0}`), http.StatusBadRequest)
+
+	rr := env.do("PUT", "/api/settings", `{"dat_auto_refresh_enabled":true,"dat_refresh_interval_days":7}`)
+	wantStatus(t, rr, 200)
+	updated := decodeMap(t, rr)
+	if on, _ := updated["dat_auto_refresh_enabled"].(bool); !on {
+		t.Fatal("the toggle did not persist")
+	}
+	if days, _ := updated["dat_refresh_interval_days"].(float64); days != 7 {
+		t.Fatalf("interval = %v, want 7", updated["dat_refresh_interval_days"])
+	}
+}

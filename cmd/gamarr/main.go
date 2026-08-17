@@ -203,6 +203,11 @@ func main() {
 
 	sched := scheduler.New(cfg, database, searchFn, downloadFn, webhookFn)
 
+	// DAT catalogs: fetch drivers, hand uploads, and the optional refresh
+	// cadence. Built unconditionally — it is the handle the API uses for
+	// manual refreshes and uploads even while the cadence stays off.
+	datSvc := datsvc.New(cfg, database)
+
 	// Configure circuit breaker
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)
 
@@ -220,7 +225,7 @@ func main() {
 	// only walks the PC vault; the Connect notifier tells RomM which platform
 	// folders changed after imports (ROMM_API_USER needs the tasks.run scope
 	// — admin role in RomM 5.x).
-	sup := supervise.New(cfg, sched, supervise.Builders{
+	sup := supervise.New(cfg, sched, datSvc, supervise.Builders{
 		Watcher: func() *download.Watcher { return download.NewWatcher(cfg, mgr) },
 		RomMSync: func() *romm.Syncer {
 			return romm.NewSyncer(
@@ -278,11 +283,6 @@ func main() {
 	// On-demand bulk library rename (preview/apply). NotifyImport is
 	// nil-safe, so this works whether or not RomM Connect is attached.
 	ren := renamer.New(cfg, database, mgr.NotifyImport)
-
-	// DAT catalogs: fetch drivers, hand uploads, and the optional refresh
-	// cadence. Built unconditionally — it is the handle the API uses for
-	// manual refreshes and uploads even while the cadence stays off.
-	datSvc := datsvc.New(cfg, database)
 
 	router := api.NewRouter(cfg, mgr, sab, sched, sup, ren, datSvc)
 
