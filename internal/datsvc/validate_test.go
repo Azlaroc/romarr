@@ -90,3 +90,22 @@ func TestValidateDriver(t *testing.T) {
 		t.Fatal("Dat-o-Matic is deliberately not a driver; it must not validate")
 	}
 }
+
+// The two source rules that cost real outages if a later cleanup "fixes"
+// them. Both are enforced where every caller inherits them, not in a handler.
+func TestValidateFetchBaseRefusesTheBannedSources(t *testing.T) {
+	for _, base := range []string{
+		"https://datomatic.no-intro.org/index.php?page=download",
+		"https://no-intro.org/",
+		"http://redump.org/datfile/psx/",
+		"https://redump.org/datfile/",
+	} {
+		if err := ValidateFetchBase(DriverRedump, base); err == nil {
+			t.Fatalf("ValidateFetchBase(%q) accepted a source we must never point at", base)
+		}
+	}
+	// The one we do use must stay usable.
+	if err := ValidateFetchBase(DriverRedump, "https://redump.info/datfile/"); err != nil {
+		t.Fatalf("redump.info rejected: %v", err)
+	}
+}

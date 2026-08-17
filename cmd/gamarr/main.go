@@ -14,6 +14,7 @@ import (
 	"gamarr/internal/api"
 	"gamarr/internal/config"
 	"gamarr/internal/converto"
+	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
@@ -278,7 +279,12 @@ func main() {
 	// nil-safe, so this works whether or not RomM Connect is attached.
 	ren := renamer.New(cfg, database, mgr.NotifyImport)
 
-	router := api.NewRouter(cfg, mgr, sab, sched, sup, ren)
+	// DAT catalogs: fetch drivers, hand uploads, and the optional refresh
+	// cadence. Built unconditionally — it is the handle the API uses for
+	// manual refreshes and uploads even while the cadence stays off.
+	datSvc := datsvc.New(cfg, database)
+
+	router := api.NewRouter(cfg, mgr, sab, sched, sup, ren, datSvc)
 
 	// Start HTTP server
 	server := &http.Server{

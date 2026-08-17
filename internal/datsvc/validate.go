@@ -18,6 +18,23 @@ import (
 // redumpCode matches a Redump system code as it appears in a datfile URL.
 var redumpCode = regexp.MustCompile(`^[a-z0-9-]{2,16}$`)
 
+// platformSlug is the charset a slug must keep: it becomes a filename
+// component under DataDir and a key in every DAT table.
+//
+// It is deliberately NOT checked against internal/platform's map. That map
+// serves download-side category detection and has never carried atari2600,
+// gbc, sms or gg — all of which the shipped DAT pack assigns. The catalog
+// vocabulary is wider on purpose; do not "fix" this by joining them.
+var platformSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+// ValidateSlug checks a platform slug's shape.
+func ValidateSlug(slug string) error {
+	if !platformSlug.MatchString(strings.TrimSpace(slug)) {
+		return fmt.Errorf("platform slug %q must be lowercase letters, digits and hyphens", slug)
+	}
+	return nil
+}
+
 // ValidateDriver rejects a fetch_driver no driver implements.
 func ValidateDriver(driver string) error {
 	switch driver {
@@ -79,6 +96,27 @@ func ValidateFetchBase(driver, base string) error {
 	}
 	if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
 		return fmt.Errorf("fetch_base %q must be an absolute http or https URL", base)
+	}
+	return checkHost(u.Hostname())
+}
+
+// checkHost enforces the two source rules that cost real outages if broken.
+// They live here rather than in a handler so that every caller — the API, a
+// future importer, a settings migration — inherits them.
+func checkHost(host string) error {
+	h := strings.ToLower(host)
+	// Dat-o-Matic is scriptable, which is the trap rather than the reason:
+	// its anti-scrape cron bans IPs silently, and an egress ban on a
+	// production box surfaces hours later as "someone can't reach the
+	// server". Every project in this space keeps No-Intro human-in-the-loop.
+	if strings.Contains(h, "datomatic") || h == "no-intro.org" || strings.HasSuffix(h, ".no-intro.org") {
+		return fmt.Errorf("%s bans scrapers by IP: fetch No-Intro through the libretro mirror, or upload a daily pack by hand", host)
+	}
+	// redump.org serves no TLS on 443 and lags behind .info. Measured
+	// 2026-08-16: PSX 10914/2026-06-15 there versus 10970/2026-08-16 on
+	// redump.info.
+	if h == "redump.org" || strings.HasSuffix(h, ".redump.org") {
+		return fmt.Errorf("use redump.info rather than %s: the .org host has no TLS on 443 and serves staler data", host)
 	}
 	return nil
 }

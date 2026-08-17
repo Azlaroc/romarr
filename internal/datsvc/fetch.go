@@ -40,6 +40,11 @@ var maxDatSize int64 = 128 << 20
 
 const userAgent = "RomArr/dat"
 
+// MaxUploadBytes is the ceiling on a hand-uploaded body. The API needs it
+// because requestSizeLimitMiddleware exempts multipart entirely, so the
+// upload handler is the only size gate on that path.
+func MaxUploadBytes() int64 { return maxDatSize }
+
 // ErrUploadOnly is returned by the upload driver's Fetch. An authority on
 // this driver has no automated source by design — No-Intro's own Dat-o-Matic
 // bans scrapers by IP, and MAME ships dormant — so its catalogs arrive

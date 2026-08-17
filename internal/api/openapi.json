@@ -131,7 +131,7 @@
       },
       "SearchResult": {
         "type": "object",
-        "description": "A single game/ROM search hit. Fields are populated per source — DDL sources omit seeders/leechers; torrent sources usually omit detail-page GUIDs.",
+        "description": "A single game/ROM search hit. Fields are populated per source \u2014 DDL sources omit seeders/leechers; torrent sources usually omit detail-page GUIDs.",
         "properties": {
           "title": {
             "type": "string"
@@ -962,7 +962,7 @@
     "/api/source-registry/{name}": {
       "put": {
         "summary": "Update a built-in source spec",
-        "description": "Sparse patch {enabled?, base_url?, mapping?} (admin). The registry is a closed set: unknown names 404. Writes hot-apply — the live registry swaps before the response returns.",
+        "description": "Sparse patch {enabled?, base_url?, mapping?} (admin). The registry is a closed set: unknown names 404. Writes hot-apply \u2014 the live registry swaps before the response returns.",
         "responses": {
           "200": {
             "description": "Updated row"
@@ -1009,6 +1009,240 @@
           },
           "404": {
             "description": "Unknown id"
+          }
+        }
+      }
+    },
+    "/api/dat/authorities": {
+      "get": {
+        "summary": "List DAT authorities and their platform assignments (admin)",
+        "description": "fetch_driver and fetch_base are data, not code: repointing an authority at a mirror, a CDN or a self-hosted clone is an edit rather than a deploy.",
+        "responses": {
+          "200": {
+            "description": "Authorities plus every platform assignment"
+          }
+        }
+      }
+    },
+    "/api/dat/authorities/{name}": {
+      "patch": {
+        "summary": "Update a DAT authority (admin)",
+        "description": "Sparse patch of enabled, fetch_driver, fetch_base and pinned_version. A pinned version freezes automatic advance while leaving manual refresh available. fetch_base must be an absolute http(s) URL; Dat-o-Matic hosts are rejected because they ban scrapers by IP, and redump.org is rejected in favour of redump.info. Changing fetch_driver returns warnings for assignments whose dat_code no longer suits it.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Authority name (no-intro, redump, mame)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "fetch_driver": {
+                    "type": "string",
+                    "enum": [
+                      "libretro",
+                      "redump",
+                      "upload"
+                    ]
+                  },
+                  "fetch_base": {
+                    "type": "string"
+                  },
+                  "pinned_version": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated authority, plus warnings when a driver change invalidates assignments"
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown authority"
+          }
+        }
+      }
+    },
+    "/api/dat/authorities/{name}/refresh": {
+      "post": {
+        "summary": "Refresh every platform assigned to an authority (admin)",
+        "description": "Fetches sequentially with a politeness delay. A platform that fails keeps its previous snapshot, and the authority's last_status becomes ok, partial or error. Responds 200 with success=false when a refresh is already running.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Authority name (no-intro, redump, mame)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Refresh started, or already running"
+          },
+          "400": {
+            "description": "Authority is disabled or has no automated fetch"
+          },
+          "404": {
+            "description": "Unknown authority"
+          }
+        }
+      }
+    },
+    "/api/dat/authorities/{name}/upload": {
+      "post": {
+        "summary": "Import a DAT by hand (admin)",
+        "description": "multipart/form-data with a file part. This transport is required: raw bodies are capped at 1MB and a daily pack is tens of megabytes. With ?platform=<slug> the body is one catalog for that platform (bare, or a zip holding a single DAT). Without it, a zip is treated as a pack and fanned out across the authority's assignments, with unmatched members reported as skipped. Redump packs should name their platform, since a Redump dat_code is a system code rather than a DAT name.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Authority name (no-intro, redump, mame)"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Target platform slug for a single-catalog upload"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Imported platforms and skipped members"
+          },
+          "413": {
+            "description": "Upload exceeds the size ceiling"
+          },
+          "415": {
+            "description": "Body is not multipart/form-data"
+          }
+        }
+      }
+    },
+    "/api/dat/platforms/{slug}": {
+      "put": {
+        "summary": "Assign a platform to a DAT authority (admin)",
+        "description": "dat_code is driver-specific: the libretro mirror's DAT name without extension, or a Redump system code. The pair is validated here, since a mismatched code would otherwise fail only at fetch time. There is no delete: set enabled=false to retire an assignment.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "authority",
+                  "dat_code"
+                ],
+                "properties": {
+                  "authority": {
+                    "type": "string"
+                  },
+                  "dat_code": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored assignment"
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dat/status": {
+      "get": {
+        "summary": "DAT refresh status",
+        "description": "Cadence state plus the current or last run: phase, authority, progress and per-platform results.",
+        "responses": {
+          "200": {
+            "description": "Service status"
+          }
+        }
+      }
+    },
+    "/api/dat/coverage": {
+      "get": {
+        "summary": "Owned versus catalogued, per platform",
+        "description": "Two independent counts. Coverage does not match owned files against catalog entries, so the numbers are presented as 'N owned, M known' and never as a completion percentage. Nothing here asserts that a file is correct.",
+        "responses": {
+          "200": {
+            "description": "Per-platform owned and known counts"
           }
         }
       }

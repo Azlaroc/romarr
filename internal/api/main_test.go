@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"gamarr/internal/config"
+	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/qbit"
@@ -71,7 +72,7 @@ func newTestEnv(t *testing.T, mutate func(*config.Config)) *testEnv {
 		sab = sabnzbd.New(cfg.SABnzbdURL, cfg.SABnzbdAPIKey)
 	}
 
-	router := NewRouter(cfg, mgr, sab, nil, nil, nil)
+	router := NewRouter(cfg, mgr, sab, nil, nil, nil, datsvc.New(cfg, mgr.Jobs()))
 	return &testEnv{t: t, cfg: cfg, jobs: store, mgr: mgr, router: router}
 }
 
