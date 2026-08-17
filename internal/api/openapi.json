@@ -1246,6 +1246,85 @@
           }
         }
       }
+    },
+    "/api/size-definitions": {
+      "get": {
+        "summary": "Per-platform size definitions (admin)",
+        "description": "The size band each platform's candidates are judged against. min_size and max_size are bytes, and zero on either end means that end is unbounded rather than zero bytes; a platform with both at zero is not size-filtered at all. The numbers are enforced exactly as stored, so what is listed here is what rejects. source is 'catalog' for a band derived from a DAT snapshot or 'manual' for one an operator set, and a manual row is never overwritten by a refresh. has_catalog reports whether a reset has a snapshot to re-derive from. Every platform with a catalog lane is listed even before anything has been imported for it.",
+        "responses": {
+          "200": {
+            "description": "Definitions, ordered by platform slug"
+          }
+        }
+      }
+    },
+    "/api/size-definitions/{slug}": {
+      "put": {
+        "summary": "Set a platform's size bounds by hand (admin)",
+        "description": "Stores bounds as source='manual', which a catalog refresh will not overwrite. Bounds are enforced verbatim: a value typed here is a statement about the files themselves, so nothing widens it afterwards. Zero means unbounded on that end. Omitting an end leaves it unchanged rather than clearing it. Use the reset endpoint to return to the catalog's numbers.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "min_size": { "type": "integer", "format": "int64" },
+                  "max_size": { "type": "integer", "format": "int64" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored definition"
+          },
+          "400": {
+            "description": "Invalid slug, negative bound, inverted band, or neither bound supplied",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/size-definitions/{slug}/reset": {
+      "post": {
+        "summary": "Return a platform to its catalog-derived band (admin)",
+        "description": "Re-derives the band from the platform's active snapshot, discarding an operator's manual bounds. With no snapshot to fall back on the definition is removed entirely, leaving the platform unbounded. There is no delete: retiring your own numbers is a reset to the authority's, which is a different thing from removing the platform.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definition after the reset"
+          },
+          "400": {
+            "description": "Invalid slug",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
