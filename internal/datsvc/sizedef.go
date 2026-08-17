@@ -81,3 +81,45 @@ func (s *Service) applySizeDefinition(snap db.DatSnapshotRow) {
 		slog.Warn("store size definition", "platform", slug, "error", err)
 	}
 }
+
+// BackfillSizeDefinitions derives a band for every platform that already has
+// a catalog but no definition, and reports how many it wrote.
+//
+// Without this an existing installation would never get definitions at all.
+// Catalogs imported before this feature existed produce a definition only on
+// their next import, and a refresh whose bytes are unchanged short-circuits
+// before the import path — correctly, since nothing moved. So an install
+// whose catalogs are already current would sit with an empty table and every
+// platform unbounded, and refreshing would not fix it. "Refresh after
+// upgrading" is not a workaround here; it is a no-op.
+//
+// Writes only where nothing is stored, so it never disturbs an operator's row
+// and is safe to run on every boot.
+func (s *Service) BackfillSizeDefinitions() int {
+	written := 0
+	for _, p := range s.store.ListDatPlatforms() {
+		if _, ok := s.store.GetPlatformSize(p.PlatformSlug); ok {
+			continue
+		}
+		snap, ok := s.store.ActiveDatSnapshot(p.PlatformSlug)
+		if !ok {
+			continue
+		}
+		def := DeriveSizeDefinition(snap)
+		if def.MinSize == 0 && def.MaxSize == 0 {
+			continue
+		}
+		if err := s.store.SetPlatformSize(def); err != nil {
+			slog.Warn("backfill size definition", "platform", p.PlatformSlug, "error", err)
+			continue
+		}
+		written++
+		if s.onSnapshot != nil {
+			s.onSnapshot(p.PlatformSlug)
+		}
+	}
+	if written > 0 {
+		slog.Info("derived size definitions from existing catalogs", "platforms", written)
+	}
+	return written
+}

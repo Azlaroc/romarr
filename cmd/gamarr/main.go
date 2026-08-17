@@ -212,6 +212,11 @@ func main() {
 	// cadence. Built unconditionally — it is the handle the API uses for
 	// manual refreshes and uploads even while the cadence stays off.
 	datSvc := datsvc.New(cfg, database, datsvc.WithOnSnapshot(func(string) { search.RefreshBands() }))
+	// Catalogs imported before size definitions existed would otherwise never
+	// produce one: an unchanged refresh short-circuits before the import
+	// path, so upgrading an installation whose catalogs are current would
+	// leave every platform unbounded for good.
+	datSvc.BackfillSizeDefinitions()
 
 	// Configure circuit breaker
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)

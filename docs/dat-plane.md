@@ -156,3 +156,10 @@ your own numbers is a reset to the authority's.
 
 A quality profile's `preferred_size_min`/`max` still override the definition
 per profile, and are likewise enforced verbatim.
+
+Definitions for catalogs imported before the table existed are derived at
+boot. They cannot arrive any other way: a refresh whose bytes are unchanged
+short-circuits before the import path — correctly, since nothing moved — so an
+installation whose catalogs are already current would otherwise sit with an
+empty table and every platform unbounded. The backfill writes only where
+nothing is stored, so it never disturbs an operator's row.
