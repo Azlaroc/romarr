@@ -121,6 +121,10 @@ type Config struct {
 	SelectorMode            string // off | shadow | enforce
 	SelectorSetTimeoutHours int    // disc-set degrade timeout; read via DiscSetTimeoutHours()
 
+	// DAT catalogs
+	DatAutoRefreshEnabled bool
+	DatRefreshIntervalD   int // read via DatRefreshIntervalDays()
+
 	// Retry
 	MaxRetries          int
 	RetryBackoffSeconds int
@@ -233,6 +237,9 @@ func Load() *Config {
 		SchedulerMinScore:       envInt("SCHEDULER_MIN_SCORE", 70),
 		SelectorMode:            envStr("SELECTOR_MODE", "shadow"),
 		SelectorSetTimeoutHours: envInt("SELECTOR_SET_TIMEOUT_HOURS", 24),
+
+		DatAutoRefreshEnabled: envBool("DAT_AUTO_REFRESH", false),
+		DatRefreshIntervalD:   envInt("DAT_REFRESH_INTERVAL_DAYS", 30),
 
 		AuthUsername: envStr("AUTH_USERNAME", ""),
 		AuthPassword: envStr("AUTH_PASSWORD", ""),
@@ -448,6 +455,32 @@ func (c *Config) SchedulerIntervalHrs() int {
 	}
 	if n < 1 {
 		return 24
+	}
+	return n
+}
+
+// DatAutoRefreshOn reports whether DAT catalogs re-fetch on a cadence.
+//
+// It ships off: a catalog that silently advances underneath the selector is
+// exactly what pinning exists to prevent, so advancing a snapshot is an
+// operator's decision until they say otherwise.
+func (c *Config) DatAutoRefreshOn() bool {
+	if v, ok := c.settingBool("dat_auto_refresh_enabled"); ok {
+		return v
+	}
+	return c.DatAutoRefreshEnabled
+}
+
+// DatRefreshIntervalDays returns the cadence in days, floored at 1. DATs
+// move on the order of weeks (the libretro mirror republishes 3-4x a year),
+// so the unit is days rather than hours.
+func (c *Config) DatRefreshIntervalDays() int {
+	n := c.DatRefreshIntervalD
+	if v, ok := c.settingInt("dat_refresh_interval_days"); ok {
+		n = v
+	}
+	if n < 1 {
+		return 30
 	}
 	return n
 }
