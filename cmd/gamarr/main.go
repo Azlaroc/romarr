@@ -112,6 +112,11 @@ func main() {
 	// archive.org's anonymous rate budget.
 	search.SetIACache(database)
 
+	// Candidate sizes are judged against per-platform definitions stored in
+	// the DB. A platform without one is not size-filtered at all, so an
+	// unlisted platform degrades to "unjudged" rather than "rejected".
+	search.SetBandStore(database)
+
 	// Initialize qBittorrent client
 	qb := qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass)
 
@@ -206,7 +211,7 @@ func main() {
 	// DAT catalogs: fetch drivers, hand uploads, and the optional refresh
 	// cadence. Built unconditionally — it is the handle the API uses for
 	// manual refreshes and uploads even while the cadence stays off.
-	datSvc := datsvc.New(cfg, database)
+	datSvc := datsvc.New(cfg, database, datsvc.WithOnSnapshot(func(string) { search.RefreshBands() }))
 
 	// Configure circuit breaker
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)
