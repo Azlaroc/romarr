@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"gamarr/internal/config"
+	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
@@ -43,13 +44,14 @@ type Server struct {
 	oidc      *OIDCHandler
 	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
+	dat       *datsvc.Service
 }
 
 // NewRouter creates a new chi router with all routes.
-func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, sup *supervise.Supervisor, ren *renamer.Runner) http.Handler {
+func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, sup *supervise.Supervisor, ren *renamer.Runner, dat *datsvc.Service) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren}
+	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren, dat: dat}
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -149,6 +151,17 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/ddl-sources", requireAdmin(s.handleDDLSources))
 	r.Post("/api/ddl-sources", requireAdmin(s.handleAddDDLSource))
 	r.Delete("/api/ddl-sources/{id}", requireAdmin(s.handleDeleteDDLSource))
+
+	// DAT catalogs (authorities, assignments, refresh, hand-upload). Writes
+	// and configuration are admin-only like the source registry; the status
+	// and coverage reads are not, matching the normalize status endpoint.
+	r.Get("/api/dat/authorities", requireAdmin(s.handleDatAuthorities))
+	r.Patch("/api/dat/authorities/{name}", requireAdmin(s.handleUpdateDatAuthority))
+	r.Post("/api/dat/authorities/{name}/refresh", requireAdmin(s.handleDatRefresh))
+	r.Post("/api/dat/authorities/{name}/upload", requireAdmin(s.handleDatUpload))
+	r.Put("/api/dat/platforms/{slug}", requireAdmin(s.handleUpdateDatPlatform))
+	r.Get("/api/dat/status", s.handleDatStatus)
+	r.Get("/api/dat/coverage", s.handleDatCoverage)
 
 	// Settings & config (admin only)
 	r.Get("/api/settings", requireAdmin(s.handleGetSettings))

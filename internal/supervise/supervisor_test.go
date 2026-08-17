@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gamarr/internal/config"
+	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/romm"
 	"gamarr/internal/rommconnect"
@@ -47,7 +48,7 @@ func TestApplyRomMSyncEnableDisable(t *testing.T) {
 	cfg.AttachSettings(store)
 
 	builds := 0
-	sup := New(cfg, nil, Builders{
+	sup := New(cfg, nil, nil, Builders{
 		RomMSync: func() *romm.Syncer {
 			builds++
 			return romm.NewSyncer(romm.New(stub.URL, "u", "p"), store, romm.SyncOptions{
@@ -105,7 +106,7 @@ func TestApplyConnectSwapsImportNotify(t *testing.T) {
 		return current
 	}
 
-	sup := New(cfg, nil, Builders{
+	sup := New(cfg, nil, nil, Builders{
 		Connect: func() (*rommconnect.Notifier, func(string)) {
 			n := rommconnect.NewNotifier(rommconnect.New(stub.URL, "u", "p"), rommconnect.NotifierOptions{})
 			return n, n.Enqueue
@@ -140,4 +141,48 @@ func TestApplyConnectSwapsImportNotify(t *testing.T) {
 	if getNotify() != nil {
 		t.Fatal("StopAll should detach notify")
 	}
+}
+
+// The DAT cadence is the one loop that ships off, so the settings flip is
+// the only thing that ever arms it — and it must arm without a restart.
+func TestApplyDatCadenceEnableDisable(t *testing.T) {
+	store := newStore(t)
+	cfg := &config.Config{}
+	cfg.AttachSettings(store)
+	svc := datsvc.New(cfg, store)
+
+	sup := New(cfg, nil, svc, Builders{}, nil)
+	sup.StartAll()
+	if svc.LoopRunning() {
+		t.Fatal("cadence armed with the toggle off; a fresh deploy must fetch nothing")
+	}
+
+	store.SetSetting("dat_auto_refresh_enabled", "true")
+	sup.Apply([]string{"dat_auto_refresh_enabled"})
+	if !svc.LoopRunning() {
+		t.Fatal("cadence did not arm when the toggle went on")
+	}
+
+	// Re-arm in place on an interval change: the service pointer the API
+	// holds must stay the same instance.
+	store.SetSetting("dat_refresh_interval_days", "7")
+	sup.Apply([]string{"dat_refresh_interval_days"})
+	if !svc.LoopRunning() {
+		t.Fatal("cadence lost after an interval change")
+	}
+
+	store.SetSetting("dat_auto_refresh_enabled", "false")
+	sup.Apply([]string{"dat_auto_refresh_enabled"})
+	if svc.LoopRunning() {
+		t.Fatal("cadence survived the toggle going off")
+	}
+
+	// And back on again — the StopLoop path must not have left the stop
+	// channel closed.
+	store.SetSetting("dat_auto_refresh_enabled", "true")
+	sup.Apply([]string{"dat_auto_refresh_enabled"})
+	if !svc.LoopRunning() {
+		t.Fatal("cadence could not re-arm after a disable")
+	}
+	sup.StopAll()
 }

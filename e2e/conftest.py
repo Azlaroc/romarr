@@ -204,6 +204,63 @@ def _ia_metadata(item: str) -> bytes:
     ).encode()
 
 
+# ── DAT authorities (blaster #315 PR-B) ──────────────────────────────────────
+# Two shapes, matching the two real transports: the libretro mirror serves a
+# bare clrmamepro DAT per platform, redump.info serves a zip holding one
+# logiqx XML. Bodies are generated deterministically from the requested name,
+# so a re-fetch is byte-identical and the app's "unchanged" short-circuit is
+# exercised for real.
+#
+# The routes are generic rather than an allowlist of the shipped DAT names on
+# purpose: a refresh walks EVERY platform assigned to an authority, so
+# hard-coding today's eleven would break the suite the day the seed grows.
+DAT_LIBRETRO_PREFIX = "/libretro-dat/"
+DAT_REDUMP_PREFIX = "/redump-dat/"
+DAT_NAME_RE = re.compile(r"^[A-Za-z0-9 .\-]{1,80}\.dat$")
+DAT_CODE_RE = re.compile(r"^[a-z0-9-]{2,16}$")
+DAT_GAMES = 3
+
+
+def _clrmamepro_dat(name: str, games: int = DAT_GAMES, version: str = "2026.08.01") -> bytes:
+    """A clrmamepro catalog, the shape the libretro No-Intro mirror serves."""
+    out = [f'clrmamepro (\n\tname "{name}"\n\tversion "{version}"\n)\n']
+    for i in range(1, games + 1):
+        sha = f"{i * 7919:040x}"
+        out.append(
+            f'game (\n\tname "{name} Game {i} (USA)"\n'
+            f'\trom ( name "{name} Game {i} (USA).rom" size {4096 * i} '
+            f'crc {i:08x} md5 {i:032x} sha1 {sha} )\n)\n'
+        )
+    return "\n".join(out).encode()
+
+
+def _logiqx_dat(name: str, games: int = DAT_GAMES, version: str = "2026-08-16 18-16-58") -> bytes:
+    """A logiqx catalog, the shape Redump serves (inside a zip)."""
+    rows = [
+        '<?xml version="1.0"?>', "<datafile>",
+        f"<header><name>{name}</name><version>{version}</version></header>",
+    ]
+    for i in range(1, games + 1):
+        # Two tracks per disc: a cue plus a bin, so the app's per-game total
+        # is the sum rather than the first track.
+        rows.append(
+            f'<game name="{name} Disc {i} (USA)">'
+            f'<rom name="{name} Disc {i} (USA).cue" size="100" crc="{i:08x}" sha1="{i * 11:040x}"/>'
+            f'<rom name="{name} Disc {i} (USA).bin" size="{500000 * i}" crc="{i + 1:08x}" sha1="{i * 13:040x}"/>'
+            "</game>"
+        )
+    rows.append("</datafile>")
+    return "".join(rows).encode()
+
+
+def _redump_zip(code: str) -> bytes:
+    """Redump's transport: a deflate zip carrying exactly one catalog."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{code} - Datfile (2026-08-16 18-16-58).dat", _logiqx_dat(code))
+    return buf.getvalue()
+
+
 class _StubHandler(BaseHTTPRequestHandler):
     """One handler impersonating qBittorrent + Prowlarr + archive.org + RomM."""
 
@@ -439,6 +496,17 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self._send(200, _rom_zip(name, ext), "application/zip")
             else:
                 self._send(404, b"no such file", "text/plain")
+        # ── DAT authorities: libretro mirror (bare DAT) + Redump (zip) ───
+        elif path.startswith(DAT_LIBRETRO_PREFIX) and DAT_NAME_RE.match(
+            urllib.parse.unquote(path[len(DAT_LIBRETRO_PREFIX):])
+        ):
+            name = urllib.parse.unquote(path[len(DAT_LIBRETRO_PREFIX):])[: -len(".dat")]
+            self._send(200, _clrmamepro_dat(name), "text/plain")
+        elif path.startswith(DAT_REDUMP_PREFIX) and DAT_CODE_RE.match(
+            path[len(DAT_REDUMP_PREFIX):].strip("/")
+        ):
+            code = path[len(DAT_REDUMP_PREFIX):].strip("/")
+            self._send(200, _redump_zip(code), "application/zip")
         else:
             self._send(404, b"not found", "text/plain")
 
