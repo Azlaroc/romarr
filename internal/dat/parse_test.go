@@ -153,6 +153,24 @@ func TestSizeStats(t *testing.T) {
 	}
 }
 
+func TestParseStripsByteOrderMark(t *testing.T) {
+	// Hand-uploaded DATs are often saved by Windows tooling with a BOM; it must
+	// not send an XML file to the clrmamepro parser.
+	for _, name := range []string{"redump_sample.dat", "nointro_sample.dat"} {
+		raw, err := os.ReadFile("testdata/" + name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		f, err := Parse(append([]byte("\ufeff"), raw...))
+		if err != nil {
+			t.Fatalf("parse BOM-prefixed %s: %v", name, err)
+		}
+		if len(f.Games) != 3 {
+			t.Errorf("%s: games = %d, want 3", name, len(f.Games))
+		}
+	}
+}
+
 func TestParseSniffsFormatAndRejectsEmpty(t *testing.T) {
 	if _, err := Parse([]byte("   \n\t ")); err == nil {
 		t.Error("empty input parsed without error")

@@ -14,8 +14,12 @@ import (
 // Parse reads a DAT in either supported syntax, sniffing the format from the
 // first non-space bytes. Callers hand it decompressed bytes; unwrapping any
 // transport container is the fetch layer's job.
+//
+// A leading UTF-8 byte-order mark is stripped before sniffing: hand-uploaded
+// DATs are routinely saved by Windows tooling, and a BOM would otherwise send
+// an XML file to the clrmamepro parser and fail with a misleading error.
 func Parse(raw []byte) (*File, error) {
-	head := strings.TrimLeftFunc(string(raw), unicode.IsSpace)
+	head := strings.TrimLeftFunc(strings.TrimPrefix(string(raw), "\ufeff"), unicode.IsSpace)
 	switch {
 	case strings.HasPrefix(head, "<"):
 		return parseLogiqx(raw)
