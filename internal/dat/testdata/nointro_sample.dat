@@ -1,0 +1,24 @@
+clrmamepro (
+	name "Atari - 2600"
+	description "Atari - 2600"
+	version "2026.08.01"
+	homepage "http://github.com/robloach/libretro-dats"
+)
+
+game (
+	name "3-D Tic-Tac-Toe (USA)"
+	region "USA"
+	rom ( name "3-D Tic-Tac-Toe (USA).a26" size 2048 crc 58805709 md5 0DB4F4150FECF77E4CE72CA4D04C052F sha1 21D983F2F52B84C22ECAE84B0943678AE2C31C10 )
+)
+
+game (
+	name "3-D Genesis (USA) (Proto)"
+	region "USA"
+	rom ( name "3-D Genesis (USA) (Proto).a26" size 8192 crc 931A0BDC md5 CAC9928A84E1001817B223F0CECAA3F2 sha1 0E146E5EB1A68CBA4F8FA55EC6F125438EFCFCB4 )
+)
+
+game (
+	name "3-D Tic-Tac-Toe (Europe)"
+	region "Europe"
+	rom ( name "3-D Tic-Tac-Toe (Europe).a26" size 2048 crc 7322EBC6 md5 E3600BE9EB98146ADAFDC12D91323D0F sha1 6B163AA967E4204A5BD98A59BD8E80F159004E34 )
+)
