@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!DOCTYPE datafile PUBLIC "-//Logiqx//DTD ROM Management Datafile//EN" "http://www.logiqx.com/Dats/datafile.dtd">
+<datafile>
+	<header>
+		<name>Sony - PlayStation</name>
+		<description>Sony - PlayStation - Discs (10914) (2026-06-15 11-55-46)</description>
+		<version>2026-06-15 11-55-46</version>
+		<date>2026-06-15 11-55-46</date>
+		<author>redump.org</author>
+		<homepage>redump.org</homepage>
+		<url>http://redump.org/</url>
+	</header>
+		<game name="Music - Music Creation for the PlayStation (Europe) (En,Fr,De,Es,It)">
+		<category>Games</category>
+		<description>Music - Music Creation for the PlayStation (Europe) (En,Fr,De,Es,It)</description>
+		<rom name="Music - Music Creation for the PlayStation (Europe) (En,Fr,De,Es,It).cue" size="306" crc="08b43a5a" md5="79aa7750ca9672cc412a2725cad5436d" sha1="56dc1f5d8c460e3ee8a2f52a1df44d8cac0f1700"/>
+		<rom name="Music - Music Creation for the PlayStation (Europe) (En,Fr,De,Es,It) (Track 1).bin" size="323082480" crc="ef3e1282" md5="aa457b73bbca023cd23170e06c4493b8" sha1="e9bfae82c856c6efcbfadb7ab2ac497a531420f4"/>
+		<rom name="Music - Music Creation for the PlayStation (Europe) (En,Fr,De,Es,It) (Track 2).bin" size="33868800" crc="3f9896b3" md5="441eeb4204aafc104bf1863b743a13a2" sha1="a55870eae893408b85b4274d19e349a7a447b84b"/>
+	</game>
+	<game name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It)">
+		<category>Games</category>
+		<description>Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It)</description>
+		<rom name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It).cue" size="120" crc="92b3ff37" md5="56125070a7f679f547133512543a3585" sha1="5cc0e2d25792ae13ec7dab7b2ee8974c700c3337"/>
+		<rom name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It).bin" size="470999760" crc="91cad2df" md5="24c2f5a5e43e4bc4c41081f5ef4dc818" sha1="8c215d983ad7d7f5f8aa122981cbd79d846532ec"/>
+	</game>
+	<game name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It) (Rev 1)" cloneof="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It)">
+		<category>Games</category>
+		<description>Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It)</description>
+		<rom name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It).cue" size="120" crc="92b3ff37" md5="56125070a7f679f547133512543a3585" sha1="5cc0e2d25792ae13ec7dab7b2ee8974c700c3337"/>
+		<rom name="Ace Combat 3 - Electrosphere (Europe) (En,Fr,De,Es,It).bin" size="470999760" crc="91cad2df" md5="24c2f5a5e43e4bc4c41081f5ef4dc818" sha1="8c215d983ad7d7f5f8aa122981cbd79d846532ec"/>
+	</game>
+</datafile>
