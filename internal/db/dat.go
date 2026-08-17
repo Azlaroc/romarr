@@ -630,31 +630,6 @@ func (s *JobStore) ActiveDatSnapshot(slug string) (DatSnapshotRow, bool) {
 	return r, true
 }
 
-// DatBands returns each platform's stored size distribution, keyed by slug.
-// The selector reads this to sanity-check candidate sizes instead of a
-// hardcoded table; platforms with no snapshot are absent and fall back to the
-// generic band.
-func (s *JobStore) DatBands() map[string][2]int64 {
-	out := map[string][2]int64{}
-	rows, err := s.db.Query(`SELECT platform_slug, size_p01, size_p99 FROM dat_snapshots WHERE active = 1`)
-	if err != nil {
-		slog.Warn("load dat bands", "error", err)
-		return out
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var slug string
-		var lo, hi int64
-		if err := rows.Scan(&slug, &lo, &hi); err != nil {
-			continue
-		}
-		if lo > 0 && hi >= lo {
-			out[slug] = [2]int64{lo, hi}
-		}
-	}
-	return out
-}
-
 // DatCoverage reports owned-vs-known per platform, covering every platform
 // that either has a library or has a catalog.
 func (s *JobStore) DatCoverage() []DatCoverageRow {

@@ -310,6 +310,15 @@ func (s *Scheduler) run() {
 		s.jobs.LogActivity("selector_decision", item.Title,
 			fmt.Sprintf("[%s] %s: %s (grabs=%d, rejected=%d; legacy pick: %s)",
 				mode, dec.Action.String(), dec.Reason, len(dec.Grabs), len(dec.Rejected), legacy), "", nil)
+		// One line per discarded candidate. The count alone says a search
+		// found nothing usable without saying why, which is how a filter
+		// rejecting an entire platform stayed invisible for months. The
+		// activity feed keeps the summary — per-candidate rows would drown
+		// it — so this lives in the logs.
+		for _, rej := range dec.Rejected {
+			slog.Info("selector_rejected", "mode", mode, "wishlist_title", item.Title,
+				"platform", item.PlatformSlug, "candidate", rej.Title, "reason", rej.Reason)
+		}
 
 		if mode == "shadow" {
 			autoDownloads += s.legacyGrab(item, results, minScore)

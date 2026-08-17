@@ -10,8 +10,9 @@ import (
 	"gamarr/internal/search"
 )
 
-// Rejection records why a candidate was filtered out of selection —
-// surfaced in shadow logs and Decision.Rejected so a pick is explainable.
+// Rejection records why a candidate was filtered out of selection — carried
+// in Decision.Rejected and logged per candidate by the scheduler, so a pick
+// and a non-pick are both explainable.
 type Rejection struct {
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
@@ -46,9 +47,15 @@ func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
 		return "region not in profile priority (" + strings.Join(a.Regions, ",") + ")"
 	}
 	// Size sanity: reject implausibly small (placeholder) and implausibly
-	// large payloads. Profile bounds win when set; 0 falls back to the
-	// built-in per-platform band. Size 0 (unreported) passes the filter and
-	// loses the hash/verifiability tier instead.
+	// large payloads. Profile bounds win when set; 0 on either end means that
+	// end is unbounded, so a platform with no definition is not filtered on
+	// size at all. Size 0 (unreported) passes the filter and loses the
+	// hash/verifiability tier instead.
+	//
+	// Both bounds are applied exactly as stored. The compression allowance a
+	// catalog-derived floor needs is folded in when the definition is written,
+	// so that the number enforcing here is the same number a screen displays —
+	// and so an operator-typed bound means precisely what it says.
 	if r.Size > 0 {
 		minSize, maxSize := search.PlatformSizeRange(r.PlatformSlug)
 		if prof.PreferredSizeMin > 0 {
@@ -57,11 +64,13 @@ func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
 		if prof.PreferredSizeMax > 0 {
 			maxSize = prof.PreferredSizeMax
 		}
-		if r.Size < minSize/2 {
-			return fmt.Sprintf("implausibly small (%d bytes)", r.Size)
+		// The bound travels in the reason: a rejection that names only the
+		// candidate leaves the operator guessing which number did it.
+		if minSize > 0 && r.Size < minSize {
+			return fmt.Sprintf("implausibly small (%d bytes, floor %d)", r.Size, minSize)
 		}
-		if r.Size > 2*maxSize {
-			return fmt.Sprintf("implausibly large (%d bytes)", r.Size)
+		if maxSize > 0 && r.Size > maxSize {
+			return fmt.Sprintf("implausibly large (%d bytes, ceiling %d)", r.Size, maxSize)
 		}
 	}
 	return ""

@@ -160,7 +160,7 @@ func TestScoreResults_SeederTiers(t *testing.T) {
 }
 
 func TestScoreResults_SizeInRange(t *testing.T) {
-	// NES: 10KB - 5MB
+	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
 	results := []*models.SearchResult{
 		{Title: "Game", Seeders: 10, Size: 1_000_000, PlatformSlug: "nes"},   // 1MB in range
 		{Title: "Game", Seeders: 10, Size: 100_000_000, PlatformSlug: "nes"}, // 100MB way out of range
@@ -179,7 +179,8 @@ func TestScoreResults_SizeInRange(t *testing.T) {
 }
 
 func TestScoreResults_SizeSlightlyOutOfRange(t *testing.T) {
-	// NES max is 5MB, slightly over = 5MB to 10MB
+	// NES ceiling is 5MB, slightly over = 5MB to 10MB
+	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
 	results := []*models.SearchResult{
 		{Title: "Game", Seeders: 10, Size: 7_000_000, PlatformSlug: "nes"}, // 7MB: > 5MB but < 10MB
 	}
@@ -272,13 +273,20 @@ func TestScoreResults_EmptyResults(t *testing.T) {
 }
 
 func TestScoreResults_UnknownPlatformSize(t *testing.T) {
-	// Unknown platform uses default range 1MB-50GB
+	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
+
+	// A platform with no definition scores neutral rather than being measured
+	// against a generic band. The generic band was never neutral: its floor
+	// rejected small-cartridge platforms outright and its scoring pushed them
+	// below the grab threshold, which is how unlisted platforms broke.
 	results := []*models.SearchResult{
 		{Title: "Game", Seeders: 10, Size: 500_000_000, PlatformSlug: "unknownplatform"},
+		{Title: "Game", Seeders: 10, Size: 2_987, PlatformSlug: "unknownplatform"},
 	}
 	scored := ScoreResults(results, "Game", "")
-	// 500MB is in default range
-	if scored[0].ScoreBreakdown.SizeScore != 15 {
-		t.Errorf("unknown platform SizeScore=%d, want 15", scored[0].ScoreBreakdown.SizeScore)
+	for i, r := range scored {
+		if r.ScoreBreakdown.SizeScore != 7 {
+			t.Errorf("result %d: undefined-platform SizeScore=%d, want 7 (neutral)", i, r.ScoreBreakdown.SizeScore)
+		}
 	}
 }

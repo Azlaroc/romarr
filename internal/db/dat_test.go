@@ -175,13 +175,9 @@ func TestDatSnapshotPrunesHistory(t *testing.T) {
 	}
 }
 
-func TestDatBandsAndCoverage(t *testing.T) {
+func TestDatCoverage(t *testing.T) {
 	store, _ := datStore(t)
 	defer store.Close()
-
-	if len(store.DatBands()) != 0 {
-		t.Error("bands should be empty before any snapshot")
-	}
 
 	meta := DatSnapshotMeta{
 		Authority: "no-intro", PlatformSlug: "gb", Version: "2026.08.01",
@@ -192,11 +188,6 @@ func TestDatBandsAndCoverage(t *testing.T) {
 		game("Beta (USA)", 4096, "bbb"),
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
-	}
-
-	bands := store.DatBands()
-	if got, ok := bands["gb"]; !ok || got != [2]int64{1024, 4096} {
-		t.Errorf("band = %v, ok=%v, want [1024 4096]", got, ok)
 	}
 
 	cov := store.DatCoverage()

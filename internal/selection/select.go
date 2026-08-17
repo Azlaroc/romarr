@@ -111,7 +111,10 @@ func (r *RepairSet) wanted() []int {
 
 // Select picks the release(s) to grab from prepared candidates (Pipeline.
 // Prepare output: annotated, filtered, tier-sorted). It is pure over its
-// inputs: same candidates + opts, same decision.
+// inputs and the process's armed size definitions: same candidates + opts +
+// definitions, same decision. Only a catalog import or an operator edit
+// changes the definitions, and both invalidate explicitly rather than
+// drifting.
 func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	prof := opts.Profile
 	if prof == nil {
