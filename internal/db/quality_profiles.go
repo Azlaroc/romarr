@@ -17,7 +17,9 @@ import (
 //
 // Semantics of the pre-F4 fields:
 //   - PreferredSizeMin/Max: size-sanity bounds in bytes; 0 means "fall back
-//     to the built-in per-platform size table" (search.platformSizeRange).
+//     to this platform's size definition" (platform_size_definitions, see
+//     PlatformSizeRow). Both are enforced exactly as given — a bound typed
+//     here is a statement about the files themselves, so nothing widens it.
 //   - UpgradeAllowed/CutoffSource: reserved for the active upgrade loop
 //     (re-grab when a better release appears, stop at CutoffSource). No code
 //     consumes them yet — the F4 selector is skip-if-owned only.
@@ -33,8 +35,8 @@ type QualityProfile struct {
 	AllowDemo        bool     `json:"allow_demo"`         // allow (Demo) releases
 	AllowBIOS        bool     `json:"allow_bios"`         // allow [BIOS] releases
 	SourceRanking    []string `json:"source_ranking"`     // ordered list: best first
-	PreferredSizeMin int64    `json:"preferred_size_min"` // bytes; 0 = platform default
-	PreferredSizeMax int64    `json:"preferred_size_max"` // bytes; 0 = platform default
+	PreferredSizeMin int64    `json:"preferred_size_min"` // bytes; 0 = use the platform definition
+	PreferredSizeMax int64    `json:"preferred_size_max"` // bytes; 0 = use the platform definition
 	UpgradeAllowed   bool     `json:"upgrade_allowed"`
 	CutoffSource     string   `json:"cutoff_source"` // stop upgrading once this source is reached
 }

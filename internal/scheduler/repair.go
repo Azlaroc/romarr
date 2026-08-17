@@ -123,6 +123,10 @@ func (s *Scheduler) repairDegradedSets(mode string) int {
 		s.jobs.LogActivity("selector_decision", item.Title,
 			fmt.Sprintf("[repair] %s: %s (want %v, attempt %d/%d)", dec.Action.String(),
 				dec.Reason, sortedIndices(want), mk.RepairAttempts, maxSetRepairAttempts), "", nil)
+		for _, rej := range dec.Rejected {
+			slog.Info("selector_rejected", "mode", "repair", "set", setID, "title", item.Title,
+				"platform", item.PlatformSlug, "candidate", rej.Title, "reason", rej.Reason)
+		}
 		if dec.Action != selection.ActionGrabSet {
 			continue
 		}

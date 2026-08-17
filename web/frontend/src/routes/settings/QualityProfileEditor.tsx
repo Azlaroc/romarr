@@ -182,7 +182,7 @@ export function QualityProfileEditor() {
           <FormRow label="Source ranking" hint="Case-insensitive substring match against the indexer name; best first.">
             <OrderedTokenList value={form.source_ranking} onChange={(v) => set('source_ranking', v)} allowCustom testid="qp-source" emptyLabel="None — sources rank equally" />
           </FormRow>
-          <FormRow label="Size bounds" hint="Raw bytes; 0 = platform default band.">
+          <FormRow label="Size bounds" hint="Raw bytes. 0 defers to the platform's size definition; a value here is enforced exactly as typed.">
             <div className="grid gap-3 sm:grid-cols-2">
               <Input
                 type="number"
@@ -190,7 +190,7 @@ export function QualityProfileEditor() {
                 label="Min"
                 value={form.preferred_size_min}
                 onChange={(e) => set('preferred_size_min', Number(e.target.value) || 0)}
-                hint={form.preferred_size_min > 0 ? formatSize(form.preferred_size_min) : 'platform default'}
+                hint={form.preferred_size_min > 0 ? formatSize(form.preferred_size_min) : 'platform definition'}
                 data-testid="qp-size-min"
               />
               <Input
@@ -199,7 +199,7 @@ export function QualityProfileEditor() {
                 label="Max"
                 value={form.preferred_size_max}
                 onChange={(e) => set('preferred_size_max', Number(e.target.value) || 0)}
-                hint={form.preferred_size_max > 0 ? formatSize(form.preferred_size_max) : 'platform default'}
+                hint={form.preferred_size_max > 0 ? formatSize(form.preferred_size_max) : 'platform definition'}
                 data-testid="qp-size-max"
               />
             </div>
