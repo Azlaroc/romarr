@@ -130,11 +130,10 @@ func baseOrDefault(v, def string) string {
 	return v
 }
 
+// platformNameForSlug resolves the display name through the registry. It used
+// to scan the Prowlarr category map, which has never carried atari2600, gbc,
+// sms or gg — so every result on those platforms was labelled "Unknown", a
+// string that reads as a failure when the slug was right all along.
 func platformNameForSlug(slug string) string {
-	for _, info := range platform.PlatformMap {
-		if info.Slug == slug {
-			return info.Name
-		}
-	}
-	return "Unknown"
+	return platform.DisplayName(slug)
 }

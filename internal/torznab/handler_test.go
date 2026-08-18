@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gamarr/internal/models"
+	"gamarr/internal/platform"
 )
 
 func emptySearch(ctx context.Context, query, slug string) []*models.SearchResult {
@@ -167,6 +168,15 @@ func TestHandler_HostHeaderUsedInProbe(t *testing.T) {
 }
 
 func TestResultToItem_CategoryFromPlatform(t *testing.T) {
+	// Newznab categories are a registry column now; supply the vocabulary.
+	platform.SetRegistry(platform.StaticRegistry{
+		{Slug: "pc", TorznabCategory: "4070"},
+		{Slug: "nds", TorznabCategory: "1010"},
+		{Slug: "xbox360", TorznabCategory: "1050"},
+		{Slug: "nes", TorznabCategory: "1090"},
+	})
+	t.Cleanup(func() { platform.SetRegistry(nil) })
+
 	cases := []struct {
 		slug, wantCat, wantName string
 	}{

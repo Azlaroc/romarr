@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useSaveSetting, useSettings, useSettingsEnv } from '../../api/queries'
+import { usePlatformRegistry, useSaveSetting, useSettings, useSettingsEnv } from '../../api/queries'
 import { isForbidden } from '../../api/client'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { AdminNotice } from '../../components/ui/AdminNotice'
@@ -28,9 +28,6 @@ const PIPELINE_TOGGLES = [
   },
 ] as const
 
-// Mirrors normalize.FormatPolicy on the backend (display only).
-const CHD_PLATFORMS = ['psx', 'ps2', 'psp', 'dc']
-
 const NAMING_AUTHORITIES = [
   { lane: 'Cartridges & handhelds', authority: 'No-Intro', note: 'Verified-dump names: Title (Region) (Languages) (Rev N)' },
   { lane: 'Optical media', authority: 'Redump', note: 'Disc-preservation names for PSX/PS2/PSP/DC/GC/Wii/Saturn dumps' },
@@ -53,6 +50,11 @@ function formatBytes(n: number | undefined): string {
 export function MediaManagement() {
   const { data: settings, error: settingsError } = useSettings()
   const { data: env, error: envError } = useSettingsEnv()
+  // The CHD list used to be a copy of the backend's map, kept in sync by
+  // hand. It comes from the platform registry now, so the screen cannot drift
+  // from what actually converts.
+  const { data: platformRows } = usePlatformRegistry()
+  const chdPlatforms = (platformRows ?? []).filter((p) => p.converts_to_chd).map((p) => p.slug)
   const save = useSaveSetting()
   const { toast } = useToast()
 
@@ -116,7 +118,7 @@ export function MediaManagement() {
         <Card title="Format Conversion">
           <div className="space-y-2" data-testid="mm-conversion">
             <p className="text-sm text-slate-300">
-              Disc images convert to CHD after import on: {CHD_PLATFORMS.join(', ')}
+              Disc images convert to CHD after import on: {chdPlatforms.length ? chdPlatforms.join(', ') : '—'}
             </p>
             <p className="text-xs text-slate-500">
               Converted files are verified before the source is removed; on any verification failure the original is

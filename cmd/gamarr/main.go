@@ -18,6 +18,7 @@ import (
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/models"
+	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
 	"gamarr/internal/romm"
@@ -106,6 +107,12 @@ func main() {
 	}
 	cfg.SetSourcesRegistry(database.LoadSourceRegistry(cfg.Sources))
 	download.ImportLegacyDDLSources(cfg, database)
+
+	// The platform registry is the one canonical vocabulary — display names,
+	// category mappings, the RomM fs_slug and the CHD policy all resolve
+	// through it. Attached before anything can look a platform up.
+	platform.SetRegistry(database)
+	database.BackfillLibraryPlatformNames()
 
 	// The IA driver's item-metadata cache persists in the DB: restarts and
 	// registry edits warm from stored listings instead of refetching against

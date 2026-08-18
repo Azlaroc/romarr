@@ -15,6 +15,7 @@ import (
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
+	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/sources"
@@ -61,8 +62,12 @@ func newTestEnv(t *testing.T, mutate func(*config.Config)) *testEnv {
 		t.Fatalf("db.New: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
-	// Mirror production wiring: settings rows override env-derived config.
+	// Mirror production wiring: settings rows override env-derived config,
+	// and the platform registry is attached before anything resolves a
+	// platform name.
 	cfg.AttachSettings(store)
+	platform.SetRegistry(store)
+	t.Cleanup(func() { platform.SetRegistry(nil) })
 
 	qb := qbit.New(cfg.QBURL, cfg.QBUser, cfg.QBPass)
 	mgr := download.New(cfg, store, qb)

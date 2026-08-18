@@ -500,12 +500,73 @@
     },
     "/api/platforms": {
       "get": {
-        "summary": "List supported gaming platforms",
-        "description": "Returns the platform slugs Gamarr's drivers recognize (e.g., nes, snes, ps2, pc).",
+        "summary": "List platforms",
+        "description": "Every platform in the registry \u2014 the canonical vocabulary \u2014 not only the ones already in the library, plus an \"all\" sentinel for filter UIs. Directories that are not platforms are excluded; library platforms with no registry row are merged in so the Library filter can reach every row it holds.",
+        "parameters": [
+          {
+            "name": "full",
+            "in": "query",
+            "required": false,
+            "description": "Return whole registry rows (identity, aliases, media class, CHD policy, acquisition switch, DAT lane) instead of the {id, name} picker shape.",
+            "schema": { "type": "string", "enum": ["1"] }
+          }
+        ],
         "responses": {
           "200": {
             "description": "platform list"
           }
+        }
+      }
+    },
+    "/api/platforms/{slug}": {
+      "get": {
+        "summary": "Get one platform's registry row",
+        "description": "The canonical row: display name, IGDB identity (slug + id), RomM fs_slug, Prowlarr and Newznab categories, media class, CHD policy, acquisition switch, and the DAT lane assigned to it.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "platform" },
+          "404": { "description": "unknown platform" }
+        }
+      },
+      "put": {
+        "summary": "Update a platform's registry row (admin)",
+        "description": "Sparse: display_name, media_class (carts|discs|arcade|computer|pc), converts_to_chd and acquisition_enabled are each left unchanged when absent. Identity fields (slug, IGDB, RomM fs_slug, categories) are not editable \u2014 they are the vocabulary, not a preference.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "display_name": { "type": "string" },
+                  "media_class": { "type": "string", "enum": ["carts", "discs", "arcade", "computer", "pc"] },
+                  "converts_to_chd": { "type": "boolean" },
+                  "acquisition_enabled": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "updated platform" },
+          "400": { "description": "invalid field" },
+          "403": { "description": "admin only" },
+          "404": { "description": "unknown platform" }
         }
       }
     },

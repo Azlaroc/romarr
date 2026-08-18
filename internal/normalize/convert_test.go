@@ -8,9 +8,19 @@ import (
 	"testing"
 
 	"gamarr/internal/config"
+	"gamarr/internal/platform"
 )
 
 func TestFormatPolicy(t *testing.T) {
+	// The CHD list is a registry column now, not a map in this package, so
+	// the test supplies the vocabulary it is asserting about.
+	platform.SetRegistry(platform.StaticRegistry{
+		{Slug: "psx", ConvertsToCHD: true}, {Slug: "psp", ConvertsToCHD: true},
+		{Slug: "dc", ConvertsToCHD: true}, {Slug: "ps2", ConvertsToCHD: true},
+		{Slug: "gba"}, {Slug: "nes"}, {Slug: "snes"}, {Slug: "switch"},
+	})
+	t.Cleanup(func() { platform.SetRegistry(nil) })
+
 	for _, p := range []string{"psx", "psp", "dc", "ps2"} {
 		if got := FormatPolicy(p); got != "chd" {
 			t.Errorf("FormatPolicy(%q) = %q, want chd", p, got)
