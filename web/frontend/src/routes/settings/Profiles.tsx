@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import {
+  usePlatformRegistry,
   useQualityProfiles,
   useDeleteQualityProfile,
   useReleaseProfiles,
@@ -19,6 +20,7 @@ export function Profiles() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { data: quality = [] } = useQualityProfiles()
+  const { data: platformRows } = usePlatformRegistry()
   const { data: release = [] } = useReleaseProfiles()
   const delQuality = useDeleteQualityProfile()
   const delRelease = useDeleteReleaseProfile()
@@ -55,6 +57,11 @@ export function Profiles() {
     return extra > 0 ? `${head} +${extra}` : head
   }
 
+  // Which platforms default to a profile, read off the registry — the same
+  // answer the delete guard gives, so the screen and the refusal agree.
+  const usedBy = (id: number) =>
+    (platformRows ?? []).filter((pl) => pl.default_profile_id === id).map((pl) => pl.display_name)
+
   return (
     <>
       <PageHeader title="Settings" subtitle="Profiles" />
@@ -69,8 +76,9 @@ export function Profiles() {
           }
         >
           <p className="mb-3 text-xs text-slate-500">
-            Drive the release selector: region priority, format preference, 1G1R and size bounds. A platform profile
-            overrides the global default for that platform.
+            Drive the release selector: region priority, format preference, 1G1R and size bounds. A title is added
+            under one — the platform&apos;s default unless you pick another. Templates are cloned for a platform&apos;s
+            first title and are never applied directly.
           </p>
           {/* Container stays mounted (empty or full) so tests can observe rows appearing. */}
           <div className="space-y-2" data-testid="profiles-quality-list">
@@ -80,10 +88,17 @@ export function Profiles() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium text-white">{p.name}</span>
-                    {p.platform_slug ? <Badge color="accent">{p.platform_slug}</Badge> : <Badge>Global</Badge>}
-                    {p.is_default && <Badge color="emerald">Default</Badge>}
+                    {p.is_template && <Badge color="orange">Template</Badge>}
+                    {p.is_default && <Badge color="emerald">Global default</Badge>}
                   </div>
-                  <div className="mt-0.5 text-xs text-slate-500">{regionSummary(p)}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {regionSummary(p)}
+                    {p.is_template
+                      ? ` · cloned for new ${p.template_class ?? ''} platforms`
+                      : usedBy(p.id).length
+                        ? ` · default for ${usedBy(p.id).join(', ')}`
+                        : ''}
+                  </div>
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => navigate(`/settings/profiles/quality/${p.id}`)} data-testid={`qp-edit-${p.id}`}>
                   <Pencil className="h-3.5 w-3.5" /> Edit

@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Heart, Search, Trash2 } from 'lucide-react'
-import { useWishlist, useAddWishlist, useDeleteWishlist, useActivity, useQualityProfiles } from '../../api/queries'
+import {
+  useWishlist,
+  useAddWishlist,
+  useDeleteWishlist,
+  useActivity,
+  usePlatformRegistry,
+  useQualityProfiles,
+  useSetWishlistProfile,
+} from '../../api/queries'
 import type { ActivityEntry, WishlistItem } from '../../api/types'
 import { parseSelectorDecision } from '../../lib/selectorDecision'
 import { PageHeader } from '../../components/layout/PageHeader'
@@ -43,28 +51,33 @@ export function Wishlist() {
   const { data: items = [] } = useWishlist()
   const { data: activity } = useActivity(1)
   const { data: profiles } = useQualityProfiles()
+  const { data: platformRows } = usePlatformRegistry()
   const add = useAddWishlist()
   const del = useDeleteWishlist()
+  const setProfile = useSetWishlistProfile()
   const platformName = usePlatformName()
   const navigate = useNavigate()
   const { toast } = useToast()
 
   const [title, setTitle] = useState('')
   const [platform, setPlatform] = useState('')
+  const [profileID, setProfileID] = useState(0)
+  const [materialized, setMaterialized] = useState<{ id: number; name: string } | null>(null)
 
-  // Mirrors the backend's ResolveQualityProfile chain:
-  // platform exact -> is_default global -> lowest-id global -> built-in.
-  const profileFor = (slug?: string): string => {
-    const list = profiles ?? []
-    if (slug) {
-      const exact = list.find((p) => p.platform_slug === slug)
-      if (exact) return exact.name
-    }
-    const globals = list.filter((p) => p.platform_slug === '')
-    const def = globals.find((p) => p.is_default)
-    if (def) return def.name
-    const lowest = [...globals].sort((a, b) => a.id - b.id)[0]
-    return lowest ? lowest.name : 'built-in defaults'
+  // Templates are cloned for new platforms, never applied to a title.
+  const selectable = (profiles ?? []).filter((p) => !p.is_template)
+  const nameOf = (id: number) => selectable.find((p) => p.id === id)?.name
+
+  // What a row will actually be searched under. Two lookups against real
+  // data — the row's own override, else the platform's default from the
+  // registry — rather than a copy of the backend's resolution chain, which
+  // is what this used to be and could silently drift from it.
+  const profileFor = (w: { profile_id?: number; platform_slug?: string }): string => {
+    if (w.profile_id) return nameOf(w.profile_id) ?? 'a profile that no longer exists'
+    const row = (platformRows ?? []).find((p) => p.slug === w.platform_slug)
+    if (row?.default_profile_id) return nameOf(row.default_profile_id) ?? 'the platform default'
+    const globalDefault = selectable.find((p) => p.is_default)
+    return globalDefault?.name ?? 'built-in defaults'
   }
 
   const submit = async (e: FormEvent) => {
@@ -75,8 +88,16 @@ export function Wishlist() {
       return
     }
     try {
-      await add.mutateAsync({ title: t, platform: platform ? platformName(platform) : '', platform_slug: platform })
+      const res = await add.mutateAsync({
+        title: t,
+        platform: platform ? platformName(platform) : '',
+        platform_slug: platform,
+        ...(profileID ? { profile_id: profileID } : {}),
+      })
       setTitle('')
+      // Adding the first title on a platform creates its default profile.
+      // Say so once, here, instead of asking anyone to make one first.
+      if (res?.materialized_profile) setMaterialized(res.materialized_profile)
       toast('Added to wishlist', 'success')
     } catch {
       toast('Failed to add', 'error')
@@ -93,8 +114,29 @@ export function Wishlist() {
         <form onSubmit={submit} className="flex flex-col gap-3 sm:flex-row">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Game title" className={`${inputCls} flex-1`} data-testid="wish-title" />
           <PlatformSelect value={platform} onChange={setPlatform} includeAll={false} testid="wish-platform" />
+          <select
+            value={profileID}
+            onChange={(e) => setProfileID(Number(e.target.value))}
+            className={`${inputCls} sm:w-52`}
+            aria-label="Quality profile for this title"
+            data-testid="wish-profile"
+          >
+            {/* The common case, and it stays correct if the platform's
+                default changes later. */}
+            <option value={0}>Platform default</option>
+            {selectable.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
           <Button type="submit" disabled={add.isPending || !title.trim()} data-testid="wish-add">Add</Button>
         </form>
+        {materialized && (
+          <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs text-slate-300" data-testid="wish-materialized">
+            Created <strong>{materialized.name}</strong> as this platform&apos;s default profile. Tune it under{' '}
+            <Link to="/settings/profiles" className="underline decoration-dotted">Settings → Profiles</Link>, or pick a
+            different one per title above.
+          </div>
+        )}
       </Card>
 
       {/* Container stays mounted when empty so the list can be observed shrinking to zero. */}
@@ -113,10 +155,23 @@ export function Wishlist() {
                 <div className="mt-0.5 text-xs text-slate-500">
                   {(w.platform || w.platform_slug || '—')}
                   {w.added_at ? ` · ${w.added_at.split('T')[0]}` : ''}
-                  {` · auto-search runs under: ${profileFor(w.platform_slug)}`}
+                  {` · auto-search runs under: ${profileFor(w)}`}
+                  {w.profile_id ? ' (chosen for this title)' : ''}
                 </div>
                 {chip.reason && <div className="mt-0.5 truncate text-xs text-slate-600">{chip.reason}</div>}
               </div>
+              <select
+                value={w.profile_id ?? 0}
+                onChange={(e) => setProfile.mutate({ id: w.id, profile_id: Number(e.target.value) })}
+                className={`${inputCls} w-44 text-xs`}
+                aria-label={`Quality profile for ${w.title}`}
+                data-testid={`wish-row-profile-${w.id}`}
+              >
+                <option value={0}>Platform default</option>
+                {selectable.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
               <Button size="sm" variant="secondary" onClick={() => navigate(`/add?q=${encodeURIComponent(w.title)}`)}>
                 <Search className="h-3.5 w-3.5" /> Search
               </Button>
