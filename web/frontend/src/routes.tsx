@@ -3,6 +3,7 @@ import App from './App'
 import { Library } from './routes/Library'
 import { LibraryRename } from './routes/library/Rename'
 import { AddNew } from './routes/AddNew'
+import { Platforms } from './routes/Platforms'
 import { Calendar } from './routes/Calendar'
 import { PlayLog } from './routes/PlayLog'
 import { Queue } from './routes/activity/Queue'
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: 'library/rename', element: <LibraryRename /> },
       { path: 'add', element: <AddNew /> },
       { path: 'calendar', element: <Calendar /> },
+      { path: 'platforms', element: <Platforms /> },
       { path: 'playlog', element: <PlayLog /> },
       { path: 'activity', element: <Navigate to="/activity/queue" replace /> },
       { path: 'activity/queue', element: <Queue /> },

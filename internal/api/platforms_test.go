@@ -179,3 +179,47 @@ func TestPickerExcludesSystemDirectories(t *testing.T) {
 		t.Error("a platform the library holds rows for must stay filterable")
 	}
 }
+
+// TestPlatformDefaultProfileAssignment covers the control the Platforms page
+// actually drives: which profile new titles on a platform inherit.
+func TestPlatformDefaultProfileAssignment(t *testing.T) {
+	e := newTestEnv(t, nil)
+
+	rr := e.do("POST", "/api/quality-profiles", `{"name":"PSX CHD","format_preference":["chd"]}`)
+	wantStatus(t, rr, http.StatusCreated)
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil || created.ID == 0 {
+		t.Fatalf("could not read profile id: %s", rr.Body.String())
+	}
+
+	rr = e.do("PUT", "/api/platforms/psx", `{"default_profile_id":`+itoa(created.ID)+`}`)
+	wantStatus(t, rr, http.StatusOK)
+	if got := decodeMap(t, rr)["default_profile_id"]; got != float64(created.ID) {
+		t.Errorf("default_profile_id = %v, want %d", got, created.ID)
+	}
+	// It is the profile a title added for that platform now resolves to.
+	if got := e.jobs.ResolveProfileForItem(0, "psx"); got.ID != created.ID {
+		t.Errorf("psx resolves to %q, want the assigned profile", got.Name)
+	}
+
+	// 0 clears it: titles fall through to the global default again.
+	rr = e.do("PUT", "/api/platforms/psx", `{"default_profile_id":0}`)
+	wantStatus(t, rr, http.StatusOK)
+	if got := e.jobs.ResolveProfileForItem(0, "psx"); got.ID == created.ID {
+		t.Error("clearing the default left it assigned")
+	}
+
+	// A template cannot be a platform's default — it is cloned, not applied.
+	var templateID int64
+	for _, p := range e.jobs.GetQualityProfiles() {
+		if p.IsTemplate {
+			templateID = p.ID
+		}
+	}
+	rr = e.do("PUT", "/api/platforms/psx", `{"default_profile_id":`+itoa(templateID)+`}`)
+	wantStatus(t, rr, http.StatusBadRequest)
+	rr = e.do("PUT", "/api/platforms/psx", `{"default_profile_id":999999}`)
+	wantStatus(t, rr, http.StatusBadRequest)
+}
