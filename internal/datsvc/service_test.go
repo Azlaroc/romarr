@@ -139,11 +139,11 @@ func TestRefreshImportsEveryAssignedPlatform(t *testing.T) {
 	if auth.LastRefresh == "" {
 		t.Fatal("last_refresh not stamped")
 	}
-	// The seeded pack assigns eleven cart platforms to this authority; every
+	// The seeded pack assigns twenty cart platforms to this authority; every
 	// one of them must have been fetched and imported.
 	plats := assignedPlatforms(h.store.ListDatPlatforms(), "no-intro")
-	if len(plats) < 11 {
-		t.Fatalf("seed assigns %d platforms to no-intro, want the shipped eleven", len(plats))
+	if len(plats) < 20 {
+		t.Fatalf("seed assigns %d platforms to no-intro, want the shipped twenty", len(plats))
 	}
 	for _, p := range plats {
 		if got := known(t, h.store, p.PlatformSlug); got != 3 {

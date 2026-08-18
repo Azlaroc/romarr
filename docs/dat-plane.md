@@ -163,3 +163,36 @@ short-circuits before the import path — correctly, since nothing moved — so 
 installation whose catalogs are already current would otherwise sit with an
 empty table and every platform unbounded. The backfill writes only where
 nothing is stored, so it never disturbs an operator's row.
+
+## Where this lives in the UI
+
+Two screens, deliberately apart, because they answer different questions.
+
+**Settings → Metadata** owns the authorities: which catalogs are fetched, from
+where, pinned to what, how often, and what each platform's assignment is. It
+also shows coverage, rendering the server's `summary` string verbatim so the
+two independent counts can never be dressed up as a completion figure. Refresh
+and upload live here as immediate actions; a busy service answers 200 with
+`success:false`, which the screen reports as "already running" rather than as
+an error.
+
+**Settings → Quality Definitions** owns the numbers: per-platform minimum and
+maximum size, editable, with the platform's provenance beside them. It sits
+next to Profiles rather than under Metadata because it is the same thing arr
+calls Quality Definitions — global limits that profiles then override — and not
+a property of where a catalog came from.
+
+Three display rules on that screen are load-bearing rather than cosmetic, and
+all three come from the same principle: *an arr rejects on size, but never on a
+number you cannot see.*
+
+- **`0` renders as Unlimited**, per end. It is a real value, not an empty field.
+- **The number shown is the number enforced.** The input carries exact bytes; a
+  humanized figure sits beside it, never in place of it.
+- **A row with no stored definition says so** instead of claiming a source it
+  does not have, and its reset offers to *clear* rather than to *restore*
+  — which is what `has_catalog` on each row is for.
+
+Edits on both screens batch behind a save bar and write on Save, so a set of
+related changes is reviewed before it is committed; the guard prompts if you
+navigate away with edits pending.
