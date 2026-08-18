@@ -401,6 +401,22 @@
       }
     },
     "/api/quality-profiles/{id}": {
+      "get": {
+        "summary": "Get one quality profile",
+        "description": "Returns the profile plus the platforms that default to it — what deleting it would orphan.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "profile" },
+          "404": { "description": "no such profile" }
+        }
+      },
       "put": {
         "summary": "Replace a quality profile",
         "description": "Full-body replace: omitted fields are zeroed.",
@@ -818,6 +834,37 @@
       }
     },
     "/api/wishlist/{id}": {
+      "patch": {
+        "summary": "Change a wishlist entry's quality profile",
+        "description": "profile_id pins one title to a specific profile — \"the Japanese revision of this one game\", which a platform default cannot express. 0 clears the override, returning the row to whatever the platform defaults to when the cycle runs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["profile_id"],
+                "properties": {
+                  "profile_id": { "type": "integer", "format": "int64" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "updated" },
+          "400": { "description": "unknown profile, or a template" },
+          "404": { "description": "no such wishlist row" }
+        }
+      },
       "delete": {
         "summary": "Delete a wishlist item",
         "parameters": [

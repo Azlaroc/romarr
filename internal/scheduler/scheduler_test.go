@@ -15,6 +15,7 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
+	"gamarr/internal/platform"
 	"gamarr/internal/selection"
 	"gamarr/internal/webhook"
 )
@@ -29,7 +30,7 @@ func newTestStore(t *testing.T) *db.JobStore {
 	return store
 }
 
-func noopSearch(query, platformSlug string) []*models.SearchResult { return nil }
+func noopSearch(query, platformSlug string, _ *db.QualityProfile) []*models.SearchResult { return nil }
 
 func noopDownload(g selection.Grab) (string, error) { return "", nil }
 
@@ -100,7 +101,7 @@ func TestStartEnabledAndStop(t *testing.T) {
 
 func TestRunEmptyWishlist(t *testing.T) {
 	var searches int64
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		atomic.AddInt64(&searches, 1)
 		return nil
 	}
@@ -153,7 +154,7 @@ func TestRunAutoDownload(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	var searchedQuery, searchedSlug string
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		searchedQuery, searchedSlug = q, p
 		// Deliberately unsorted: best match is second.
 		return []*models.SearchResult{
@@ -231,7 +232,7 @@ func TestRunScoreBelowThreshold(t *testing.T) {
 		t.Fatalf("AddWishlistItem: %v", err)
 	}
 
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return []*models.SearchResult{{Title: "Obscure Game", Platform: "N64", Score: 90}}
 	}
 	var downloads int64
@@ -271,7 +272,7 @@ func TestRunDownloadError(t *testing.T) {
 		t.Fatalf("AddWishlistItem: %v", err)
 	}
 
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return []*models.SearchResult{{Title: "Broken Game", Platform: "PC", Score: 99}}
 	}
 	downloadFn := func(g selection.Grab) (string, error) {
@@ -300,7 +301,7 @@ func TestRunAbortsAfterStop(t *testing.T) {
 	}
 
 	var searches int64
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		atomic.AddInt64(&searches, 1)
 		return nil
 	}
@@ -326,7 +327,7 @@ func TestStopInterruptsRateLimitSleep(t *testing.T) {
 
 	firstSearch := make(chan struct{})
 	var searches int64
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		if atomic.AddInt64(&searches, 1) == 1 {
 			close(firstSearch)
 		}
@@ -369,7 +370,7 @@ func TestRateLimitAppliedOnContinuePaths(t *testing.T) {
 	var searches int64
 	// Zero results exercises the continue branch, which previously skipped
 	// the inter-item rate limit entirely.
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		atomic.AddInt64(&searches, 1)
 		return nil
 	}
@@ -401,7 +402,7 @@ func TestRunGuardPreventsConcurrentRuns(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	var searches int64
-	searchFn := func(q, p string) []*models.SearchResult {
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		atomic.AddInt64(&searches, 1)
 		once.Do(func() { close(started) })
 		<-release
@@ -497,7 +498,7 @@ func TestOffModeKeepsDeleteAtGrab(t *testing.T) {
 		return "job-1", nil
 	}
 	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "off"}
-	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return prep(90, "ddl", "Wipeout XL (USA).zip")
 	}, downloadFn, nil)
 	s.run()
@@ -522,7 +523,7 @@ func TestEnforceGrabSetDispatchesAllMembersAndKeepsWishlistRow(t *testing.T) {
 		return "job-" + itoa(len(grabs)), nil
 	}
 	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
-	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return prep(85, "ddl",
 			"Final Fantasy VII (USA) (Disc 1).zip",
 			"Final Fantasy VII (USA) (Disc 2).zip",
@@ -569,7 +570,7 @@ func TestEnforceOwnedSkipDeletesWishlistRow(t *testing.T) {
 	}
 	var grabs int
 	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
-	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return prep(90, "ddl", "Kirby's Dream Land 2 (USA, Europe).zip")
 	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
 	s.run()
@@ -596,7 +597,7 @@ func TestEnforceActiveGrabSkipsWhileSetInFlight(t *testing.T) {
 	})
 	var grabs int
 	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
-	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return prep(90, "ddl", "Final Fantasy VII (USA) (Disc 1).zip",
 			"Final Fantasy VII (USA) (Disc 2).zip", "Final Fantasy VII (USA) (Disc 3).zip")
 	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
@@ -657,7 +658,7 @@ func TestEnforceHashOwnedSkipDeletesWishlistRow(t *testing.T) {
 	}
 	var grabs int
 	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
-	s := New(cfg, store, func(q, p string) []*models.SearchResult {
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return prep(90, "ddl", "Hagane - The Final Conflict (USA).zip")
 	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
 	s.run()
@@ -667,5 +668,49 @@ func TestEnforceHashOwnedSkipDeletesWishlistRow(t *testing.T) {
 	}
 	if items := store.GetWishlist(); len(items) != 0 {
 		t.Errorf("wishlist has %d items, want 0 (hash-owned deletes the row)", len(items))
+	}
+}
+
+// TestAcquisitionOffSkipsThePlatform: the per-platform acquisition switch has
+// a consumer in the same change that ships it. A toggle nothing reads is
+// worse than no toggle — it reports a state the app does not honour.
+//
+// The wishlist row deliberately survives: it is still wanted, and flipping
+// the switch back must resume rather than having silently discarded it.
+func TestAcquisitionOffSkipsThePlatform(t *testing.T) {
+	store := newTestStore(t)
+	platform.SetRegistry(store)
+	t.Cleanup(func() { platform.SetRegistry(nil) })
+
+	var searched []string
+	searchFn := func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		searched = append(searched, p)
+		return nil
+	}
+	if _, err := store.AddWishlistItem("Sonic", "Sega Genesis", "genesis"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := store.AddWishlistItem("Kirby", "Game Boy", "gb"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	off := false
+	if err := store.PatchPlatform("genesis", db.PlatformPatch{AcquisitionEnabled: &off}); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+
+	cfg := &config.Config{SchedulerEnabled: true, SchedulerAutoDownload: true}
+	New(cfg, store, searchFn, noopDownload, nil).run()
+
+	for _, slug := range searched {
+		if slug == "genesis" {
+			t.Error("searched a platform whose acquisition is off")
+		}
+	}
+	if len(searched) != 1 || searched[0] != "gb" {
+		t.Errorf("searched = %v, want only gb", searched)
+	}
+	if len(store.GetWishlist()) != 2 {
+		t.Error("a skipped platform's wishlist row must survive the cycle")
 	}
 }

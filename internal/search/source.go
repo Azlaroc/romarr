@@ -21,7 +21,18 @@ import (
 // timeout (preserving existing behaviour).
 type Source interface {
 	Name() string
-	Search(ctx context.Context, query, platformSlug string) []*models.SearchResult
+	Search(ctx context.Context, query, platformSlug string, opts Opts) []*models.SearchResult
+}
+
+// Opts is the caller's policy, carried to sources that can act on it before
+// results are scored. Today that is region interest: the archive.org driver
+// drops obviously non-English dumps unless the caller says otherwise, and
+// without this the drop happened where no profile could reach it — a
+// JP-priority profile could not see a JP dump at all.
+type Opts struct {
+	// Regions is the ordered region priority of the profile that will judge
+	// these results. Empty means the source applies its own default.
+	Regions []string
 }
 
 // FanOut runs Search across every source concurrently and returns the merged
@@ -29,7 +40,7 @@ type Source interface {
 // panics is isolated — logged, contributes nothing — and never aborts the
 // others; a source that simply finds nothing contributes nothing. No dedup,
 // filtering, or scoring happens here: callers apply their own post-processing.
-func FanOut(ctx context.Context, srcs []Source, query, platformSlug string) []*models.SearchResult {
+func FanOut(ctx context.Context, srcs []Source, query, platformSlug string, opts Opts) []*models.SearchResult {
 	parts := make([][]*models.SearchResult, len(srcs))
 	var wg sync.WaitGroup
 	wg.Add(len(srcs))
@@ -42,7 +53,7 @@ func FanOut(ctx context.Context, srcs []Source, query, platformSlug string) []*m
 					parts[i] = nil
 				}
 			}()
-			parts[i] = src.Search(ctx, query, platformSlug)
+			parts[i] = src.Search(ctx, query, platformSlug, opts)
 		}(i, src)
 	}
 	wg.Wait()
@@ -58,7 +69,7 @@ func FanOut(ctx context.Context, srcs []Source, query, platformSlug string) []*m
 type prowlarrSource struct{ cfg *config.Config }
 
 func (prowlarrSource) Name() string { return "prowlarr" }
-func (s prowlarrSource) Search(_ context.Context, query, platformSlug string) []*models.SearchResult {
+func (s prowlarrSource) Search(_ context.Context, query, platformSlug string, _ Opts) []*models.SearchResult {
 	return SearchProwlarr(s.cfg, query, platformSlug)
 }
 
@@ -66,7 +77,7 @@ func (s prowlarrSource) Search(_ context.Context, query, platformSlug string) []
 type vimmSource struct{ reg *sources.Registry }
 
 func (vimmSource) Name() string { return "vimm" }
-func (s vimmSource) Search(_ context.Context, query, platformSlug string) []*models.SearchResult {
+func (s vimmSource) Search(_ context.Context, query, platformSlug string, _ Opts) []*models.SearchResult {
 	return SearchVimm(s.reg, query, platformSlug)
 }
 
@@ -75,8 +86,8 @@ func (s vimmSource) Search(_ context.Context, query, platformSlug string) []*mod
 type archiveOrgSource struct{ reg *sources.Registry }
 
 func (archiveOrgSource) Name() string { return "archiveorg" }
-func (s archiveOrgSource) Search(_ context.Context, query, platformSlug string) []*models.SearchResult {
-	return SearchArchiveOrg(s.reg, query, platformSlug)
+func (s archiveOrgSource) Search(_ context.Context, query, platformSlug string, opts Opts) []*models.SearchResult {
+	return SearchArchiveOrg(s.reg, query, platformSlug, opts.Regions)
 }
 
 // BuildSources returns the ordered set of sources RomArr fans a query across:

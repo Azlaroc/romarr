@@ -10,10 +10,21 @@ import (
 // which regions and formats to prefer, what release classes to allow, and
 // source ranking / size bounds.
 //
-// Scope: PlatformSlug "" marks a global profile; a non-empty slug overrides
-// the global profile for that platform only (one override per platform,
-// enforced by idx_qp_platform). IsDefault marks the global fallback row.
-// Resolution order is ResolveQualityProfile's.
+// Scope: a profile is a free-standing object chosen per title at add time.
+// A platform's default profile is a column on the platform registry row
+// (platforms.default_profile_id), not a property of the profile — so two
+// profiles may target the same platform and a title may override either.
+// IsDefault still marks the global fallback row. Resolution order is
+// ResolveProfileForItem's.
+//
+// PlatformSlug is LEGACY: it was the platform→profile mapping before the
+// registry existed, and it is still read as a fallback for an install whose
+// link migration has not run. Nothing writes it any more.
+//
+// IsTemplate marks a profile that is not used directly but cloned: the first
+// title added on a platform that has no default materializes one from the
+// template matching the platform's class (TemplateClass — carts, discs,
+// arcade), which is how adding a platform stopped being a setup step.
 //
 // Semantics of the pre-F4 fields:
 //   - PreferredSizeMin/Max: size-sanity bounds in bytes; 0 means "fall back
@@ -39,6 +50,8 @@ type QualityProfile struct {
 	PreferredSizeMax int64    `json:"preferred_size_max"` // bytes; 0 = use the platform definition
 	UpgradeAllowed   bool     `json:"upgrade_allowed"`
 	CutoffSource     string   `json:"cutoff_source"` // stop upgrading once this source is reached
+	IsTemplate       bool     `json:"is_template"`   // cloned on first add, never used directly
+	TemplateClass    string   `json:"template_class"`
 }
 
 // defaultRegionPriority / defaultFormatPreference are the built-in ROM
@@ -90,7 +103,9 @@ func (s *JobStore) migrateQualityProfiles() {
 		prefer_1g1r INTEGER NOT NULL DEFAULT 1,
 		allow_proto INTEGER NOT NULL DEFAULT 0,
 		allow_demo INTEGER NOT NULL DEFAULT 0,
-		allow_bios INTEGER NOT NULL DEFAULT 0
+		allow_bios INTEGER NOT NULL DEFAULT 0,
+		is_template INTEGER NOT NULL DEFAULT 0,
+		template_class TEXT NOT NULL DEFAULT ''
 	)`
 	if _, err := s.db.Exec(ddl); err != nil {
 		slog.Warn("migrate quality_profiles", "error", err)
@@ -112,8 +127,23 @@ func (s *JobStore) migrateQualityProfiles() {
 		s.db.Exec("UPDATE quality_profiles SET platform_slug = 'pc' WHERE name = 'PC Default'")
 	}
 
-	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_qp_platform ON quality_profiles(platform_slug) WHERE platform_slug != ''`); err != nil {
-		slog.Warn("migrate quality_profiles index", "error", err)
+	// Profiles v2 columns on an existing table.
+	for _, col := range []struct{ name, def string }{
+		{"is_template", "INTEGER NOT NULL DEFAULT 0"},
+		{"template_class", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if !s.qpColumnExists(col.name) {
+			s.db.Exec(fmt.Sprintf("ALTER TABLE quality_profiles ADD COLUMN %s %s", col.name, col.def))
+		}
+	}
+
+	// idx_qp_platform enforced one profile per platform, which is exactly the
+	// constraint profiles v2 removes: a profile is chosen per title now, and
+	// which profile a platform DEFAULTS to lives on the platform row. Two
+	// profiles targeting the same platform is a legitimate state ("PSX CHD"
+	// and "PSX raw"), so the index goes.
+	if _, err := s.db.Exec(`DROP INDEX IF EXISTS idx_qp_platform`); err != nil {
+		slog.Warn("drop idx_qp_platform", "error", err)
 	}
 
 	// Seed defaults if table is empty
@@ -160,14 +190,15 @@ func (s *JobStore) qpColumnExists(name string) bool {
 	return false
 }
 
-const qpSelectColumns = "id, name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios"
+const qpSelectColumns = "id, name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class"
 
 func scanQualityProfile(scan func(dest ...interface{}) error) (*QualityProfile, error) {
 	var p QualityProfile
 	var rankingJSON, regionsJSON, formatsJSON string
-	var upgradeAllowed, isDefault, prefer1g1r, allowProto, allowDemo, allowBIOS int
+	var upgradeAllowed, isDefault, prefer1g1r, allowProto, allowDemo, allowBIOS, isTemplate int
 	err := scan(&p.ID, &p.Name, &rankingJSON, &p.PreferredSizeMin, &p.PreferredSizeMax, &upgradeAllowed, &p.CutoffSource,
-		&p.PlatformSlug, &isDefault, &regionsJSON, &formatsJSON, &prefer1g1r, &allowProto, &allowDemo, &allowBIOS)
+		&p.PlatformSlug, &isDefault, &regionsJSON, &formatsJSON, &prefer1g1r, &allowProto, &allowDemo, &allowBIOS,
+		&isTemplate, &p.TemplateClass)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +211,7 @@ func scanQualityProfile(scan func(dest ...interface{}) error) (*QualityProfile, 
 	p.AllowProto = allowProto != 0
 	p.AllowDemo = allowDemo != 0
 	p.AllowBIOS = allowBIOS != 0
+	p.IsTemplate = isTemplate != 0
 	return &p, nil
 }
 
@@ -239,10 +271,11 @@ func (s *JobStore) AddQualityProfile(p *QualityProfile) (int64, error) {
 	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	result, err := s.db.Exec(
-		"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		p.Name, string(rankingJSON), p.PreferredSizeMin, p.PreferredSizeMax, boolToInt(p.UpgradeAllowed), p.CutoffSource,
 		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
 		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
+		boolToInt(p.IsTemplate), p.TemplateClass,
 	)
 	if err != nil {
 		return 0, err
@@ -263,10 +296,11 @@ func (s *JobStore) UpdateQualityProfile(p *QualityProfile) error {
 	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	_, err := s.db.Exec(
-		"UPDATE quality_profiles SET name = ?, source_ranking = ?, preferred_size_min = ?, preferred_size_max = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, region_priority = ?, format_preference = ?, prefer_1g1r = ?, allow_proto = ?, allow_demo = ?, allow_bios = ? WHERE id = ?",
+		"UPDATE quality_profiles SET name = ?, source_ranking = ?, preferred_size_min = ?, preferred_size_max = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, region_priority = ?, format_preference = ?, prefer_1g1r = ?, allow_proto = ?, allow_demo = ?, allow_bios = ?, is_template = ?, template_class = ? WHERE id = ?",
 		p.Name, string(rankingJSON), p.PreferredSizeMin, p.PreferredSizeMax, boolToInt(p.UpgradeAllowed), p.CutoffSource,
 		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
-		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS), p.ID,
+		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
+		boolToInt(p.IsTemplate), p.TemplateClass, p.ID,
 	)
 	if err != nil {
 		return err

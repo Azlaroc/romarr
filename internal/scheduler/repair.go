@@ -104,12 +104,15 @@ func (s *Scheduler) repairDegradedSets(mode string) int {
 		// on-disk dir — normalize may have renamed it since the original grab.
 		query := selection.BareTitle(item.Title)
 		setDir := filepath.Base(item.FilePath)
-		results := s.searchFn(query, item.PlatformSlug)
+		// Repair is library-driven: the wishlist row is long gone, so the
+		// platform default is the only profile there is.
+		prof := s.jobs.ResolveProfileForItem(0, item.PlatformSlug)
+		results := s.searchFn(query, item.PlatformSlug, prof)
 		dec := selection.Select(results, selection.SelectOpts{
 			Query:        query,
 			PlatformSlug: item.PlatformSlug,
 			MinScore:     minScore,
-			Profile:      s.jobs.ResolveQualityProfile(item.PlatformSlug),
+			Profile:      prof,
 			Repair:       &selection.RepairSet{ID: setID, Dir: setDir, Total: mk.Total, Want: want},
 		})
 

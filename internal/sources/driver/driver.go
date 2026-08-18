@@ -50,6 +50,14 @@ type Query struct {
 	Text         string // free-text title, e.g. "castlevania symphony of the night"
 	PlatformSlug string // "" means "any platform the source can serve"
 	Limit        int    // 0 means the driver's own default cap
+
+	// Regions is the caller's ordered region interest, from the quality
+	// profile that will judge the results (lowercased tokens: "usa", "japan").
+	// A driver may use it to skip work it knows the caller will reject, but
+	// it must never DROP a region the caller asked for: a driver-level filter
+	// the profile cannot see turns a wanted dump into a gap that looks like a
+	// short catalog. Empty means "no stated interest" — apply defaults.
+	Regions []string
 }
 
 // SearchSource is the source-plane contract. Implementations MUST be safe for

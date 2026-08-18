@@ -28,7 +28,7 @@ type stubSource struct {
 }
 
 func (s stubSource) Name() string { return s.name }
-func (s stubSource) Search(_ context.Context, _, _ string) []*models.SearchResult {
+func (s stubSource) Search(_ context.Context, _, _ string, _ Opts) []*models.SearchResult {
 	if s.boom {
 		panic("stub source boom")
 	}
@@ -39,7 +39,7 @@ func TestFanOut_MergesInSourceOrder(t *testing.T) {
 	a := stubSource{name: "a", results: []*models.SearchResult{{Title: "A1"}, {Title: "A2"}}}
 	b := stubSource{name: "b", results: []*models.SearchResult{{Title: "B1"}}}
 
-	got := FanOut(context.Background(), []Source{a, b}, "q", "")
+	got := FanOut(context.Background(), []Source{a, b}, "q", "", Opts{})
 	if len(got) != 3 {
 		t.Fatalf("expected 3 merged results, got %d", len(got))
 	}
@@ -56,14 +56,14 @@ func TestFanOut_IsolatesPanic(t *testing.T) {
 	bad := stubSource{name: "bad", boom: true}
 	good := stubSource{name: "good", results: []*models.SearchResult{{Title: "G"}}}
 
-	got := FanOut(context.Background(), []Source{bad, good}, "q", "")
+	got := FanOut(context.Background(), []Source{bad, good}, "q", "", Opts{})
 	if len(got) != 1 || got[0].Title != "G" {
 		t.Fatalf("panicking source should be isolated; got %+v", got)
 	}
 }
 
 func TestFanOut_Empty(t *testing.T) {
-	if got := FanOut(context.Background(), nil, "q", ""); len(got) != 0 {
+	if got := FanOut(context.Background(), nil, "q", "", Opts{}); len(got) != 0 {
 		t.Errorf("expected no results from empty source set, got %d", len(got))
 	}
 }

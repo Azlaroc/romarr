@@ -78,7 +78,7 @@ func ArchiveOrgPlatformSlugs(reg *sources.Registry) []string {
 // It is inert unless the registry maps the platform to a collection item, so
 // with the empty embedded defaults it is a no-op — enabling a platform is a
 // registry edit, not a code change.
-func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string) []*models.SearchResult {
+func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string, regions []string) []*models.SearchResult {
 	if !reg.ArchiveOrgActive() {
 		return nil
 	}
@@ -92,7 +92,7 @@ func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string) []*mode
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	releases, err := src.Search(ctx, driver.Query{Text: query, PlatformSlug: platformSlug})
+	releases, err := src.Search(ctx, driver.Query{Text: query, PlatformSlug: platformSlug, Regions: regions})
 	if err != nil {
 		slog.Warn("archiveorg search error", "error", err)
 		RecordSearchFail("archiveorg", err.Error())

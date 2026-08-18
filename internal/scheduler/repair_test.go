@@ -73,7 +73,7 @@ func TestRepairGrabsOnlyMissingDiscIntoExistingSet(t *testing.T) {
 		return "job-r1", nil
 	}
 	searched := 0
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		searched++
 		if q != "Final Fantasy VII" || p != "psx" {
 			t.Errorf("search args = %q/%q", q, p)
@@ -131,7 +131,7 @@ func TestRepairSkipsWhenSetInFlight(t *testing.T) {
 	})
 
 	searched := 0
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		searched++
 		return ff7Discs()
 	}, noopDownload, nil)
@@ -166,7 +166,7 @@ func TestRepairReopensSurvivorsWithoutPhantomDuplicates(t *testing.T) {
 	})
 
 	var grabs []selection.Grab
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return ff7Discs()
 	}, func(g selection.Grab) (string, error) {
 		grabs = append(grabs, g)
@@ -228,7 +228,7 @@ func TestRepairAttemptCapLatchesExhaustedOnce(t *testing.T) {
 	rowID := seedDegradedSet(t, store, "set-r5", 2, []int{1}, maxSetRepairAttempts)
 
 	searched := 0
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		searched++
 		return nil
 	}, noopDownload, nil)
@@ -269,7 +269,7 @@ func TestRepairWholeSetHealsByReopenOnly(t *testing.T) {
 	})
 
 	searched := 0
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		searched++
 		return ff7Discs()
 	}, func(g selection.Grab) (string, error) {
@@ -304,7 +304,7 @@ func TestRepairNoopOutsideEnforceOrWithoutAutoDownload(t *testing.T) {
 			store := newTestStore(t)
 			rowID := seedDegradedSet(t, store, "set-r7", 2, []int{1}, 0)
 			searched := 0
-			s := New(tc.cfg, store, func(q, p string) []*models.SearchResult {
+			s := New(tc.cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 				searched++
 				return nil
 			}, noopDownload, nil)
@@ -324,7 +324,7 @@ func TestRepairDecisionLogged(t *testing.T) {
 	t.Parallel()
 	store := newTestStore(t)
 	seedDegradedSet(t, store, "set-r8", 3, []int{1, 3}, 0)
-	s := New(enforceCfg(), store, func(q, p string) []*models.SearchResult {
+	s := New(enforceCfg(), store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
 		return ff7Discs()
 	}, func(g selection.Grab) (string, error) { return "job-r8", nil }, nil)
 	s.rateLimit = 0

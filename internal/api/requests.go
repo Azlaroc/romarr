@@ -224,7 +224,9 @@ func (s *Server) handleSearchRequest(w http.ResponseWriter, r *http.Request) {
 	if slug == "all" {
 		slug = ""
 	}
-	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug)
+	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug,
+		search.Opts{Regions: prof.RegionPriority})
 
 	// Shared F4 preparation: gates, blocklist, release profiles, attrs,
 	// score, tier sort (also blanks a literal "all" platform filter, which
@@ -234,7 +236,6 @@ func (s *Server) handleSearchRequest(w http.ResponseWriter, r *http.Request) {
 		Blocklisted:     s.mgr.Jobs().IsBlocklisted,
 		ReleaseProfiles: s.mgr.Jobs().ApplyReleaseProfiles,
 	}
-	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
 	results := pl.Prepare(allResults, query, platformFilter, prof)
 	if results == nil {
 		results = []*models.SearchResult{}
