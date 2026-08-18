@@ -180,11 +180,28 @@ func TorznabCategory(slug string) string {
 	return "1090"
 }
 
+// shippedCHDPlatforms is the disc set the app converted before the policy
+// became a registry column. It is the answer when NO registry is attached —
+// a unit test, or any binary that wires none — and never overrides a registry
+// that is attached: "no registry" and "the registry says no" are different
+// answers, and only the first one should fall back.
+//
+// The distinction that decides which lookups get a fallback at all: a missing
+// display name is cosmetic, so DisplayName degrades to the slug. A missing
+// CHD policy, category set or fs_slug changes what the app DOES with real
+// files, so those degrade to the shipped values instead.
+var shippedCHDPlatforms = map[string]bool{"psx": true, "ps2": true, "psp": true, "dc": true}
+
 // ConvertsToCHD reports whether a platform's disc images are compressed to
 // CHD on import.
 func ConvertsToCHD(slug string) bool {
-	r, ok := Lookup(slug)
-	return ok && r.ConvertsToCHD
+	if r, ok := Lookup(slug); ok {
+		return r.ConvertsToCHD
+	}
+	if len(rows()) == 0 {
+		return shippedCHDPlatforms[slug]
+	}
+	return false
 }
 
 // AcquisitionEnabled reports whether automatic acquisition runs for a

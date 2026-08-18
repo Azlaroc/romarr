@@ -11,16 +11,10 @@ import (
 	"gamarr/internal/platform"
 )
 
+// TestFormatPolicy asserts against the vocabulary TestMain attaches — the CHD
+// list is a registry column now, not a map in this package. Deliberately does
+// NOT detach it afterwards: every test here depends on it.
 func TestFormatPolicy(t *testing.T) {
-	// The CHD list is a registry column now, not a map in this package, so
-	// the test supplies the vocabulary it is asserting about.
-	platform.SetRegistry(platform.StaticRegistry{
-		{Slug: "psx", ConvertsToCHD: true}, {Slug: "psp", ConvertsToCHD: true},
-		{Slug: "dc", ConvertsToCHD: true}, {Slug: "ps2", ConvertsToCHD: true},
-		{Slug: "gba"}, {Slug: "nes"}, {Slug: "snes"}, {Slug: "switch"},
-	})
-	t.Cleanup(func() { platform.SetRegistry(nil) })
-
 	for _, p := range []string{"psx", "psp", "dc", "ps2"} {
 		if got := FormatPolicy(p); got != "chd" {
 			t.Errorf("FormatPolicy(%q) = %q, want chd", p, got)
@@ -142,4 +136,24 @@ func requireBinary(t *testing.T) {
 	if _, err := exec.LookPath("rom-converto"); err != nil {
 		t.Skip("rom-converto not installed")
 	}
+}
+
+// TestMain attaches the platform vocabulary this package's behaviour depends
+// on. FormatPolicy reads the registry's converts_to_chd column, so a test
+// that converts a disc has to say which platforms are disc platforms —
+// otherwise it asserts against a silently empty vocabulary, which is how the
+// rom-converto-gated conversion test would pass locally (skipped, no binary)
+// and fail in CI (binary installed, nothing converts).
+func TestMain(m *testing.M) {
+	platform.SetRegistry(platform.StaticRegistry{
+		{Slug: "psx", DisplayName: "PS1", ConvertsToCHD: true},
+		{Slug: "ps2", DisplayName: "PS2", ConvertsToCHD: true},
+		{Slug: "psp", DisplayName: "PSP", ConvertsToCHD: true},
+		{Slug: "dc", DisplayName: "Dreamcast", ConvertsToCHD: true},
+		{Slug: "gba", DisplayName: "Game Boy Advance"},
+		{Slug: "nes", DisplayName: "NES"},
+		{Slug: "snes", DisplayName: "SNES"},
+		{Slug: "switch", DisplayName: "Switch"},
+	})
+	os.Exit(m.Run())
 }
