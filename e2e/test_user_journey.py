@@ -347,6 +347,93 @@ def test_settings_connect_webhooks(ui):
         re.compile("RomM", re.I), timeout=SLOW_MS)
 
 
+def test_settings_metadata_dat_authorities(ui):
+    """Settings > Metadata carries the DAT authorities and the coverage table.
+
+    Read-only: editing an authority here would repoint a fetch base that the
+    later API journey owns, so this asserts rendering and the save bar's
+    appear/cancel cycle without ever saving.
+    """
+    page = ui["page"]
+    _open_settings_child(page, "metadata", "md-authorities")
+
+    # The three shipped authorities, each with its own controls.
+    for name in ("no-intro", "redump", "mame"):
+        expect(page.get_by_test_id(f"md-authority-{name}")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("md-refresh-no-intro")).to_be_visible()
+    # A hand-fed authority cannot be fetched; upload is its only path in.
+    expect(page.get_by_test_id("md-refresh-mame")).to_be_disabled()
+    expect(page.get_by_test_id("md-upload-mame")).to_be_enabled()
+
+    # Coverage must never read as completion — no percentage, no "N of M".
+    coverage = page.get_by_test_id("md-coverage")
+    expect(coverage).to_be_visible()
+    body = coverage.inner_text().lower()
+    for forbidden in ("percent", "%", "complete", "verified", "missing"):
+        assert forbidden not in body, f"coverage text implies completion: {forbidden!r}"
+
+    # Advanced fields stay hidden until asked for (arr convention).
+    expect(page.get_by_test_id("md-base-no-intro")).to_have_count(0)
+    page.get_by_test_id("show-advanced").click()
+    expect(page.get_by_test_id("md-base-no-intro")).to_be_visible(timeout=SLOW_MS)
+    page.get_by_test_id("show-advanced").click()
+
+    # A field edit raises the save bar; Cancel puts the page back as it was.
+    expect(page.get_by_test_id("save-bar")).to_have_count(0)
+    page.get_by_test_id("md-auto-refresh").click()
+    expect(page.get_by_test_id("save-bar")).to_be_visible(timeout=SLOW_MS)
+    page.get_by_test_id("save-bar-cancel").click()
+    expect(page.get_by_test_id("save-bar")).to_have_count(0, timeout=SLOW_MS)
+
+
+def test_settings_quality_definitions(ui):
+    """Per-platform size limits: arr's Quality Definitions, keyed by platform.
+
+    Also the home of the unsaved-changes guard's full round trip. The component
+    tests cover the predicate and the prompt appearing; completing a blocked
+    navigation needs a real browser, so it is asserted here.
+
+    Nothing is saved: a manual row would be skipped by the later catalog
+    import, which is exactly what the API journey checks.
+    """
+    page = ui["page"]
+    _open_settings_child(page, "quality-definitions", "qd-definitions")
+    expect(page.get_by_test_id("qd-table")).to_be_visible(timeout=SLOW_MS)
+
+    # Seeded lanes are present before any catalog has been imported, and an
+    # unset bound reads as Unlimited rather than as a literal zero.
+    expect(page.get_by_test_id("row-atari2600")).to_be_visible()
+    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("Unlimited")
+    # No catalog yet, so reset offers to clear rather than to restore.
+    expect(page.get_by_test_id("qd-reset-atari2600")).to_have_text(
+        re.compile("clear", re.I))
+
+    # Editing a bound raises the save bar and names what is pending.
+    expect(page.get_by_test_id("save-bar")).to_have_count(0)
+    page.get_by_test_id("qd-min-atari2600").fill("4096")
+    expect(page.get_by_test_id("save-bar")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("save-bar-summary")).to_contain_text("1 platform")
+    # The number typed is the number shown — nothing is adjusted behind it.
+    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("4.0 KB")
+
+    # An inverted band is refused before it can be sent.
+    page.get_by_test_id("qd-max-atari2600").fill("1024")
+    expect(page.get_by_test_id("qd-error-atari2600")).to_be_visible(timeout=SLOW_MS)
+
+    # Leaving with edits pending prompts instead of silently discarding, and
+    # confirming actually completes the navigation.
+    page.get_by_test_id("nav-settings-profiles").click()
+    expect(page.get_by_test_id("confirm-ok")).to_be_visible(timeout=SLOW_MS)
+    expect(page.get_by_test_id("qd-table")).to_be_visible()
+    page.get_by_test_id("confirm-ok").click()
+    expect(page.get_by_test_id("qd-table")).to_have_count(0, timeout=SLOW_MS)
+
+    # Nothing was written: the row is back to its stored value.
+    _open_settings_child(page, "quality-definitions", "qd-definitions")
+    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("Unlimited")
+    expect(page.get_by_test_id("save-bar")).to_have_count(0)
+
+
 def test_settings_tags(ui):
     # Tag CRUD on Settings > Tags: add -> visible -> delete (state left clean).
     page = ui["page"]

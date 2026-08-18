@@ -52,7 +52,7 @@ func TestDatSeedShipsAuthoritiesAndAssignments(t *testing.T) {
 	}
 
 	plats := store.ListDatPlatforms()
-	if len(plats) < 20 {
+	if len(plats) < 30 {
 		t.Fatalf("platform assignments = %d, want the full seed pack", len(plats))
 	}
 	byslug := map[string]DatPlatformRow{}
@@ -65,6 +65,16 @@ func TestDatSeedShipsAuthoritiesAndAssignments(t *testing.T) {
 	}
 	if got := byslug["saturn"]; got.Authority != "redump" || got.DatCode != "ss" {
 		t.Errorf("saturn = %+v", got)
+	}
+	// These two DAT names are easy to write from memory and wrong: the mirror
+	// spells it "TurboGrafx 16" with no hyphen before the number, and "Neo Geo"
+	// as two words. Either mistake fetches a 404 and silently leaves the lane
+	// empty, so the exact strings are pinned here.
+	if got := byslug["tg16"]; got.DatCode != "NEC - PC Engine - TurboGrafx 16" {
+		t.Errorf("tg16 dat_code = %q", got.DatCode)
+	}
+	if got := byslug["neo-geo-pocket-color"]; got.DatCode != "SNK - Neo Geo Pocket Color" {
+		t.Errorf("neo-geo-pocket-color dat_code = %q", got.DatCode)
 	}
 	// Platforms with no DAT lane must stay absent rather than mis-assigned.
 	if _, ok := byslug["switch"]; ok {

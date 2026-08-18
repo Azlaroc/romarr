@@ -215,6 +215,8 @@ export interface Settings {
   romm_sync_interval_seconds?: number
   romm_connect_enabled?: boolean
   romm_exclude_platforms?: string
+  dat_auto_refresh_enabled?: boolean
+  dat_refresh_interval_days?: number
 }
 
 /** GET /api/settings/env — read-only, boot-time env config (admin): deploy
@@ -461,4 +463,126 @@ export interface TotpSetupResponse {
   secret: string
   url: string
   backup_codes: string[]
+}
+
+// ---------- DAT catalogs (Settings > Metadata) ----------
+
+/** A catalog authority: No-Intro, Redump, MAME. `kind` doubles as the profile
+ *  template class (carts / discs / arcade). */
+export interface DatAuthority {
+  name: string
+  label: string
+  kind: string
+  fetch_driver: string
+  fetch_base: string
+  enabled: boolean
+  pinned_version?: string
+  last_refresh?: string
+  last_status?: string
+  last_error?: string
+}
+
+/** One platform's assignment to an authority. `dat_code` is driver-specific:
+ *  a catalog filename for the libretro mirror, a short code for Redump. */
+export interface DatPlatformAssignment {
+  platform_slug: string
+  authority: string
+  dat_code: string
+  enabled: boolean
+}
+
+/** Authorities and their assignments arrive together — edited as one screen. */
+export interface DatAuthoritiesResponse {
+  authorities: DatAuthority[]
+  platforms: DatPlatformAssignment[]
+}
+
+export interface DatPlatformResult {
+  platform: string
+  status: string
+  version?: string
+  games?: number
+  roms?: number
+  added?: number
+  removed?: number
+  changed?: number
+  error?: string
+}
+
+export interface DatSkippedMember {
+  member: string
+  reason: string
+}
+
+export interface DatStatus {
+  enabled: boolean
+  running: boolean
+  interval_days?: number
+  loop_running?: boolean
+  phase?: string
+  authority?: string
+  total?: number
+  done?: number
+  results?: DatPlatformResult[] | null
+  last_error?: string
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface DatRefreshResponse {
+  success: boolean
+  message?: string
+  authority?: string
+  error?: string
+}
+
+export interface DatUploadResponse {
+  success: boolean
+  authority?: string
+  imported?: DatPlatformResult[]
+  skipped?: DatSkippedMember[]
+  error?: string
+}
+
+export interface DatAuthorityPatchResponse {
+  success: boolean
+  authority?: DatAuthority
+  warnings?: string[]
+}
+
+/** Owned and known are independent counts; the server renders `summary` so the
+ *  UI cannot accidentally present them as a completion figure. */
+export interface DatCoverageRow {
+  platform_slug: string
+  authority?: string
+  owned: number
+  known: number
+  summary: string
+  snapshot_version?: string
+  last_refresh?: string
+}
+
+export interface DatCoverageResponse {
+  coverage: DatCoverageRow[]
+  note: string
+}
+
+// ---------- per-platform size definitions (Settings > Quality Definitions) ----------
+
+/** Sizes are bytes and 0 means unlimited on that end. The stored number is the
+ *  enforcing number: any compression allowance was folded in when it was
+ *  written, so what this screen shows is what rejects a candidate. */
+export interface SizeDefinition {
+  platform_slug: string
+  min_size: number
+  max_size: number
+  source: string
+  snapshot_version?: string
+  updated_at?: string
+  /** Whether a reset has an active catalog snapshot to re-derive from. */
+  has_catalog: boolean
+}
+
+export interface SizeDefinitionsResponse {
+  definitions: SizeDefinition[]
 }

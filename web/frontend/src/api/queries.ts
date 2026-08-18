@@ -50,6 +50,15 @@ import type {
   InviteCode,
   BackupInfo,
   TotpSetupResponse,
+  DatAuthoritiesResponse,
+  DatAuthority,
+  DatAuthorityPatchResponse,
+  DatCoverageResponse,
+  DatRefreshResponse,
+  DatStatus,
+  DatUploadResponse,
+  SizeDefinition,
+  SizeDefinitionsResponse,
 } from './types'
 
 export const keys = {
@@ -88,6 +97,10 @@ export const keys = {
   invites: ['invites'] as const,
   backups: ['backups'] as const,
   totpStatus: ['totp-status'] as const,
+  datAuthorities: ['dat-authorities'] as const,
+  datStatus: ['dat-status'] as const,
+  datCoverage: ['dat-coverage'] as const,
+  sizeDefinitions: ['size-definitions'] as const,
 }
 
 // ---------- queries ----------
@@ -853,5 +866,106 @@ export function useTotpDisable() {
   return useMutation({
     mutationFn: (code: string) => api.post<{ success: boolean }>('/api/totp/disable', { code }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.totpStatus }),
+  })
+}
+
+// ---------- DAT catalogs + size definitions (Settings > Metadata / Quality Definitions) ----------
+
+export function useDatAuthorities(): UseQueryResult<DatAuthoritiesResponse> {
+  return useQuery({
+    queryKey: keys.datAuthorities,
+    queryFn: () => api.get<DatAuthoritiesResponse>('/api/dat/authorities'),
+  })
+}
+
+/**
+ * Refresh progress. Polls only while a run is in flight — the DAT plane is
+ * idle almost all of the time, so a standing interval would be pure noise.
+ */
+export function useDatStatus(): UseQueryResult<DatStatus> {
+  return useQuery({
+    queryKey: keys.datStatus,
+    queryFn: () => api.get<DatStatus>('/api/dat/status'),
+    refetchInterval: (query) => (query.state.data?.running ? 1500 : false),
+  })
+}
+
+export function useDatCoverage(): UseQueryResult<DatCoverageResponse> {
+  return useQuery({
+    queryKey: keys.datCoverage,
+    queryFn: () => api.get<DatCoverageResponse>('/api/dat/coverage'),
+  })
+}
+
+export function useUpdateDatAuthority() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, patch }: { name: string; patch: Partial<DatAuthority> }) =>
+      api.patch<DatAuthorityPatchResponse>(`/api/dat/authorities/${encodeURIComponent(name)}`, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.datAuthorities }),
+  })
+}
+
+/**
+ * Kick a refresh. A busy service answers 200 with success:false rather than an
+ * error status — one writer at a time is normal operation, not a failure.
+ */
+export function useRefreshDat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.post<DatRefreshResponse>(`/api/dat/authorities/${encodeURIComponent(name)}/refresh`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.datStatus }),
+  })
+}
+
+export function useUploadDat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, file, platform }: { name: string; file: File; platform?: string }) => {
+      const form = new FormData()
+      form.append('file', file)
+      const suffix = platform ? qs({ platform }) : ''
+      return api.postForm<DatUploadResponse>(`/api/dat/authorities/${encodeURIComponent(name)}/upload${suffix}`, form)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.datAuthorities })
+      qc.invalidateQueries({ queryKey: keys.datCoverage })
+      qc.invalidateQueries({ queryKey: keys.sizeDefinitions })
+    },
+  })
+}
+
+export function useSizeDefinitions(): UseQueryResult<SizeDefinition[]> {
+  return useQuery({
+    queryKey: keys.sizeDefinitions,
+    queryFn: async () => {
+      const data = await api.get<SizeDefinitionsResponse>('/api/size-definitions')
+      return pickArray<SizeDefinition>(data, 'definitions')
+    },
+  })
+}
+
+/** Omitting an end leaves it alone server-side, so a floor edit cannot silently drop a ceiling. */
+export function useSaveSizeDefinition() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ slug, min, max }: { slug: string; min?: number; max?: number }) =>
+      api.put<{ success: boolean; definition: SizeDefinition }>(
+        `/api/size-definitions/${encodeURIComponent(slug)}`,
+        { ...(min === undefined ? {} : { min_size: min }), ...(max === undefined ? {} : { max_size: max }) },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sizeDefinitions }),
+  })
+}
+
+export function useResetSizeDefinition() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (slug: string) =>
+      api.post<{ success: boolean; definition: SizeDefinition }>(
+        `/api/size-definitions/${encodeURIComponent(slug)}/reset`,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sizeDefinitions }),
   })
 }

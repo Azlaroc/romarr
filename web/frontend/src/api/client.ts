@@ -78,8 +78,34 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
+/**
+ * Multipart POST. Deliberately does not set Content-Type — the browser has to
+ * add the boundary. The DAT upload endpoint accepts multipart only: raw bodies
+ * are pre-rejected at 1MB by the request-size middleware, and a catalog pack is
+ * far larger than that.
+ */
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: form,
+    credentials: 'include',
+  })
+  if (res.status === 401) onUnauthorized?.()
+  const data = await parse(res)
+  if (!res.ok) {
+    const msg =
+      (data && typeof data === 'object' && 'error' in data && typeof (data as { error: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : null) || `${res.status} ${res.statusText}`
+    throw new ApiError(res.status, msg, data)
+  }
+  return data as T
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
+  postForm: <T>(path: string, form: FormData) => requestForm<T>(path, form),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
