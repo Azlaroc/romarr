@@ -49,7 +49,12 @@ type Release struct {
 type Query struct {
 	Text         string // free-text title, e.g. "castlevania symphony of the night"
 	PlatformSlug string // "" means "any platform the source can serve"
-	Limit        int    // 0 means the driver's own default cap
+	// PlatformName is the platform's display name ("Game Boy Color"), from
+	// the caller's platform registry. A driver that searches an open corpus
+	// uses it to steer relevance. Optional: drivers must work without it, and
+	// no driver may hold its own copy of the platform vocabulary.
+	PlatformName string
+	Limit        int // 0 means the driver's own default cap
 
 	// Regions is the caller's ordered region interest, from the quality
 	// profile that will judge the results (lowercased tokens: "usa", "japan").

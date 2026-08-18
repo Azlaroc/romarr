@@ -48,9 +48,13 @@ def test_torrent_import_is_seed_safe(app):
 
     # The stub registered the torrent as instantly complete-and-seeding; the
     # watcher must pick it up and import it into the ROM library tree.
+    # Wait for the sidecar, not the ROM: the payload copy lands first and the
+    # sidecar is written at the END of the pipeline (after normalize and
+    # convert), so polling for the .gb and then asserting the sidecar races
+    # the tail of the import and fails on a slow runner.
     dest = app["roms_dir"] / "gb" / NAME
     deadline = time.time() + 90
-    while time.time() < deadline and not (dest / f"{NAME}.gb").exists():
+    while time.time() < deadline and not (dest / ".gamarr.json").exists():
         time.sleep(1)
     assert (dest / f"{NAME}.gb").exists(), "ROM never landed in the library tree"
     assert (dest / ".gamarr.json").exists(), "metadata sidecar missing"

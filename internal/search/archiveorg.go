@@ -75,9 +75,9 @@ func ArchiveOrgPlatformSlugs(reg *sources.Registry) []string {
 // []*models.SearchResult pipeline so it slots into the same post-processing
 // (filter/score/library-dedup) as the other sources.
 //
-// It is inert unless the registry maps the platform to a collection item, so
-// with the empty embedded defaults it is a no-op — enabling a platform is a
-// registry edit, not a code change.
+// It searches every platform. A registry mapping makes a platform's curated
+// collection the preferred place to look; without one the driver searches
+// archive.org itself. Enabling a platform is no longer a registry edit.
 func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string, regions []string) []*models.SearchResult {
 	if !reg.ArchiveOrgActive() {
 		return nil
@@ -92,7 +92,15 @@ func SearchArchiveOrg(reg *sources.Registry, query, platformSlug string, regions
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	releases, err := src.Search(ctx, driver.Query{Text: query, PlatformSlug: platformSlug, Regions: regions})
+	releases, err := src.Search(ctx, driver.Query{
+		Text:         query,
+		PlatformSlug: platformSlug,
+		// The display name steers open-search relevance. It comes from the
+		// platform registry here so the driver never holds a second copy of
+		// the vocabulary.
+		PlatformName: platform.DisplayName(platformSlug),
+		Regions:      regions,
+	})
 	if err != nil {
 		slog.Warn("archiveorg search error", "error", err)
 		RecordSearchFail("archiveorg", err.Error())

@@ -170,17 +170,22 @@ func TestSearch_NonRomFilesIgnored(t *testing.T) {
 	}
 }
 
-func TestSearch_UnmappedSlug(t *testing.T) {
+func TestSearch_UnmappedSlugWithNoSearchEndpoint(t *testing.T) {
+	// An unmapped platform now goes to open search instead of short-circuiting
+	// (see opensearch_test.go for the endpoint being there). This fixture
+	// serves metadata only, so the widening step fails — and the driver must
+	// degrade to "no results" rather than to an error, because a source that
+	// errors trips the caller's circuit breaker for every platform.
 	srv := metadataServer(t)
 	defer srv.Close()
-	d := newDriver(t, srv.URL)
+	d := New(map[string]string{"psx": psxItem}, WithBaseURL(srv.URL), WithSearchInterval(0))
 
 	rel, err := d.Search(context.Background(), driver.Query{Text: "mario", PlatformSlug: "n64"})
 	if err != nil {
 		t.Fatalf("unmapped slug: %v", err)
 	}
-	if rel != nil {
-		t.Errorf("unmapped slug: want nil, got %v", titles(rel))
+	if len(rel) != 0 {
+		t.Errorf("unmapped slug: want no results, got %v", titles(rel))
 	}
 }
 
