@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import {
+  Ban,
   CalendarClock,
   CheckCircle2,
+  DatabaseZap,
   Download,
   FlaskConical,
   FolderInput,
@@ -10,7 +12,9 @@ import {
   Magnet,
   MailCheck,
   MailPlus,
+  Pencil,
   RotateCcw,
+  Ruler,
   Scale,
   Sparkles,
   Upload,
@@ -33,6 +37,7 @@ const EVENT_META: Record<string, { icon: LucideIcon; color: BadgeColor; label: s
   download_started: { icon: Download, color: 'blue', label: 'Started' },
   download_completed: { icon: CheckCircle2, color: 'emerald', label: 'Downloaded' },
   download_failed: { icon: XCircle, color: 'red', label: 'Failed' },
+  release_blocklisted: { icon: Ban, color: 'red', label: 'Blocklisted' },
   download_retried: { icon: RotateCcw, color: 'orange', label: 'Retried' },
   import_completed: { icon: FolderInput, color: 'emerald', label: 'Imported' },
   manual_import: { icon: Upload, color: 'blue', label: 'Manual import' },
@@ -43,6 +48,10 @@ const EVENT_META: Record<string, { icon: LucideIcon; color: BadgeColor; label: s
   selector_decision: { icon: Scale, color: 'purple', label: 'Selector' },
   wishlist_fulfilled: { icon: Heart, color: 'emerald', label: 'Fulfilled' },
   torrent_harvested: { icon: Magnet, color: 'blue', label: 'Harvested' },
+  library_renamed: { icon: Pencil, color: 'blue', label: 'Renamed' },
+  dat_refreshed: { icon: DatabaseZap, color: 'purple', label: 'DAT refreshed' },
+  size_definition_updated: { icon: Ruler, color: 'purple', label: 'Size definition' },
+  repair_exhausted: { icon: XCircle, color: 'orange', label: 'Repair exhausted' },
   test: { icon: FlaskConical, color: 'slate', label: 'Test' },
 }
 

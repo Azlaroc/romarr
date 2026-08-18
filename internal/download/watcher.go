@@ -193,10 +193,9 @@ func (w *Watcher) driveJob(jobID string, data map[string]interface{}, byHash, by
 		if t == nil {
 			started := int64Value(data["started_at"])
 			if started > 0 && time.Now().Unix()-started > int64(associationGrace.Seconds()) {
-				jobs.UpdateMulti(jobID, map[string]interface{}{
-					"status": "error",
-					"error":  "Torrent never appeared in qBittorrent (add failed or duplicate?)",
-				})
+				// The client never took it. That is an add-side failure, and
+				// the same release usually adds fine on the next attempt.
+				w.mgr.failJob(jobID, "Torrent never appeared in qBittorrent (add failed or duplicate?)", FailLocal)
 			}
 			return ""
 		}
@@ -210,10 +209,8 @@ func (w *Watcher) driveJob(jobID string, data map[string]interface{}, byHash, by
 		w.missing[jobID]++
 		if w.missing[jobID] >= vanishTicks {
 			delete(w.missing, jobID)
-			jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error",
-				"error":  "Torrent removed from qBittorrent externally",
-			})
+			// Someone deleted it in the client. Nothing about the release.
+			w.mgr.failJob(jobID, "Torrent removed from qBittorrent externally", FailLocal)
 		}
 		return hash
 	}
@@ -225,11 +222,8 @@ func (w *Watcher) driveJob(jobID string, data map[string]interface{}, byHash, by
 		jobs.Update(jobID, "file_scan_done", true)
 		if !isSafe {
 			slog.Warn("file list scan failed", "job", jobID, "issues", issues)
-			jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error",
-				"error":  fmt.Sprintf("Blocked: %s", strings.Join(issues, "; ")),
-				"detail": "Dangerous files detected - download cancelled",
-			})
+			w.mgr.failJobDetail(jobID, fmt.Sprintf("Blocked: %s", strings.Join(issues, "; ")),
+				"Dangerous files detected - download cancelled", FailRelease)
 			w.mgr.QB().DeleteTorrent(t.Hash, true)
 			return hash
 		}

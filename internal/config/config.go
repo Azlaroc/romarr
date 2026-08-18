@@ -135,10 +135,6 @@ type Config struct {
 	DatAutoRefreshEnabled bool
 	DatRefreshIntervalD   int // read via DatRefreshIntervalDays()
 
-	// Retry
-	MaxRetries          int
-	RetryBackoffSeconds int
-
 	// Auth
 	AuthUsername string
 	AuthPassword string
@@ -271,9 +267,6 @@ func Load() *Config {
 		WatcherIntervalS:   envInt("WATCHER_INTERVAL", 30),
 		RemoveAfterImport:  envBool("REMOVE_TORRENT_AFTER_IMPORT", false),
 		SeedJanitorEnabled: envBool("SEED_JANITOR_ENABLED", false),
-
-		MaxRetries:          envInt("MAX_RETRIES", 2),
-		RetryBackoffSeconds: envInt("RETRY_BACKOFF_SECONDS", 60),
 
 		Port:           envInt("GAMARR_PORT", 5001),
 		MetricsEnabled: envBool("METRICS_ENABLED", true),

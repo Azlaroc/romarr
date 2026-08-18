@@ -95,3 +95,25 @@ func (s *JobStore) IsBlocklisted(downloadURL, infoHash string) bool {
 	}
 	return false
 }
+
+// RemoveBlocklistFor deletes the entries matching a release's identity and
+// returns how many were removed. It is the undo side of auto-blocklisting: a
+// manual retry is an explicit human override of a decision the failure tail
+// made automatically, and leaving the entry in place would let the next
+// scheduler pass filter out the release the operator just asked for.
+func (s *JobStore) RemoveBlocklistFor(downloadURL, infoHash string) int64 {
+	var removed int64
+	if downloadURL != "" {
+		if res, err := s.db.Exec("DELETE FROM blocklist WHERE download_url = ? AND download_url != ''", downloadURL); err == nil {
+			n, _ := res.RowsAffected()
+			removed += n
+		}
+	}
+	if infoHash != "" {
+		if res, err := s.db.Exec("DELETE FROM blocklist WHERE info_hash = ? AND info_hash != ''", infoHash); err == nil {
+			n, _ := res.RowsAffected()
+			removed += n
+		}
+	}
+	return removed
+}

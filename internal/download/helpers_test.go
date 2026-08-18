@@ -42,7 +42,6 @@ func newTestConfig(t *testing.T) *config.Config {
 		ClamAVContainer: "clamav",
 		ClamAVSocket:    filepath.Join(base, "no-such-clamav.sock"),
 		DockerSocket:    filepath.Join(base, "no-such-docker.sock"),
-		MaxRetries:      2,
 	}
 }
 

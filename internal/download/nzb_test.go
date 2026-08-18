@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gamarr/internal/db"
 	"gamarr/internal/sabnzbd"
 )
 
@@ -323,124 +324,107 @@ func TestOrganizeNZBDownload(t *testing.T) {
 }
 
 func TestRetryJob(t *testing.T) {
-	tests := []struct {
-		name       string
-		setup      func(jobID string, m *Manager)
-		wantOK     bool
-		wantMsg    string
-		wantStatus string
-	}{
-		{
-			name:    "job not found",
-			setup:   func(jobID string, m *Manager) {},
-			wantOK:  false,
-			wantMsg: "not found",
-		},
-		{
-			name: "job not in failed state",
-			setup: func(jobID string, m *Manager) {
-				m.Jobs().Set(jobID, map[string]interface{}{"status": "downloading"})
-			},
-			wantOK:  false,
-			wantMsg: "not in failed state",
-		},
-		{
-			name: "error job requeued",
-			setup: func(jobID string, m *Manager) {
-				m.Jobs().Set(jobID, map[string]interface{}{"status": "error", "title": "G"})
-			},
-			wantOK:     true,
-			wantMsg:    "retry #1",
-			wantStatus: "queued",
-		},
-		{
-			name: "interrupted job requeued with count",
-			setup: func(jobID string, m *Manager) {
-				m.Jobs().Set(jobID, map[string]interface{}{
-					"status": "interrupted", "title": "G", "retry_count": float64(2),
-				})
-			},
-			wantOK:     true,
-			wantMsg:    "retry #3",
-			wantStatus: "queued",
-		},
-		{
-			name: "dead letter job requeued",
-			setup: func(jobID string, m *Manager) {
-				m.Jobs().Set(jobID, map[string]interface{}{"status": "dead_letter", "title": "G"})
-			},
-			wantOK:     true,
-			wantStatus: "queued",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := New(newTestConfig(t), newTestJobs(t), nil)
-			jobID := newJobID()
-			tt.setup(jobID, m)
-
-			ok, msg := m.RetryJob(jobID)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v (msg %q)", ok, tt.wantOK, msg)
-			}
-			if tt.wantMsg != "" && !strings.Contains(strings.ToLower(msg), strings.ToLower(tt.wantMsg)) {
-				t.Errorf("msg = %q, want containing %q", msg, tt.wantMsg)
-			}
-			if tt.wantStatus != "" {
-				job, _ := m.Jobs().Get(jobID)
-				if status, _ := job["status"].(string); status != tt.wantStatus {
-					t.Errorf("status = %q, want %q", status, tt.wantStatus)
-				}
-				if job["error"] != nil {
-					t.Errorf("error = %v, want nil after retry", job["error"])
-				}
-			}
-		})
-	}
-}
-
-func TestAutoRetryFailed(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.MaxRetries = 2
-	jobs := newTestJobs(t)
-	m := New(cfg, jobs, nil)
-
-	jobs.Set("job-max", map[string]interface{}{
-		"status": "error", "retry_count": float64(2),
-	})
-	jobs.Set("job-under", map[string]interface{}{
-		"status": "error", "retry_count": float64(1),
-	})
-	jobs.Set("job-fine", map[string]interface{}{
-		"status": "completed",
-	})
-
-	m.AutoRetryFailed()
-
-	tests := []struct {
-		jobID string
-		want  string
-	}{
-		{"job-max", "dead_letter"},
-		{"job-under", "error"},
-		{"job-fine", "completed"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.jobID, func(t *testing.T) {
-			job, _ := jobs.Get(tt.jobID)
-			if status, _ := job["status"].(string); status != tt.want {
-				t.Errorf("status = %q, want %q", status, tt.want)
-			}
-		})
-	}
-
-	t.Run("dead letter detail mentions max retries", func(t *testing.T) {
-		job, _ := jobs.Get("job-max")
-		if detail, _ := job["detail"].(string); !strings.Contains(detail, "Max retries") {
-			t.Errorf("detail = %q, want Max retries", detail)
+	t.Run("job not found", func(t *testing.T) {
+		m := New(newTestConfig(t), newTestJobs(t), nil)
+		if ok, msg := m.RetryJob(newJobID()); ok || !strings.Contains(msg, "not found") {
+			t.Fatalf("ok=%v msg=%q", ok, msg)
 		}
 	})
+
+	t.Run("job not in failed state", func(t *testing.T) {
+		m := New(newTestConfig(t), newTestJobs(t), nil)
+		jobID := newJobID()
+		m.Jobs().Set(jobID, map[string]interface{}{"status": "downloading"})
+		if ok, msg := m.RetryJob(jobID); ok || !strings.Contains(msg, "not in failed state") {
+			t.Fatalf("ok=%v msg=%q", ok, msg)
+		}
+	})
+
+	// A job with no stored release cannot be retried, and says so. Before the
+	// identity was persisted this was every job: the old implementation
+	// reported success and moved the job to a status nothing consumed.
+	t.Run("no stored release", func(t *testing.T) {
+		m := New(newTestConfig(t), newTestJobs(t), nil)
+		jobID := newJobID()
+		m.Jobs().Set(jobID, map[string]interface{}{"status": "error", "title": "G"})
+		ok, msg := m.RetryJob(jobID)
+		if ok || !strings.Contains(msg, "no stored release") {
+			t.Fatalf("ok=%v msg=%q", ok, msg)
+		}
+	})
+
+	t.Run("ddl job re-drives and clears its blocklist entry", func(t *testing.T) {
+		m := New(newTestConfig(t), newTestJobs(t), nil)
+		jobID := newJobID()
+		// Port 1 refuses instantly: the retry's download goroutine finishes
+		// fast and without touching the network.
+		const url = "http://127.0.0.1:1/game.zip"
+		m.Jobs().Set(jobID, map[string]interface{}{
+			"status": "error", "title": "G", "platform": "PS1", "platform_slug": "psx",
+			"source_type": "ddl", "download_url": url, "retry_count": float64(2),
+		})
+		if _, err := m.Jobs().AddBlocklistEntry(&db.BlocklistEntry{
+			Title: "G", DownloadURL: url, Reason: "Download failed",
+		}); err != nil {
+			t.Fatalf("seed blocklist: %v", err)
+		}
+
+		ok, msg := m.RetryJob(jobID)
+		if !ok || !strings.Contains(strings.ToLower(msg), "retry #3") {
+			t.Fatalf("ok=%v msg=%q", ok, msg)
+		}
+		if m.Jobs().IsBlocklisted(url, "") {
+			t.Error("retry left the release blocklisted; the selector would filter out the release just asked for")
+		}
+		job, _ := m.Jobs().Get(jobID)
+		if detail, _ := job["detail"].(string); !strings.HasPrefix(detail, "Retried as job ") {
+			t.Errorf("detail = %q, want the new job id", detail)
+		}
+		if rc, _ := job["retry_count"].(float64); rc != 3 {
+			t.Errorf("retry_count = %v, want 3", rc)
+		}
+		// The retried job is a NEW job; the old one stays terminal rather
+		// than moving to a status no worker reads.
+		if status, _ := job["status"].(string); status != "error" {
+			t.Errorf("status = %q, want the original job to stay error", status)
+		}
+		waitForTerminalJobs(t, m, jobID)
+	})
+
+	t.Run("torrent job without a client reports the failure", func(t *testing.T) {
+		m := New(newTestConfig(t), newTestJobs(t), nil)
+		jobID := newJobID()
+		m.Jobs().Set(jobID, map[string]interface{}{
+			"status": "dead_letter", "title": "G", "source_type": "torrent",
+			"download_url": "magnet:?xt=urn:btih:" + strings.Repeat("a", 40),
+		})
+		if ok, msg := m.RetryJob(jobID); ok || !strings.Contains(msg, "Retry failed") {
+			t.Fatalf("ok=%v msg=%q", ok, msg)
+		}
+	})
+}
+
+// waitForTerminalJobs lets a retry's download goroutine finish before the
+// test's temp dirs and database go away.
+func waitForTerminalJobs(t *testing.T, m *Manager, except string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		pending := false
+		for _, item := range m.Jobs().Items() {
+			if item.ID == except {
+				continue
+			}
+			if status, _ := item.Data["status"].(string); status == "downloading" {
+				pending = true
+			}
+		}
+		if !pending {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("retry download goroutine did not finish")
 }
 
 func TestStrVal(t *testing.T) {

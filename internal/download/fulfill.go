@@ -69,11 +69,7 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	dest := filepath.Join(destDir, sanitizeFilename(filepath.Base(stagingPath)))
 	if stagingPath != dest {
 		if err := moveContent(stagingPath, dest); err != nil {
-			if meta.JobID != "" {
-				m.jobs.UpdateMulti(meta.JobID, map[string]interface{}{
-					"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-				})
-			}
+			m.failJob(meta.JobID, fmt.Sprintf("Organize failed: %v", err), FailLocal)
 			return stagingPath, err
 		}
 	}
