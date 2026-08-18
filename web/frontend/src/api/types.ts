@@ -304,6 +304,9 @@ export interface TestResult {
 // fields server-side, so every field is required here and the editors always
 // round-trip the complete object (including the reserved upgrade fields).
 export interface QualityProfile {
+  /** A template is cloned for a new platform, never used directly. */
+  is_template?: boolean
+  template_class?: string
   id: number
   name: string
   platform_slug: string // "" = global

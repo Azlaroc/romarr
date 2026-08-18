@@ -80,6 +80,7 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 		MediaClass         *string `json:"media_class"`
 		ConvertsToCHD      *bool   `json:"converts_to_chd"`
 		AcquisitionEnabled *bool   `json:"acquisition_enabled"`
+		DefaultProfileID   *int64  `json:"default_profile_id"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -92,11 +93,27 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "media_class must be one of carts, discs, arcade, computer, pc")
 		return
 	}
+	// 0 is a real value: it clears the platform's default so titles added for
+	// it fall through to the global one. Anything else has to name a profile
+	// that exists and can actually be used — a template is cloned for new
+	// platforms, never applied directly.
+	if req.DefaultProfileID != nil && *req.DefaultProfileID != 0 {
+		p, err := s.mgr.Jobs().GetQualityProfile(*req.DefaultProfileID)
+		if err != nil || p == nil {
+			writeError(w, http.StatusBadRequest, "Unknown quality profile")
+			return
+		}
+		if p.IsTemplate {
+			writeError(w, http.StatusBadRequest, "That profile is a template — it is cloned for new platforms, not assigned directly")
+			return
+		}
+	}
 	if err := s.mgr.Jobs().PatchPlatform(slug, db.PlatformPatch{
 		DisplayName:        req.DisplayName,
 		MediaClass:         req.MediaClass,
 		ConvertsToCHD:      req.ConvertsToCHD,
 		AcquisitionEnabled: req.AcquisitionEnabled,
+		DefaultProfileID:   req.DefaultProfileID,
 	}); err != nil {
 		writeError(w, http.StatusNotFound, "Unknown platform")
 		return

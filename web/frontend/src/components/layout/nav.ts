@@ -1,4 +1,4 @@
-import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, Settings, Wrench, type LucideIcon } from 'lucide-react'
+import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, MonitorSmartphone, Settings, Wrench, type LucideIcon } from 'lucide-react'
 
 export interface NavChild {
   to: string
@@ -43,6 +43,7 @@ export const NAV: NavItem[] = [
       { to: '/wanted/requests', label: 'Requests' },
     ],
   },
+  { to: '/platforms', label: 'Platforms', icon: MonitorSmartphone },
   { to: '/playlog', label: 'Play Log', icon: Joystick },
   {
     to: '/settings',

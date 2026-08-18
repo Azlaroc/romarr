@@ -236,12 +236,13 @@ export function QualityDefinitions() {
               testId="qd-table"
               empty={{
                 icon: Ruler,
-                title: 'No platforms have size limits',
-                hint: 'Platforms get limits when a catalog is imported for them, under Settings → Metadata.',
+                title: 'No platforms',
+                hint: 'Platforms get derived limits when a catalog is imported for them, under Settings → Metadata.',
               }}
             />
             <p className="mt-4 text-xs text-slate-500">
-              Platforms without a catalog assignment do not appear here and are unlimited by default.
+              Every known platform is listed. One without a catalog assignment starts unlimited — there is nothing to
+              derive limits from — but you can still set them by hand.
             </p>
           </div>
         </FormGroup>

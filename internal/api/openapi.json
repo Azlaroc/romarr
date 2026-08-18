@@ -553,7 +553,7 @@
       },
       "put": {
         "summary": "Update a platform's registry row (admin)",
-        "description": "Sparse: display_name, media_class (carts|discs|arcade|computer|pc), converts_to_chd and acquisition_enabled are each left unchanged when absent. Identity fields (slug, IGDB, RomM fs_slug, categories) are not editable \u2014 they are the vocabulary, not a preference.",
+        "description": "Sparse: display_name, media_class (carts|discs|arcade|computer|pc), converts_to_chd, acquisition_enabled and default_profile_id are each left unchanged when absent. default_profile_id 0 clears the platform's default so titles fall through to the global one; a template cannot be assigned. Identity fields (slug, IGDB, RomM fs_slug, categories) are not editable \u2014 they are the vocabulary, not a preference.",
         "parameters": [
           {
             "name": "slug",
@@ -572,7 +572,8 @@
                   "display_name": { "type": "string" },
                   "media_class": { "type": "string", "enum": ["carts", "discs", "arcade", "computer", "pc"] },
                   "converts_to_chd": { "type": "boolean" },
-                  "acquisition_enabled": { "type": "boolean" }
+                  "acquisition_enabled": { "type": "boolean" },
+                  "default_profile_id": { "type": "integer", "format": "int64" }
                 }
               }
             }

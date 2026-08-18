@@ -1,7 +1,10 @@
 interface Props {
   checked: boolean
   onChange: (checked: boolean) => void
+  /** Visible label. Empty when the surrounding context already names the
+      control — a table column header, say — in which case pass aria-label. */
   label: string
+  'aria-label'?: string
   hint?: string
   disabled?: boolean
   /** Arr convention: advanced fields carry the orange label accent. */
