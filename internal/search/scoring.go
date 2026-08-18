@@ -114,22 +114,37 @@ func scorePlatformMatch(resultSlug, filterSlug string) int {
 	return 0
 }
 
-// scoreSeederCount scores by seeder count (0-15). DDL gets flat 10.
+// scoreSeederCount scores availability confidence (0-15), and is the one place
+// protocol preference reaches ranking today.
+//
+// Order is the locked default: direct-HTTP > nzb > torrent. A direct source
+// either serves the file or it does not; a torrent's availability is a function
+// of who happens to be seeding it this minute, so even a well-seeded torrent
+// ranks below a direct source rather than above it. Seeders still grade
+// torrents against each other.
+//
+// This is a scoring signal, not a filter — a torrent still wins when it is the
+// best or only candidate. Per-source priority as first-class data (a stored
+// per-source rank, and protocol as its own tier in the rank key) belongs to the
+// profiles/sources work, not to this function.
 func scoreSeederCount(seeders int, sourceType, downloadProtocol string) int {
-	if sourceType == "ddl" || downloadProtocol == "nzb" {
-		return 10
+	if sourceType == "ddl" {
+		return 15
+	}
+	if downloadProtocol == "nzb" {
+		return 12
 	}
 	switch {
 	case seeders >= 50:
-		return 15
-	case seeders >= 20:
-		return 12
-	case seeders >= 10:
 		return 10
+	case seeders >= 20:
+		return 8
+	case seeders >= 10:
+		return 6
 	case seeders >= 5:
-		return 7
-	case seeders >= 2:
 		return 4
+	case seeders >= 2:
+		return 2
 	default:
 		return 0
 	}
@@ -155,7 +170,12 @@ func scoreSizeRange(size int64, platformSlug string) int {
 	if within(minSize, maxSize) {
 		return 15 // ideal range
 	}
-	// Slightly outside range
+	// Slightly outside range. The halve/double here is a SCORE TIER, not a
+	// bound: it separates "a bit off" from "nothing like it" so a near-miss
+	// still ranks above junk. It is not a second, looser size band — the
+	// enforcing bounds are the stored definitions, applied in the ranking
+	// filter, and they are the numbers shown in the UI. Do not read this as
+	// an allowance; allowances are folded in when a definition is stored.
 	if within(minSize/2, maxSize*2) {
 		return 10
 	}
