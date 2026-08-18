@@ -1,8 +1,19 @@
 import type { ReactNode } from 'react'
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  className = 'mb-6',
+}: {
+  title: string
+  subtitle?: string
+  actions?: ReactNode
+  /** Spacing override. PageShell tightens this because a toolbar follows. */
+  className?: string
+}) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className={`flex flex-wrap items-end justify-between gap-3 ${className}`}>
       <div>
         <h1 className="text-[21px] font-light text-slate-300" data-testid="page-title">
           {title}
