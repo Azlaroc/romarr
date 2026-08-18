@@ -147,6 +147,7 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 		"detail":        "Sending to qBittorrent...",
 		"source_type":   "torrent",
 		"source_client": "qbittorrent",
+		"download_url":  spec.URL,
 		"torrent_hash":  hash,
 		"qb_tag":        tag,
 		"started_at":    time.Now().Unix(),
@@ -183,10 +184,7 @@ func (m *Manager) DownloadTorrent(spec TorrentSpec) (string, error) {
 			Category: m.cfg.QBCategory,
 			Tags:     tag,
 		}) {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error",
-				"error":  "Failed to add torrent to qBittorrent",
-			})
+			m.failJob(jobID, "Failed to add torrent to qBittorrent", FailLocal)
 			return jobID, nil
 		}
 		m.jobs.Update(jobID, "detail", "Downloading via qBittorrent...")
@@ -238,10 +236,7 @@ func (m *Manager) submitTorrentURL(jobID, tag string, spec TorrentSpec) {
 	}
 
 	if !m.qb.AddTorrentOpts(spec.URL, opts) {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  "Failed to add torrent to qBittorrent",
-		})
+		m.failJob(jobID, "Failed to add torrent to qBittorrent", FailLocal)
 		return
 	}
 	m.jobs.Update(jobID, "detail", "Downloading via qBittorrent (URL add)...")
@@ -265,6 +260,14 @@ func (m *Manager) DownloadDDL(url, vimmID, title, platf, platSlug string, isPC b
 		"detail":        "Starting direct download...",
 		"md5":           md5,
 		"sha1":          sha1,
+		// The release identity travels with the job so a failure can write a
+		// blocklist entry the next search actually matches: these are the two
+		// fields selection.Pipeline compares (SearchResult.DownloadURL /
+		// .InfoHash). Without them a blocklist row matches nothing.
+		"source_type":   "ddl",
+		"source_client": "ddl",
+		"download_url":  url,
+		"vimm_id":       vimmID,
 	}
 	if len(set) > 0 {
 		applyDiscSetJobData(jobData, set[0])
@@ -343,10 +346,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 		contentPath = filepath.Join(savePath, torrent.Name)
 	}
 	if !pathExists(contentPath) {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Cannot find downloaded files at %s", contentPath),
-		})
+		m.failJob(jobID, fmt.Sprintf("Cannot find downloaded files at %s", contentPath), FailLocal)
 		slog.Error("content path not found", "path", contentPath)
 		return
 	}
@@ -361,10 +361,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 		}
 		target := filepath.Join(savePath, filepath.FromSlash(resolved))
 		if !pathExists(target) {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error",
-				"error":  fmt.Sprintf("Plucked file not found at %s", target),
-			})
+			m.failJob(jobID, fmt.Sprintf("Plucked file not found at %s", target), FailRelease)
 			slog.Error("target file not found", "path", target)
 			return
 		}
@@ -383,11 +380,8 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 		if len(detail) > 3 {
 			detail = detail[:3]
 		}
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Virus detected: %s", strings.Join(detail, "; ")),
-			"detail": "Infected files found - download quarantined",
-		})
+		m.failJobDetail(jobID, fmt.Sprintf("Virus detected: %s", strings.Join(detail, "; ")),
+			"Infected files found - download quarantined", FailRelease)
 		m.qb.DeleteTorrent(torrent.Hash, true)
 		return
 	}
@@ -436,10 +430,7 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 	}
 	// Never clobber content another source already put at the destination.
 	if pathExists(dest) {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Destination already exists: %s", dest),
-		})
+		m.failJob(jobID, fmt.Sprintf("Destination already exists: %s", dest), FailLocal)
 		return
 	}
 
@@ -453,26 +444,20 @@ func (m *Manager) importTorrentJob(jobID string, torrent *qbit.Torrent) {
 	tmpDir := filepath.Join(destRoot, ".gamarr-tmp", jobID)
 	os.RemoveAll(tmpDir)
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error", "error": fmt.Sprintf("Import staging failed: %v", err),
-		})
+		m.failJob(jobID, fmt.Sprintf("Import staging failed: %v", err), FailLocal)
 		return
 	}
 	tmp := filepath.Join(tmpDir, base)
 	if err := copyContent(contentPath, tmp); err != nil {
 		os.RemoveAll(tmpDir)
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error", "error": fmt.Sprintf("Import copy failed: %v", err),
-		})
+		m.failJob(jobID, fmt.Sprintf("Import copy failed: %v", err), FailLocal)
 		return
 	}
 
 	if isPC {
 		if err := moveContent(tmp, dest); err != nil {
 			os.RemoveAll(tmpDir)
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-			})
+			m.failJob(jobID, fmt.Sprintf("Organize failed: %v", err), FailLocal)
 			return
 		}
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{
@@ -514,10 +499,7 @@ func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug
 	staging := m.cfg.QBSavePath
 	if err := os.MkdirAll(staging, 0755); err != nil {
 		slog.Error("cannot create staging dir", "path", staging, "error", err)
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("cannot create staging dir %s: %v", staging, err),
-		})
+		m.failJob(jobID, fmt.Sprintf("cannot create staging dir %s: %v", staging, err), FailLocal)
 		return
 	}
 
@@ -531,19 +513,15 @@ func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug
 	}
 
 	if filepath_ == "" || !pathExists(filepath_) {
-		job, ok := m.jobs.Get(jobID)
-		if ok {
-			status, _ := job["status"].(string)
-			if status != "error" {
-				errMsg := "Download failed"
-				if dlErr != nil {
-					errMsg = fmt.Sprintf("Download failed: %v", dlErr)
-				}
-				m.jobs.UpdateMulti(jobID, map[string]interface{}{
-					"status": "error", "error": errMsg,
-				})
-			}
+		// A dead link, a 404, a truncated transfer: the release did not
+		// deliver. failJob no-ops when the download path already reported a
+		// more specific failure, which is what the hand-rolled status check
+		// here used to do.
+		errMsg := "Download failed"
+		if dlErr != nil {
+			errMsg = fmt.Sprintf("Download failed: %v", dlErr)
 		}
+		m.failJob(jobID, errMsg, FailRelease)
 		return
 	}
 
@@ -558,10 +536,7 @@ func (m *Manager) ddlDownloadWorker(jobID, dlURL, vimmID, title, platf, platSlug
 		if len(detail) > 3 {
 			detail = detail[:3]
 		}
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Virus detected: %s", strings.Join(detail, "; ")),
-		})
+		m.failJob(jobID, fmt.Sprintf("Virus detected: %s", strings.Join(detail, "; ")), FailRelease)
 		os.Remove(filepath_)
 		return
 	}
@@ -732,9 +707,8 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	pageText := string(body)
 
 	if strings.Contains(pageText, "unavailable at the request of") {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error", "error": "Game removed by DMCA takedown",
-		})
+		// Permanent at the source: no later attempt at this release can work.
+		m.failJob(jobID, "Game removed by DMCA takedown", FailRelease)
 		return ""
 	}
 
@@ -766,9 +740,9 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	}
 
 	if actionURL == "" || mediaID == "" {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error", "error": "Could not find download form on Vimm",
-		})
+		// The driver could not read the page, which says nothing about this
+		// release — blocklisting here would burn titles on a scraper change.
+		m.failJob(jobID, "Could not find download form on Vimm", FailLocal)
 		return ""
 	}
 
@@ -816,10 +790,8 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	}
 
 	if dlResp == nil {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Vimm download server rejected request (tried %d URLs)", len(dlURLs)),
-		})
+		// Rate limiting and server-side rejection are transient conditions.
+		m.failJob(jobID, fmt.Sprintf("Vimm download server rejected request (tried %d URLs)", len(dlURLs)), FailLocal)
 		return ""
 	}
 	defer dlResp.Body.Close()
@@ -838,9 +810,7 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	fp, err := safeChild(destPath, filename)
 	if err != nil {
 		slog.Error("Vimm rejected unsafe filename", "filename", sanitizeLog(filename))
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error", "error": "Vimm returned an unsafe filename",
-		})
+		m.failJob(jobID, "Vimm returned an unsafe filename", FailRelease)
 		return ""
 	}
 	f, err := os.Create(fp)
@@ -876,10 +846,9 @@ func (m *Manager) downloadVimmGame(gameID, destPath, jobID string) string {
 	// finished download — it would land in the library as a complete game.
 	if writeErr != nil || (total > 0 && downloaded != total) {
 		os.Remove(fp)
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Vimm download incomplete (%s of %s)", search.HumanSize(downloaded), search.HumanSize(total)),
-		})
+		// Truncation here is usually our own whole-request cap or a dropped
+		// connection, not a bad release.
+		m.failJob(jobID, fmt.Sprintf("Vimm download incomplete (%s of %s)", search.HumanSize(downloaded), search.HumanSize(total)), FailLocal)
 		return ""
 	}
 	m.jobs.Update(jobID, "detail", fmt.Sprintf("Downloaded %s", search.HumanSize(downloaded)))
@@ -897,9 +866,7 @@ func (m *Manager) organizeDDLFile(jobID, fp, title, platf, platSlug string, isPC
 	if isPC {
 		dest := filepath.Join(m.cfg.GamesVaultPath, filename)
 		if err := moveFile(fp, dest); err != nil {
-			m.jobs.UpdateMulti(jobID, map[string]interface{}{
-				"status": "error", "error": fmt.Sprintf("Organize failed: %v", err),
-			})
+			m.failJob(jobID, fmt.Sprintf("Organize failed: %v", err), FailLocal)
 			return
 		}
 		m.jobs.UpdateMulti(jobID, map[string]interface{}{

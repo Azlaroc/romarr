@@ -34,6 +34,9 @@ func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, pla
 		"detail":        "Sending to SABnzbd...",
 		"source_type":   "nzb",
 		"source_client": "sabnzbd",
+		// Kept for the same reason the DDL path keeps it: a failed grab can
+		// only be blocklisted against the URL the selector will see again.
+		"download_url": nzbURL,
 	}
 	applyDiscSetJobData(jobData, set)
 	m.jobs.Set(jobID, jobData)
@@ -41,10 +44,7 @@ func (m *Manager) downloadSABnzbd(sab *sabnzbd.Client, nzbURL, title, platf, pla
 
 	nzoID, err := sab.AddNZBByURL(nzbURL, title, m.cfg.SABnzbdCategory)
 	if err != nil {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("SABnzbd error: %v", err),
-		})
+		m.failJob(jobID, fmt.Sprintf("SABnzbd error: %v", err), FailLocal)
 		return jobID, nil
 	}
 	m.jobs.Update(jobID, "detail", "Downloading via Usenet...")
@@ -82,10 +82,7 @@ func (m *Manager) RecoverOrphanedNZBDownloads() {
 			}
 			nzoID, _ := item.Data["nzo_id"].(string)
 			if nzoID == "" {
-				m.jobs.UpdateMulti(item.ID, map[string]interface{}{
-					"status": "error",
-					"error":  "Cannot recover SABnzbd download: missing NZO ID",
-				})
+				m.failJob(item.ID, "Cannot recover SABnzbd download: missing NZO ID", FailLocal)
 				continue
 			}
 			m.jobs.Update(item.ID, "detail", "Recovered SABnzbd download; reconnecting watcher...")
@@ -144,10 +141,8 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 						m.organizeNZBDownloadWithClient(jobID, slot.Storage, title, platf, platSlug, isPC, "sabnzbd")
 						return
 					} else if slot.Status == "Failed" {
-						m.jobs.UpdateMulti(jobID, map[string]interface{}{
-							"status": "error",
-							"error":  "SABnzbd download failed",
-						})
+						// SABnzbd exhausted its own retries on this nzb.
+						m.failJob(jobID, "SABnzbd download failed", FailRelease)
 						return
 					}
 				}
@@ -156,10 +151,9 @@ func (m *Manager) watchSABnzbdDownload(sab *sabnzbd.Client, jobID, nzoID, title,
 
 		time.Sleep(10 * time.Second)
 	}
-	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status": "error",
-		"error":  "Timed out waiting for SABnzbd download",
-	})
+	// A stalled grab is the release's problem, not ours: the next candidate
+	// is the answer, and re-picking this one would stall again.
+	m.failJob(jobID, "Timed out waiting for SABnzbd download", FailRelease)
 }
 
 func (m *Manager) organizeNZBDownload(jobID, storagePath, title, platf, platSlug string, isPC bool) {
@@ -203,10 +197,7 @@ func (m *Manager) organizeNZBDownloadWithClient(jobID, storagePath, title, platf
 	}
 
 	if err := moveContent(storagePath, dest); err != nil {
-		m.jobs.UpdateMulti(jobID, map[string]interface{}{
-			"status": "error",
-			"error":  fmt.Sprintf("Organize failed: %v", err),
-		})
+		m.failJob(jobID, fmt.Sprintf("Organize failed: %v", err), FailLocal)
 		return
 	}
 
@@ -231,10 +222,7 @@ func (m *Manager) nzbDestPath(storagePath, platSlug string, isPC bool) (string, 
 }
 
 func (m *Manager) failNZBOrganize(jobID string) {
-	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status": "error",
-		"error":  "Usenet storage path not found",
-	})
+	m.failJob(jobID, "Usenet storage path not found", FailLocal)
 }
 
 // completeNZBOrganize marks the job done and registers the content in the
@@ -268,7 +256,15 @@ func (m *Manager) completeNZBOrganize(jobID, path, title, platf, platSlug string
 	m.jobs.LogActivity("download_completed", title, "NZB to library", jobID, nil)
 }
 
-// RetryJob retries a failed download job.
+// RetryJob re-drives a failed job's release.
+//
+// It used to flip the job to status "queued" — a status nothing consumes — so
+// the Retry button's entire effect was a job that read "Retry #1 queued"
+// forever. A retry now does what the button says: it clears any blocklist
+// entry the failure tail wrote for this release (a manual retry is an
+// explicit human override of an automatic decision, and leaving the entry
+// would have the selector filter out the release the operator just asked
+// for), then starts a fresh download from the identity stored on the job.
 func (m *Manager) RetryJob(jobID string) (bool, string) {
 	job, ok := m.jobs.Get(jobID)
 	if !ok {
@@ -279,46 +275,72 @@ func (m *Manager) RetryJob(jobID string) (bool, string) {
 		return false, fmt.Sprintf("Job not in failed state (status=%s)", status)
 	}
 
-	retryCount := 0
-	if rc, ok := job["retry_count"].(float64); ok {
-		retryCount = int(rc)
+	url := strVal(job, "download_url")
+	hash := strVal(job, "torrent_hash")
+	vimmID := strVal(job, "vimm_id")
+	if url == "" && vimmID == "" && hash == "" {
+		// Jobs grabbed before the release identity was persisted, and any
+		// path that still forgets to store it. Say so instead of reporting a
+		// retry that cannot happen.
+		return false, "Job has no stored release to retry"
+	}
+
+	// retry_count comes back as float64 through the JSON round-trip but as an
+	// int from the in-process cache, so a type assertion on one of them reads
+	// zero for the other — which is why a second retry in the same process
+	// used to announce itself as "retry #1".
+	retryCount := int(int64Value(job["retry_count"]))
+	if removed := m.jobs.RemoveBlocklistFor(url, hash); removed > 0 {
+		slog.Info("retry cleared blocklist entries", "job", jobID, "removed", removed)
+	}
+
+	title := strVal(job, "title")
+	platf := strVal(job, "platform")
+	platSlug := strVal(job, "platform_slug")
+	isPC, _ := job["is_pc"].(bool)
+	set := discSetFromJob(job)
+
+	var newID string
+	switch strVal(job, "source_type") {
+	case "torrent":
+		id, err := m.DownloadTorrent(TorrentSpec{
+			URL:          url,
+			InfoHash:     hash,
+			Title:        title,
+			Platform:     platf,
+			PlatformSlug: platSlug,
+			IsPC:         isPC,
+			TargetFile:   strVal(job, "target_file"),
+			DiscSet:      set,
+		})
+		if err != nil {
+			return false, fmt.Sprintf("Retry failed: %v", err)
+		}
+		newID = id
+	case "nzb":
+		if m.sab == nil {
+			return false, "Retry failed: usenet download client not configured"
+		}
+		id, err := m.DownloadNZB(m.sab, url, title, platf, platSlug, isPC, set)
+		if err != nil {
+			return false, fmt.Sprintf("Retry failed: %v", err)
+		}
+		newID = id
+	default:
+		newID = m.DownloadDDL(url, vimmID, title, platf, platSlug, isPC,
+			strVal(job, "md5"), strVal(job, "sha1"), set)
 	}
 
 	m.jobs.UpdateMulti(jobID, map[string]interface{}{
-		"status":      "queued",
-		"error":       nil,
-		"detail":      fmt.Sprintf("Retry #%d queued", retryCount+1),
-		"retry_count": retryCount + 1,
+		"detail":      fmt.Sprintf("Retried as job %s", newID),
+		"retry_count": float64(retryCount + 1),
 	})
-	m.jobs.LogActivity("download_retried", strVal(job, "title"), fmt.Sprintf("Retry #%d", retryCount+1), jobID, nil)
-	return true, fmt.Sprintf("Job re-queued (retry #%d)", retryCount+1)
+	m.jobs.LogActivity("download_retried", title,
+		fmt.Sprintf("Retry #%d as job %s", retryCount+1, newID), jobID, nil)
+	return true, fmt.Sprintf("Retrying as job %s (retry #%d)", newID, retryCount+1)
 }
 
 func strVal(m map[string]interface{}, key string) string {
 	v, _ := m[key].(string)
 	return v
-}
-
-// AutoRetryFailed checks for failed jobs and retries those under max_retries.
-func (m *Manager) AutoRetryFailed() {
-	for _, item := range m.jobs.Items() {
-		status, _ := item.Data["status"].(string)
-		if status != "error" {
-			continue
-		}
-		retryCount := 0
-		if rc, ok := item.Data["retry_count"].(float64); ok {
-			retryCount = int(rc)
-		}
-		if retryCount >= m.cfg.MaxRetries {
-			// Move to dead letter (status is always "error" here).
-			m.jobs.UpdateMulti(item.ID, map[string]interface{}{
-				"status": "dead_letter",
-				"detail": fmt.Sprintf("Max retries (%d) exceeded", m.cfg.MaxRetries),
-			})
-			continue
-		}
-		// Check if enough time has passed for backoff
-		// Simple: don't auto-retry, let the user or monitor do it
-	}
 }

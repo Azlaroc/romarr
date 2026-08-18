@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"gamarr/internal/db"
 	"gamarr/internal/models"
@@ -222,19 +223,69 @@ func TestDownloadsListClearAndDelete(t *testing.T) {
 	})
 }
 
+// deadRelease is a URL that refuses instantly: a retry's download goroutine
+// finishes fast and never touches the network.
+const deadRelease = "http://127.0.0.1:1/game.zip"
+
+// settleJobs waits for retried downloads to reach a terminal state so no
+// goroutine outlives the test's database.
+func settleJobs(t *testing.T, env *testEnv, except ...string) {
+	t.Helper()
+	skip := map[string]bool{}
+	for _, id := range except {
+		skip[id] = true
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		pending := false
+		for _, item := range env.jobs.Items() {
+			if skip[item.ID] {
+				continue
+			}
+			if status, _ := item.Data["status"].(string); status == "downloading" {
+				pending = true
+			}
+		}
+		if !pending {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("retried download did not settle")
+}
+
 func TestRetryJob(t *testing.T) {
 	env := newTestEnv(t, nil)
-	env.jobs.Set("job-err", map[string]interface{}{"status": "error", "title": "Broken"})
+	env.jobs.Set("job-err", map[string]interface{}{
+		"status": "error", "title": "Broken",
+		"source_type": "ddl", "download_url": deadRelease,
+	})
 
-	t.Run("failed job requeued", func(t *testing.T) {
+	t.Run("failed job re-driven as a new job", func(t *testing.T) {
 		rr := env.do("POST", "/api/downloads/job-err/retry", "")
 		wantStatus(t, rr, 200)
 		if m := decodeMap(t, rr); m["success"] != true {
 			t.Errorf("retry failed: %v", m)
 		}
 		data, _ := env.jobs.Get("job-err")
-		if data["status"] != "queued" {
-			t.Errorf("status after retry = %v, want queued", data["status"])
+		// The retried job is new; the old one stays terminal rather than
+		// moving to a status no worker consumes.
+		if data["status"] != "error" {
+			t.Errorf("status after retry = %v, want the original job to stay error", data["status"])
+		}
+		if detail, _ := data["detail"].(string); !strings.HasPrefix(detail, "Retried as job ") {
+			t.Errorf("detail = %q, want the new job id", detail)
+		}
+		settleJobs(t, env, "job-err")
+	})
+
+	t.Run("job without a stored release reports failure", func(t *testing.T) {
+		env.jobs.Set("job-bare", map[string]interface{}{"status": "error", "title": "Old"})
+		rr := env.do("POST", "/api/downloads/job-bare/retry", "")
+		wantStatus(t, rr, 200)
+		m := decodeMap(t, rr)
+		if m["success"] != false {
+			t.Errorf("expected success=false for a job with no release, got %v", m)
 		}
 	})
 
@@ -249,8 +300,12 @@ func TestRetryJob(t *testing.T) {
 
 func TestBulkRetryAndCancel(t *testing.T) {
 	env := newTestEnv(t, nil)
-	env.jobs.Set("f1", map[string]interface{}{"status": "error", "title": "F1"})
-	env.jobs.Set("f2", map[string]interface{}{"status": "dead_letter", "title": "F2"})
+	env.jobs.Set("f1", map[string]interface{}{
+		"status": "error", "title": "F1", "source_type": "ddl", "download_url": deadRelease,
+	})
+	env.jobs.Set("f2", map[string]interface{}{
+		"status": "dead_letter", "title": "F2", "source_type": "ddl", "download_url": deadRelease + "?2",
+	})
 	env.jobs.Set("a1", map[string]interface{}{"status": "downloading", "title": "A1"})
 
 	t.Run("retry all failed with empty body", func(t *testing.T) {
@@ -260,6 +315,7 @@ func TestBulkRetryAndCancel(t *testing.T) {
 		if m["requested"] != float64(2) || m["succeeded"] != float64(2) {
 			t.Errorf("bulk retry = %v, want requested=2 succeeded=2", m)
 		}
+		settleJobs(t, env, "f1", "f2", "a1")
 	})
 
 	t.Run("cancel explicit ids with unknown id reported", func(t *testing.T) {

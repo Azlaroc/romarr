@@ -237,8 +237,6 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EXTRACT_ARCHIVES` | `false` | Auto-extract downloaded archives |
-| `MAX_RETRIES` | `2` | Download retry attempts |
-| `RETRY_BACKOFF_SECONDS` | `60` | Seconds between retries |
 
 ### ClamAV (optional)
 

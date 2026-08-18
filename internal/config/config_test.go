@@ -25,9 +25,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Port != 5001 {
 		t.Errorf("Port=%d, want 5001", cfg.Port)
 	}
-	if cfg.MaxRetries != 2 {
-		t.Errorf("MaxRetries=%d, want 2", cfg.MaxRetries)
-	}
 	if !cfg.MetricsEnabled {
 		t.Error("MetricsEnabled should default to true")
 	}
