@@ -73,6 +73,9 @@ type DatRomRow struct {
 
 // DatGameRow is one catalogued dump.
 type DatGameRow struct {
+	// ID is the stored row id, set when a game is read back out. It is
+	// ignored on insert (the snapshot writer assigns it).
+	ID        int64       `json:"id,omitempty"`
 	Name      string      `json:"name"`
 	BareTitle string      `json:"bare_title,omitempty"`
 	Region    string      `json:"region,omitempty"`
@@ -677,4 +680,209 @@ func (s *JobStore) DatCoverage() []DatCoverageRow {
 
 func sortCoverage(rows []DatCoverageRow) {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].PlatformSlug < rows[j].PlatformSlug })
+}
+
+// ── Reading the catalog ────────────────────────────────────────────────────
+//
+// The DAT plane was write-only until now: refresh imported catalogs and
+// coverage counted them, but nothing could ask "what dumps exist for this
+// platform?" or "is this file one of them?". Those two questions are what the
+// catalog is FOR — the browse door and the trust gate — so they get real
+// queries against the active snapshot rather than a scan.
+
+// DatGameQuery filters a catalog browse.
+type DatGameQuery struct {
+	PlatformSlug string
+	Text         string // matches bare_title or name, case-insensitively
+	Limit        int
+	Offset       int
+}
+
+// BrowseDatGames lists catalogued dumps for a platform's ACTIVE snapshot,
+// newest catalog only, ordered by name. The second return is the total
+// matching count (for pagination), not the page length.
+func (s *JobStore) BrowseDatGames(q DatGameQuery) ([]DatGameRow, int) {
+	if q.PlatformSlug == "" {
+		return nil, 0
+	}
+	if q.Limit <= 0 || q.Limit > 200 {
+		q.Limit = 50
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	where := "g.platform_slug = ? AND s.active = 1"
+	args := []interface{}{q.PlatformSlug}
+	if text := strings.TrimSpace(q.Text); text != "" {
+		where += " AND (LOWER(g.bare_title) LIKE ? OR LOWER(g.name) LIKE ?)"
+		like := "%" + strings.ToLower(text) + "%"
+		args = append(args, like, like)
+	}
+
+	var total int
+	s.db.QueryRow(
+		"SELECT COUNT(*) FROM dat_games g JOIN dat_snapshots s ON s.id = g.snapshot_id WHERE "+where,
+		args...,
+	).Scan(&total)
+
+	rows, err := s.db.Query(
+		`SELECT g.id, g.name, g.bare_title, g.region, g.languages, g.revision, g.clone_of,
+		        g.flags, g.total_size, g.rom_count
+		   FROM dat_games g JOIN dat_snapshots s ON s.id = g.snapshot_id
+		  WHERE `+where+` ORDER BY g.name LIMIT ? OFFSET ?`,
+		append(args, q.Limit, q.Offset)...,
+	)
+	if err != nil {
+		return nil, total
+	}
+	defer rows.Close()
+	var out []DatGameRow
+	for rows.Next() {
+		var g DatGameRow
+		var romCount int
+		if err := rows.Scan(&g.ID, &g.Name, &g.BareTitle, &g.Region, &g.Languages,
+			&g.Revision, &g.CloneOf, &g.Flags, &g.TotalSize, &romCount); err != nil {
+			continue
+		}
+		out = append(out, g)
+	}
+	return out, total
+}
+
+// DatGameRoms returns the files of one catalogued dump. A disc is several
+// rows (cue plus every track), which is why this is a separate call rather
+// than a column on the game.
+func (s *JobStore) DatGameRoms(gameID int64) []DatRomRow {
+	rows, err := s.db.Query(
+		"SELECT name, size, crc, md5, sha1, serial FROM dat_roms WHERE game_id = ? ORDER BY name", gameID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []DatRomRow
+	for rows.Next() {
+		var r DatRomRow
+		if err := rows.Scan(&r.Name, &r.Size, &r.CRC, &r.MD5, &r.SHA1, &r.Serial); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// Catalog verdicts for one file measured against the active snapshot.
+const (
+	// CatalogVerified: a catalogued dump has this file's hash.
+	CatalogVerified = "verified"
+	// CatalogMismatch: the catalog knows a file by this name for this
+	// platform and its hash is NOT this one. The catalog disagrees.
+	CatalogMismatch = "mismatch"
+	// CatalogUnknown: nothing in the catalog matches by hash or by name.
+	// Not a failure — hacks, homebrew, translations and dumps newer than the
+	// snapshot all land here, and on some platforms they outnumber the
+	// catalogued ones several times over.
+	CatalogUnknown = "unknown"
+)
+
+// DatVerdict is the catalog's answer about one file.
+type DatVerdict struct {
+	Status   string `json:"status"`
+	GameName string `json:"game_name,omitempty"`
+	RomName  string `json:"rom_name,omitempty"`
+	// Expected is the hash the catalog holds for the name that matched, set
+	// only on a mismatch — it is the evidence for the rejection.
+	Expected string `json:"expected,omitempty"`
+	Got      string `json:"got,omitempty"`
+}
+
+// MatchDatRom measures one extracted file against the platform's active
+// catalog. Hashes are compared lowercase; pass whichever the caller computed
+// (crc32 is No-Intro's canonical, md5/sha1 are Redump's and both carry it).
+//
+// Order matters: a hash hit is the strongest possible answer and is checked
+// first, so a correctly-dumped-but-renamed file is verified rather than
+// accused. Only when no hash matches does the name lookup decide between
+// "the catalog disagrees" and "the catalog has never heard of this".
+func (s *JobStore) MatchDatRom(platformSlug, fileName, crc, md5, sha1 string) DatVerdict {
+	if platformSlug == "" {
+		return DatVerdict{Status: CatalogUnknown}
+	}
+	crc, md5, sha1 = strings.ToLower(crc), strings.ToLower(md5), strings.ToLower(sha1)
+	if crc == "" && md5 == "" && sha1 == "" {
+		// Nothing to compare. A file we could not hash is not evidence of
+		// anything — accusing it because its NAME is catalogued would reject
+		// good imports on an unreadable-file error.
+		return DatVerdict{Status: CatalogUnknown}
+	}
+
+	// Built from a slice, not a map: the clauses and their arguments are two
+	// halves of one list, and iterating a map would pair them by luck.
+	var hashClauses []string
+	args := []interface{}{platformSlug}
+	for _, h := range []struct{ col, val string }{{"crc", crc}, {"md5", md5}, {"sha1", sha1}} {
+		if h.val != "" {
+			hashClauses = append(hashClauses, "(r."+h.col+" = ? AND r."+h.col+" != '')")
+			args = append(args, h.val)
+		}
+	}
+	if len(hashClauses) > 0 {
+		var gameName, romName string
+		err := s.db.QueryRow(
+			`SELECT g.name, r.name FROM dat_roms r
+			   JOIN dat_games g ON g.id = r.game_id
+			   JOIN dat_snapshots s ON s.id = g.snapshot_id
+			  WHERE g.platform_slug = ? AND s.active = 1 AND (`+strings.Join(hashClauses, " OR ")+`) LIMIT 1`,
+			args...,
+		).Scan(&gameName, &romName)
+		if err == nil {
+			return DatVerdict{Status: CatalogVerified, GameName: gameName, RomName: romName}
+		}
+	}
+
+	if fileName == "" {
+		return DatVerdict{Status: CatalogUnknown}
+	}
+	var gameName, romName, wantCRC, wantMD5, wantSHA1 string
+	err := s.db.QueryRow(
+		`SELECT g.name, r.name, r.crc, r.md5, r.sha1 FROM dat_roms r
+		   JOIN dat_games g ON g.id = r.game_id
+		   JOIN dat_snapshots s ON s.id = g.snapshot_id
+		  WHERE g.platform_slug = ? AND s.active = 1 AND LOWER(r.name) = ? LIMIT 1`,
+		platformSlug, strings.ToLower(fileName),
+	).Scan(&gameName, &romName, &wantCRC, &wantMD5, &wantSHA1)
+	if err != nil {
+		return DatVerdict{Status: CatalogUnknown}
+	}
+	// Same name, and no hash of ours matched it: the catalog disagrees about
+	// what this file should contain.
+	expected, got := wantCRC, crc
+	if expected == "" {
+		expected, got = wantMD5, md5
+	}
+	if expected == "" {
+		expected, got = wantSHA1, sha1
+	}
+	return DatVerdict{
+		Status: CatalogMismatch, GameName: gameName, RomName: romName,
+		Expected: expected, Got: got,
+	}
+}
+
+// SetLibraryCatalogStatus records a catalog verdict on the library row a
+// source produced. Kept separate from AddLibraryItem so the verdict can be
+// written after the import without threading a new argument through every
+// TrackInLibrary caller.
+func (s *JobStore) SetLibraryCatalogStatus(sourceID, status string) {
+	if sourceID == "" || status == "" {
+		return
+	}
+	_, err := s.db.Exec(
+		`UPDATE library_items
+		    SET metadata = json_set(
+		          CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
+		          '$.gamarr.catalog', ?)
+		  WHERE source_id = ?`, status, sourceID)
+	if err != nil {
+		slog.Warn("record catalog status", "error", err)
+	}
 }
