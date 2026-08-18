@@ -12,6 +12,7 @@ import { Pagination } from '../components/ui/Pagination'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
+import { InteractiveSearch } from '../components/search/InteractiveSearch'
 import { formatSize, platformBadgeColor } from '../lib/format'
 
 const GRADIENTS = [
@@ -33,6 +34,9 @@ export function Library() {
   const [qActive, setQActive] = useState('')
   const [platform, setPlatform] = useState('all')
   const [selected, setSelected] = useState<LibraryItem | null>(null)
+  // Searching from a library item is how you replace a bad dump or take a
+  // better one: same pipeline, seeded with what is already owned.
+  const [searching, setSearching] = useState<LibraryItem | null>(null)
 
   const { data, isLoading, isError } = useLibrary({ page, q: qActive, platform })
   const { data: config } = useConfig()
@@ -143,7 +147,14 @@ export function Library() {
               <Field label="Size" value={formatSize(selected.file_size) || '—'} />
               <Field label="Source" value={selected.source || selected.source_type || '—'} />
             </dl>
-            <div className="flex justify-end border-t border-slate-800 pt-4">
+            <div className="flex justify-between border-t border-slate-800 pt-4">
+              <Button
+                variant="secondary"
+                onClick={() => { setSearching(selected); setSelected(null) }}
+                data-testid="library-item-search"
+              >
+                <Search className="h-4 w-4" /> Search for a release
+              </Button>
               <Button variant="danger" onClick={() => remove(selected)} disabled={del.isPending}>
                 <Trash2 className="h-4 w-4" /> Remove from library
               </Button>
@@ -151,6 +162,13 @@ export function Library() {
           </div>
         )}
       </Modal>
+
+      <InteractiveSearch
+        open={searching !== null}
+        onClose={() => setSearching(null)}
+        title={searching?.title ?? ''}
+        platformSlug={searching?.platform_slug}
+      />
     </>
   )
 }

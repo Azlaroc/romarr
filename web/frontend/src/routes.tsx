@@ -10,7 +10,6 @@ import { Queue } from './routes/activity/Queue'
 import { History } from './routes/activity/History'
 import { Blocklist } from './routes/activity/Blocklist'
 import { Wishlist } from './routes/wanted/Wishlist'
-import { Requests } from './routes/wanted/Requests'
 import { Settings } from './routes/settings/Settings'
 import { MediaManagement } from './routes/settings/MediaManagement'
 import { Indexers } from './routes/settings/Indexers'
@@ -45,7 +44,6 @@ export const router = createBrowserRouter([
       { path: 'activity/blocklist', element: <Blocklist /> },
       { path: 'wanted', element: <Navigate to="/wanted/wishlist" replace /> },
       { path: 'wanted/wishlist', element: <Wishlist /> },
-      { path: 'wanted/requests', element: <Requests /> },
       { path: 'settings', element: <Navigate to="/settings/media-management" replace /> },
       { path: 'settings/media-management', element: <MediaManagement /> },
       { path: 'settings/indexers', element: <Indexers /> },

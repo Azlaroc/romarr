@@ -53,23 +53,6 @@ func (s *Server) handleExportWishlist(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleExportRequests handles GET /api/export/requests.
-func (s *Server) handleExportRequests(w http.ResponseWriter, r *http.Request) {
-	requests, err := s.mgr.Jobs().ListRequests("", "", 100000, 0)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to export requests")
-		return
-	}
-	w.Header().Set("Content-Disposition", "attachment; filename=gamarr-requests.json")
-	writeJSON(w, http.StatusOK, exportWrapper{
-		Version:    gamarrVersion,
-		ExportDate: time.Now().UTC().Format(time.RFC3339),
-		Type:       "requests",
-		Count:      len(requests),
-		Items:      requests,
-	})
-}
-
 // ── Import Types ─────────────────────────────────────────────────────────────
 
 // handleImportLibrary handles POST /api/import/library.

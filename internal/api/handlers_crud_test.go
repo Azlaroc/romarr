@@ -501,67 +501,6 @@ func TestImportCSV(t *testing.T) {
 	})
 }
 
-func TestExportRequests(t *testing.T) {
-	env := newTestEnv(t, nil)
-	rr := env.do("POST", "/api/requests", `{"title":"Portal 2","platform":"PC","platform_slug":"pc"}`)
-	wantStatus(t, rr, 201)
-
-	rr = env.do("GET", "/api/export/requests", "")
-	wantStatus(t, rr, 200)
-	if m := decodeMap(t, rr); m["count"] != float64(1) || m["type"] != "requests" {
-		t.Errorf("requests export = %v, want count=1 type=requests", m)
-	}
-}
-
-// ── Requests ───────────────────────────────────────────────────────────────────
-
-func TestRequestsCRUD(t *testing.T) {
-	env := newTestEnv(t, nil)
-
-	t.Run("missing title rejected", func(t *testing.T) {
-		rr := env.do("POST", "/api/requests", `{"platform":"PC"}`)
-		wantStatus(t, rr, 400)
-	})
-
-	rr := env.do("POST", "/api/requests", `{"title":"Hades","platform":"PC","platform_slug":"pc"}`)
-	wantStatus(t, rr, 201)
-	created, _ := decodeMap(t, rr)["request"].(map[string]interface{})
-	id, _ := created["id"].(string)
-	if id == "" {
-		t.Fatalf("created request missing id: %v", created)
-	}
-	if created["status"] != "pending" {
-		t.Errorf("status = %v, want pending", created["status"])
-	}
-
-	t.Run("list", func(t *testing.T) {
-		rr := env.do("GET", "/api/requests", "")
-		wantStatus(t, rr, 200)
-		if m := decodeMap(t, rr); m["total"] != float64(1) {
-			t.Errorf("total = %v, want 1", m["total"])
-		}
-	})
-
-	t.Run("get by id", func(t *testing.T) {
-		rr := env.do("GET", "/api/requests/"+id, "")
-		wantStatus(t, rr, 200)
-	})
-
-	t.Run("get unknown id is 404", func(t *testing.T) {
-		rr := env.do("GET", "/api/requests/does-not-exist", "")
-		wantStatus(t, rr, 404)
-	})
-
-	t.Run("delete (admin) removes it", func(t *testing.T) {
-		rr := env.do("DELETE", "/api/requests/"+id, "")
-		wantStatus(t, rr, 200)
-		rr = env.do("GET", "/api/requests/"+id, "")
-		wantStatus(t, rr, 404)
-	})
-}
-
-// ── History CRUD ───────────────────────────────────────────────────────────────
-
 func TestHistoryCRUD(t *testing.T) {
 	env := newTestEnv(t, nil)
 

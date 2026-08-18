@@ -91,37 +91,3 @@ func TestDownloadHashGate(t *testing.T) {
 		}
 	})
 }
-
-func TestRequestDownloadHashGate(t *testing.T) {
-	env := newTestEnv(t, nil)
-	seedHashOwned(t, env)
-
-	rr := env.do("POST", "/api/requests", `{"title":"Hagane","platform":"SNES","platform_slug":"snes"}`)
-	wantStatus(t, rr, http.StatusCreated)
-	created := decodeMap(t, rr)
-	reqObj, _ := created["request"].(map[string]interface{})
-	if reqObj == nil {
-		reqObj = created
-	}
-	id, _ := reqObj["id"].(string)
-	if id == "" {
-		t.Fatalf("no request id in %v", created)
-	}
-
-	rr = env.do("POST", "/api/requests/"+id+"/download",
-		`{"source_type":"ddl","download_url":"http://127.0.0.1:9/rom.zip","md5":"aa11"}`)
-	wantStatus(t, rr, http.StatusConflict)
-
-	// The blocked download must not have flipped the request's status.
-	gr, err := env.jobs.GetRequest(id)
-	if err != nil {
-		t.Fatalf("GetRequest: %v", err)
-	}
-	if string(gr.Status) == "downloading" {
-		t.Errorf("request status = %v, want untouched by a blocked download", gr.Status)
-	}
-
-	rr = env.do("POST", "/api/requests/"+id+"/download",
-		`{"source_type":"ddl","download_url":"http://127.0.0.1:9/rom.zip","md5":"aa11","force":true}`)
-	wantStatus(t, rr, http.StatusOK)
-}

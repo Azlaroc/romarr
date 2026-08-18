@@ -212,13 +212,6 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Delete("/api/invites/{id}", requireAdmin(handleDeleteInvite(mgr.Jobs())))
 
 	// Requests
-	r.Post("/api/requests", s.handleCreateRequest)
-	r.Get("/api/requests", s.handleListRequests)
-	r.Get("/api/requests/{id}", s.handleGetRequest)
-	r.Patch("/api/requests/{id}", s.handleUpdateRequest)
-	r.Delete("/api/requests/{id}", requireAdmin(s.handleDeleteRequest))
-	r.Post("/api/requests/{id}/search", s.handleSearchRequest)
-	r.Post("/api/requests/{id}/download", s.handleDownloadForRequest)
 
 	// Notifications
 	r.Get("/api/notifications", s.handleGetNotifications)
@@ -235,7 +228,6 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// Import/Export
 	r.Get("/api/export/library", s.handleExportLibrary)
 	r.Get("/api/export/wishlist", s.handleExportWishlist)
-	r.Get("/api/export/requests", s.handleExportRequests)
 	r.Post("/api/import/library", s.handleImportLibrary)
 	r.Post("/api/import/wishlist", s.handleImportWishlist)
 	r.Post("/api/import/csv", s.handleImportCSV)
@@ -453,6 +445,31 @@ func serveDistFile(name, contentType string) http.HandlerFunc {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	platformFilter := r.URL.Query().Get("platform")
+
+	// Interactive search from a Wanted row (the arrs' manual search): the row
+	// supplies the title, the platform, and — the reason this is more than a
+	// prefilled search box — the profile that title was added under.
+	var profileID int64
+	if raw := r.URL.Query().Get("wishlist_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			writeError(w, http.StatusBadRequest, "Invalid wishlist_id")
+			return
+		}
+		item, ok := s.mgr.Jobs().GetWishlistItem(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "Wishlist item not found")
+			return
+		}
+		if query == "" {
+			query = item.Title
+		}
+		if platformFilter == "" {
+			platformFilter = item.PlatformSlug
+		}
+		profileID = item.ProfileID
+	}
+
 	if query == "" {
 		writeJSON(w, 200, map[string]interface{}{"results": []interface{}{}, "error": "No query"})
 		return
@@ -466,7 +483,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// The profile is resolved BEFORE the fan-out, not after: its region
 	// priority is what tells a source not to pre-drop a region the user
 	// actually wants.
-	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	// The same ladder the scheduler resolves with, so a manual search ranks
+	// under the policy the automatic grab would have used. Without a row this
+	// is the platform default -> global chain; ResolveQualityProfile alone
+	// skipped the platform default a platform row now carries.
+	prof := s.mgr.Jobs().ResolveProfileForItem(profileID, slug)
 	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug,
 		search.Opts{Regions: prof.RegionPriority})
 
