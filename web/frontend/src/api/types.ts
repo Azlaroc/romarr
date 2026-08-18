@@ -7,6 +7,28 @@ export interface Platform {
   name: string
 }
 
+// A registry row: the canonical vocabulary for one platform. Served by
+// /api/platforms?full=1 and /api/platforms/{slug}. Identity fields (slug,
+// IGDB, RomM fs_slug, categories) are read-only — they are what a platform
+// IS; the editable fields below are how RomArr treats it.
+export interface PlatformRow {
+  slug: string
+  display_name: string
+  igdb_slug: string
+  igdb_id: number
+  romm_fs_slug: string
+  prowlarr_categories?: number[] | null
+  torznab_category: string
+  media_class: string // carts | discs | arcade | computer | pc
+  converts_to_chd: boolean
+  acquisition_enabled: boolean
+  is_system: boolean
+  default_profile_id: number
+  updated_at?: string
+  dat_authority?: string
+  dat_code?: string
+}
+
 export interface SearchResult {
   title: string
   platform?: string

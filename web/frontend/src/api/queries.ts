@@ -13,6 +13,7 @@ import { pickArray, pickNumber } from './unwrap'
 import type {
   AppConfig,
   Platform,
+  PlatformRow,
   SearchResponse,
   SearchResult,
   LibraryPage,
@@ -80,6 +81,7 @@ export const keys = {
   authStatus: ['auth-status'] as const,
   unread: ['notifications-unread'] as const,
   qualityProfiles: ['quality-profiles'] as const,
+  platformRegistry: ['platform-registry'] as const,
   releaseProfiles: ['release-profiles'] as const,
   blocklist: ['blocklist'] as const,
   requests: (status: string) => ['requests', status] as const,
@@ -122,6 +124,29 @@ export function usePlatforms() {
     queryKey: keys.platforms,
     queryFn: async () => pickArray<Platform>(await api.get('/api/platforms'), 'platforms'),
     staleTime: 5 * 60_000,
+  })
+}
+
+// The whole registry row per platform — what a platform is, not just what to
+// call it in a picker. Screens that manage platforms use this; screens that
+// pick one use usePlatforms().
+export function usePlatformRegistry() {
+  return useQuery({
+    queryKey: keys.platformRegistry,
+    queryFn: async () => pickArray<PlatformRow>(await api.get('/api/platforms?full=1'), 'platforms'),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useSavePlatform() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ slug, ...body }: { slug: string } & Partial<PlatformRow>) =>
+      api.put<PlatformRow>(`/api/platforms/${encodeURIComponent(slug)}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.platformRegistry })
+      qc.invalidateQueries({ queryKey: keys.platforms })
+    },
   })
 }
 

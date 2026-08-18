@@ -307,19 +307,5 @@ func cleanTitle(name string) string {
 }
 
 func platformNameFromSlug(slug string) string {
-	names := map[string]string{
-		"gba": "Game Boy Advance", "gb": "Game Boy", "gbc": "Game Boy Color",
-		"nes": "NES", "snes": "SNES", "n64": "Nintendo 64",
-		"nds": "DS", "3ds": "3DS", "switch": "Switch",
-		"psx": "PS1", "ps2": "PS2", "ps3": "PS3", "ps4": "PS4",
-		"psp": "PSP", "dc": "Dreamcast",
-		"genesis": "Sega Genesis", "saturn": "Sega Saturn",
-		"ngc": "GameCube", "wii": "Wii", "wiiu": "Wii U",
-		"xbox": "Xbox", "xbox360": "Xbox 360",
-		"psvita": "PS Vita",
-	}
-	if name, ok := names[slug]; ok {
-		return name
-	}
-	return strings.ToUpper(slug)
+	return platform.DisplayName(slug)
 }

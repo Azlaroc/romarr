@@ -18,6 +18,7 @@ import (
 
 	"gamarr/internal/config"
 	"gamarr/internal/converto"
+	"gamarr/internal/platform"
 )
 
 // Policy selects normalize/convert behavior. Story #260 leaves it empty —
@@ -164,16 +165,13 @@ func sanitizeLog(s string) string {
 	return strings.ReplaceAll(s, "\r", " ")
 }
 
-// chdPlatforms are the disc-based platform slugs whose default target format is
-// CHD. Cart systems are left as-is.
-var chdPlatforms = map[string]bool{"psx": true, "psp": true, "dc": true, "ps2": true}
-
-// FormatPolicy returns the default target conversion format for a platform slug:
-// "chd" for disc systems (psx/psp/dc/ps2), "" (leave as-is) otherwise. This is
-// the FormatProfile seam — F4/F6 quality/format profiles will drive it later; for
-// now it is the hardcoded default.
+// FormatPolicy returns the default target conversion format for a platform
+// slug: "chd" for the disc systems whose registry row says so, "" (leave
+// as-is) otherwise. The list used to be four hardcoded slugs here plus a
+// hand-synced copy in the frontend; it is a registry column now, so turning
+// CHD on for another disc platform is a row edit rather than two code edits.
 func FormatPolicy(platformSlug string) string {
-	if chdPlatforms[platformSlug] {
+	if platform.ConvertsToCHD(platformSlug) {
 		return "chd"
 	}
 	return ""

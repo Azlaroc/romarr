@@ -96,6 +96,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// Search & browse
 	r.Get("/api/search", s.handleSearch)
 	r.Get("/api/platforms", s.handlePlatforms)
+	r.Get("/api/platforms/{slug}", s.handlePlatform)
 	r.Get("/api/sources", s.handleSources)
 
 	// Torznab indexer endpoint — lets Prowlarr / Sonarr / other *arr apps
@@ -162,6 +163,10 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Put("/api/dat/platforms/{slug}", requireAdmin(s.handleUpdateDatPlatform))
 	r.Get("/api/dat/status", s.handleDatStatus)
 	r.Get("/api/dat/coverage", s.handleDatCoverage)
+
+	// The platform registry. Reads are open — every picker in the app needs
+	// the vocabulary — while edits are configuration, so admin-only.
+	r.Put("/api/platforms/{slug}", requireAdmin(s.handleUpdatePlatform))
 
 	// Per-platform size definitions: the band candidates are judged against.
 	// Configuration, so admin-only throughout. Reset rather than delete, for
@@ -505,44 +510,36 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePlatforms enumerates every platform RomArr knows about, not only the
+// ones already sitting in the library — which is the difference between being
+// able to add a game for a platform you have never acquired for and not.
+//
+// The response keeps its {id, name} shape by default: it fills every picker
+// in the app and is fetched on most screens. ?full=1 serves the whole registry
+// row instead, for the screens that manage platforms rather than pick one.
 func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("full") == "1" {
+		writeJSON(w, 200, map[string]interface{}{"platforms": s.platformViews()})
+		return
+	}
 	platforms := []map[string]string{
 		{"id": "all", "name": "All Platforms"},
-		{"id": "pc", "name": "PC"},
 	}
-	seen := map[string]bool{"PC": true}
-
-	type sortEntry struct {
-		CatID int
-		Info  platform.PlatformInfo
-	}
-	var entries []sortEntry
-	for catID, info := range platform.PlatformMap {
-		entries = append(entries, sortEntry{catID, info})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].CatID < entries[j].CatID })
-
-	for _, e := range entries {
-		if e.Info.IsPC || seen[e.Info.Name] || e.Info.Name == "Other" || e.Info.Slug == "" {
+	seenSlugs := map[string]bool{"all": true}
+	for _, p := range platform.Rows() {
+		// System rows are directories, not platforms — offering "Supporting
+		// Files" in an add dialog is nonsense. They are still enumerable
+		// below once the library actually holds rows under one, which is how
+		// the Library filter has always reached them.
+		if p.IsSystem {
 			continue
 		}
-		seen[e.Info.Name] = true
-		platforms = append(platforms, map[string]string{"id": e.Info.Slug, "name": e.Info.Name})
-	}
-	for _, ep := range platform.ExtraPlatforms {
-		if !seen[ep.Name] {
-			seen[ep.Name] = true
-			platforms = append(platforms, map[string]string{"id": ep.Slug, "name": ep.Name})
-		}
+		seenSlugs[p.Slug] = true
+		platforms = append(platforms, map[string]string{"id": p.Slug, "name": p.DisplayName})
 	}
 
-	// Merge platforms present in the library but absent from the static maps
-	// (RomM catalogs many systems the search taxonomy doesn't know yet), so
-	// the Library filter can reach every row.
-	seenSlugs := make(map[string]bool, len(platforms))
-	for _, p := range platforms {
-		seenSlugs[p["id"]] = true
-	}
+	// Merge platforms present in the library but not (yet) registered, so the
+	// Library filter can always reach every row it holds.
 	for _, lp := range s.mgr.Jobs().LibraryPlatforms() {
 		if seenSlugs[lp.Slug] {
 			continue

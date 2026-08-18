@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -18,7 +19,11 @@ type PlatformInfo struct {
 	IsPC bool
 }
 
-// PlatformMap maps Prowlarr category IDs to platform info.
+// PlatformMap maps Prowlarr category IDs to platform info. It is the INBOUND
+// parser: an indexer hands us categories and this says what they mean. The
+// outbound direction — what categories a platform publishes under, and what a
+// platform is called — belongs to the registry (see registry.go), which is
+// seeded from these same pairs. Do not add display vocabulary here.
 var PlatformMap = map[int]PlatformInfo{
 	4000:   {Name: "PC", Slug: "", IsPC: true},
 	100010: {Name: "PC", Slug: "", IsPC: true},
@@ -37,24 +42,6 @@ var PlatformMap = map[int]PlatformInfo{
 	100077: {Name: "PS4", Slug: "ps4"},
 	100082: {Name: "Switch", Slug: "switch"},
 	4050:   {Name: "Switch", Slug: "switch"},
-}
-
-// ExtraPlatform is a platform not in Prowlarr categories, for user override.
-type ExtraPlatform struct {
-	Slug string
-	Name string
-}
-
-var ExtraPlatforms = []ExtraPlatform{
-	{"n64", "Nintendo 64"},
-	{"snes", "SNES"},
-	{"nes", "NES"},
-	{"gb", "Game Boy"},
-	{"gba", "Game Boy Advance"},
-	{"genesis", "Sega Genesis"},
-	{"saturn", "Sega Saturn"},
-	{"wiiu", "Wii U"},
-	{"psvita", "PS Vita"},
 }
 
 // AllGameCategories returns all Prowlarr category IDs.
@@ -88,8 +75,17 @@ func DetectPlatform(categories []interface{}) PlatformInfo {
 	return PlatformInfo{Name: "Unknown"}
 }
 
-// GetCategoriesForPlatform returns all Prowlarr category IDs matching a platform slug.
+// GetCategoriesForPlatform returns all Prowlarr category IDs matching a
+// platform slug, from the registry. A platform with no categories of its own
+// searches every category, exactly as before — the fallback is what lets a
+// slug the search taxonomy has never heard of still return results.
 func GetCategoriesForPlatform(slug string) []int {
+	if cats := CategoriesFor(slug); len(cats) > 0 {
+		return cats
+	}
+	// No registry (unit tests, any binary that wires none) or no row: fall
+	// back to the map the registry was seeded from, so this package still
+	// answers correctly on its own, then to every category.
 	if slug == "pc" {
 		return []int{4000, 100010}
 	}
@@ -247,4 +243,36 @@ func collectExtensions(path string) map[string]bool {
 		return nil
 	})
 	return exts
+}
+
+// ParserSlugs returns every platform slug the detection parsers in this file
+// can emit — the extension map, the metadata-name aliases and the title
+// hints. They stay in code because they are parsers, turning a string into a
+// slug, rather than vocabulary; what the registry owns is what a platform IS.
+//
+// The boundary only holds if a detection can never succeed into a platform
+// the app cannot then describe, so a test asserts every slug here names a
+// registry row. PC is excluded: it detects to the empty slug by design.
+func ParserSlugs() []string {
+	seen := map[string]bool{}
+	add := func(slug string) {
+		if slug != "" {
+			seen[slug] = true
+		}
+	}
+	for _, info := range extPlatformMap {
+		add(info.Slug)
+	}
+	for _, info := range metadataPlatformMap {
+		add(info.Slug)
+	}
+	for _, hint := range titleHints {
+		add(hint.Info.Slug)
+	}
+	out := make([]string, 0, len(seen))
+	for slug := range seen {
+		out = append(out, slug)
+	}
+	sort.Strings(out)
+	return out
 }

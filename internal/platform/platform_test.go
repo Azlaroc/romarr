@@ -294,16 +294,6 @@ func TestDetectPlatformFromFiles(t *testing.T) {
 	}
 }
 
-func TestExtraPlatformsUnique(t *testing.T) {
-	seen := make(map[string]bool)
-	for _, ep := range ExtraPlatforms {
-		if seen[ep.Slug] {
-			t.Errorf("duplicate extra platform slug: %s", ep.Slug)
-		}
-		seen[ep.Slug] = true
-	}
-}
-
 func TestPlatformMapHasSwitchBoth(t *testing.T) {
 	// Both 100082 and 4050 should map to Switch
 	if info, ok := PlatformMap[100082]; !ok || info.Slug != "switch" {

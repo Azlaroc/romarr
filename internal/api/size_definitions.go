@@ -9,6 +9,7 @@ import (
 
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
+	"gamarr/internal/platform"
 	"gamarr/internal/search"
 )
 
@@ -29,10 +30,13 @@ type sizeDefinitionView struct {
 	HasCatalog bool `json:"has_catalog"`
 }
 
-// handleSizeDefinitions lists every platform that either has a definition or
-// has a catalog lane. The union matters: the DAT vocabulary is deliberately
-// wider than the download-side platform list, so enumerating from the latter
-// would hide the small-cartridge platforms this feature exists for.
+// handleSizeDefinitions lists every platform that has a definition, a catalog
+// lane, or a registry row. The union matters in both directions: the DAT
+// vocabulary is deliberately wider than the download-side platform list (so
+// enumerating from the latter would hide the small-cartridge platforms this
+// feature exists for), and the registry is wider still — a platform with no
+// lane, like arcade or switch, can still be given limits by hand, and until
+// the registry landed there was no vocabulary to offer that choice from.
 func (s *Server) handleSizeDefinitions(w http.ResponseWriter, r *http.Request) {
 	jobs := s.mgr.Jobs()
 
@@ -40,14 +44,22 @@ func (s *Server) handleSizeDefinitions(w http.ResponseWriter, r *http.Request) {
 	for _, row := range jobs.ListPlatformSizes() {
 		views[row.PlatformSlug] = &sizeDefinitionView{PlatformSizeRow: row}
 	}
-	for _, p := range jobs.ListDatPlatforms() {
-		if _, ok := views[p.PlatformSlug]; !ok {
+	add := func(slug string) {
+		if _, ok := views[slug]; !ok {
 			// No definition yet — surfaced anyway, with zeroes, so a platform
 			// whose catalog says nothing is visibly unbounded rather than
 			// missing from the screen.
-			views[p.PlatformSlug] = &sizeDefinitionView{
-				PlatformSizeRow: db.PlatformSizeRow{PlatformSlug: p.PlatformSlug},
+			views[slug] = &sizeDefinitionView{
+				PlatformSizeRow: db.PlatformSizeRow{PlatformSlug: slug},
 			}
+		}
+	}
+	for _, p := range jobs.ListDatPlatforms() {
+		add(p.PlatformSlug)
+	}
+	for _, p := range platform.Rows() {
+		if !p.IsSystem {
+			add(p.Slug)
 		}
 	}
 	for slug, v := range views {

@@ -2,6 +2,8 @@ package download
 
 import (
 	"testing"
+
+	"gamarr/internal/platform"
 )
 
 func TestCleanTitle(t *testing.T) {
@@ -59,6 +61,17 @@ func TestTitlesMatch(t *testing.T) {
 }
 
 func TestPlatformNameFromSlug(t *testing.T) {
+	// Display names come from the registry now; an unregistered slug still
+	// degrades to the upper-cased slug, which is what "unknown" pins.
+	platform.SetRegistry(platform.StaticRegistry{
+		{Slug: "gba", DisplayName: "Game Boy Advance"},
+		{Slug: "nes", DisplayName: "NES"},
+		{Slug: "switch", DisplayName: "Switch"},
+		{Slug: "psx", DisplayName: "PS1"},
+		{Slug: "ngc", DisplayName: "GameCube"},
+	})
+	t.Cleanup(func() { platform.SetRegistry(nil) })
+
 	tests := []struct {
 		slug string
 		want string
