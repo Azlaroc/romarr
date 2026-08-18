@@ -57,6 +57,13 @@ type Driver struct {
 
 	store CacheStore // optional persistent tier; nil = memory-only
 
+	// Open-search knobs: how many items one query may read, and the minimum
+	// spacing between queries (see opensearch.go for why both exist).
+	candidates  int
+	interval    time.Duration
+	openEnabled bool
+	open        openSearchState
+
 	mu    sync.RWMutex
 	cache map[string]cacheEntry // item -> parsed files
 }
@@ -101,13 +108,19 @@ func WithLimit(n int) Option {
 
 // New builds a driver. items maps RomArr platform slugs to archive.org item
 // identifiers (e.g. {"psx": "2024-sony-playstation-usa-hearto-1g1r-collection"}).
+// The map is a set of PREFERRED collections, not a gate: a platform missing
+// from it is searched openly (see opensearch.go).
 func New(items map[string]string, opts ...Option) *Driver {
 	d := &Driver{
-		baseURL: defaultBaseURL,
-		items:   items,
-		limit:   defaultLimit,
-		http:    &http.Client{Timeout: defaultTimeout},
-		cache:   make(map[string]cacheEntry),
+		baseURL:     defaultBaseURL,
+		items:       items,
+		limit:       defaultLimit,
+		candidates:  defaultCandidates,
+		interval:    defaultInterval,
+		openEnabled: true,
+		http:        &http.Client{Timeout: defaultTimeout},
+		cache:       make(map[string]cacheEntry),
+		open:        openSearchState{cache: map[string]searchEntry{}},
 	}
 	for _, o := range opts {
 		o(d)
@@ -166,12 +179,12 @@ var (
 	wordSplitRe  = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
-// Search implements driver.SearchSource. With a platform slug it searches
-// that platform's mapped item; an unmapped slug yields (nil, nil). An empty
-// slug ("All platforms") fans across every mapped item in deterministic slug
-// order — affordable now that the driver is long-lived and its item metadata
-// cache holds between queries, where it used to mean N ~1MB refetches per
-// query (the reason the empty slug was previously rejected).
+// Search implements driver.SearchSource. A platform mapped to a collection
+// item is served from that item — curated sets are better-named and one
+// cached metadata read answers the whole platform. When that finds nothing,
+// or when the platform has no mapping at all, the search widens to
+// archive.org itself. An unmapped platform used to return nothing, which made
+// a registry edit the prerequisite for finding anything on a new platform.
 func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, error) {
 	qWords := tokenize(q.Text)
 	if len(qWords) == 0 {
@@ -185,31 +198,26 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 	// The coarse non-English drop applies only when the caller has named no
 	// interest in any of those regions.
 	keepAllRegions := wantsNonEnglish(q.Regions)
-
-	if q.PlatformSlug != "" {
-		item, ok := d.items[q.PlatformSlug]
-		if !ok || item == "" {
-			return nil, nil
-		}
-		return d.searchItem(ctx, item, q.PlatformSlug, qWords, limit, keepAllRegions)
+	qc := queryContext{
+		text:           q.Text,
+		platformSlug:   q.PlatformSlug,
+		platformName:   q.PlatformName,
+		words:          qWords,
+		keepAllRegions: keepAllRegions,
 	}
 
-	slugs := make([]string, 0, len(d.items))
-	for s := range d.items {
-		slugs = append(slugs, s)
-	}
-	sort.Strings(slugs)
 	var out []driver.Release
 	var firstErr error
-	for _, slug := range slugs {
+	seen := map[string]bool{}
+
+	// Preferred pass: the mapped item for this platform, or every mapped item
+	// when the caller named no platform ("All platforms").
+	for _, item := range d.preferredItems(q.PlatformSlug) {
 		if len(out) >= limit {
 			break
 		}
-		item := d.items[slug]
-		if item == "" {
-			continue
-		}
-		part, err := d.searchItem(ctx, item, slug, qWords, limit-len(out), keepAllRegions)
+		seen[item.id] = true
+		part, err := d.searchItem(ctx, item.id, item.slug, qWords, limit-len(out), keepAllRegions)
 		if err != nil {
 			// One broken item must not blank the whole fan; surface the
 			// error only when nothing at all could be searched.
@@ -220,10 +228,52 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 		}
 		out = append(out, part...)
 	}
+
+	// Widen only when the preferred pass found nothing. Two reasons, and the
+	// cost one is decisive: open search is a query plus up to a handful of
+	// item metadata reads, and a wishlist cycle is hundreds of titles — always
+	// widening would multiply archive.org traffic by an order of magnitude
+	// against an anonymous budget of roughly a request a second. The other is
+	// that a mapped item is usually a curated No-Intro/Redump set: when it
+	// has the game, that IS the good copy, and the open corpus mostly adds
+	// worse-named duplicates of it.
+	if len(out) == 0 {
+		out = append(out, d.searchOpen(ctx, qc, seen, limit)...)
+	}
+
 	if len(out) == 0 && firstErr != nil {
 		return nil, firstErr
 	}
 	return out, nil
+}
+
+// preferredItem is a mapped collection and the platform it serves.
+type preferredItem struct {
+	id   string
+	slug string
+}
+
+// preferredItems returns the mapped items to read before open search, in
+// deterministic order.
+func (d *Driver) preferredItems(platformSlug string) []preferredItem {
+	if platformSlug != "" {
+		if item := d.items[platformSlug]; item != "" {
+			return []preferredItem{{id: item, slug: platformSlug}}
+		}
+		return nil
+	}
+	slugs := make([]string, 0, len(d.items))
+	for s := range d.items {
+		slugs = append(slugs, s)
+	}
+	sort.Strings(slugs)
+	out := make([]preferredItem, 0, len(slugs))
+	for _, s := range slugs {
+		if item := d.items[s]; item != "" {
+			out = append(out, preferredItem{id: item, slug: s})
+		}
+	}
+	return out
 }
 
 // searchItem matches one item's file listing against the tokenized query,
