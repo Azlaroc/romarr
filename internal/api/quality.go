@@ -78,6 +78,27 @@ func (s *Server) handleGetQualityProfiles(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// handleGetQualityProfile handles GET /api/quality-profiles/{id}. The editor
+// used to hydrate a profile out of the list query's cache, which meant a
+// deep link or a refresh had nothing to show.
+func (s *Server) handleGetQualityProfile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "Invalid profile ID")
+		return
+	}
+	p, err := s.mgr.Jobs().GetQualityProfile(id)
+	if err != nil || p == nil {
+		writeError(w, http.StatusNotFound, "Profile not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true, "profile": p,
+		// Which platforms default to it — what deleting it would orphan.
+		"platforms": s.mgr.Jobs().PlatformsUsingProfile(id),
+	})
+}
+
 // handleCreateQualityProfile handles POST /api/quality-profiles.
 func (s *Server) handleCreateQualityProfile(w http.ResponseWriter, r *http.Request) {
 	var p db.QualityProfile
@@ -153,6 +174,17 @@ func (s *Server) handleDeleteQualityProfile(w http.ResponseWriter, r *http.Reque
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid profile ID")
+		return
+	}
+	// A profile some platform defaults to is in use: deleting it silently
+	// would leave those platforms falling back to the global default without
+	// anyone being told. Refuse and name them, the way the arrs do.
+	if used := s.mgr.Jobs().PlatformsUsingProfile(id); len(used) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"success":   false,
+			"error":     "That profile is the default for " + strings.Join(used, ", ") + ". Point those platforms at another profile first.",
+			"platforms": used,
+		})
 		return
 	}
 	if err := s.mgr.Jobs().DeleteQualityProfile(id); err != nil {

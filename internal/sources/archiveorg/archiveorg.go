@@ -154,6 +154,12 @@ var romExtensions = map[string]bool{
 
 // Non-English region filter, ported from the Myrient driver: drop clearly
 // non-English regional dumps unless they also carry an English tag.
+//
+// This is a COARSE PRE-FILTER, applied only when the caller has stated no
+// interest in any of these regions. A profile that ranks "japan" must be able
+// to see Japanese dumps — dropping them here, where the selector cannot see
+// it, turns a wanted release into a gap that reads as a short catalog rather
+// than as a filter.
 var (
 	nonEnglishRe = regexp.MustCompile(`\((?:Japan|Korea|China|Taiwan|France|Germany|Spain|Italy|Netherlands|Sweden|Brazil)\)`)
 	englishRe    = regexp.MustCompile(`\((?:USA|World|Europe|UK|Australia|Canada)\)|\(En`)
@@ -176,12 +182,16 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 		limit = d.limit
 	}
 
+	// The coarse non-English drop applies only when the caller has named no
+	// interest in any of those regions.
+	keepAllRegions := wantsNonEnglish(q.Regions)
+
 	if q.PlatformSlug != "" {
 		item, ok := d.items[q.PlatformSlug]
 		if !ok || item == "" {
 			return nil, nil
 		}
-		return d.searchItem(ctx, item, q.PlatformSlug, qWords, limit)
+		return d.searchItem(ctx, item, q.PlatformSlug, qWords, limit, keepAllRegions)
 	}
 
 	slugs := make([]string, 0, len(d.items))
@@ -199,7 +209,7 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 		if item == "" {
 			continue
 		}
-		part, err := d.searchItem(ctx, item, slug, qWords, limit-len(out))
+		part, err := d.searchItem(ctx, item, slug, qWords, limit-len(out), keepAllRegions)
 		if err != nil {
 			// One broken item must not blank the whole fan; surface the
 			// error only when nothing at all could be searched.
@@ -218,7 +228,28 @@ func (d *Driver) Search(ctx context.Context, q driver.Query) ([]driver.Release, 
 
 // searchItem matches one item's file listing against the tokenized query,
 // tagging releases with the item's platform slug.
-func (d *Driver) searchItem(ctx context.Context, item, platformSlug string, qWords map[string]bool, limit int) ([]driver.Release, error) {
+// nonEnglishRegions are the region tokens the coarse filter would drop. A
+// caller naming any of them disables the filter entirely rather than trying
+// to drop "the other" non-English regions: region policy belongs to the
+// profile, and a half-applied filter is harder to reason about than none.
+var nonEnglishRegions = map[string]bool{
+	"japan": true, "korea": true, "china": true, "taiwan": true, "france": true,
+	"germany": true, "spain": true, "italy": true, "netherlands": true,
+	"sweden": true, "brazil": true, "asia": true,
+}
+
+// wantsNonEnglish reports whether the caller's region priority names a region
+// the coarse filter would otherwise drop.
+func wantsNonEnglish(regions []string) bool {
+	for _, r := range regions {
+		if nonEnglishRegions[strings.ToLower(strings.TrimSpace(r))] {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Driver) searchItem(ctx context.Context, item, platformSlug string, qWords map[string]bool, limit int, keepAllRegions bool) ([]driver.Release, error) {
 	files, err := d.listing(ctx, item)
 	if err != nil {
 		return nil, err
@@ -230,7 +261,7 @@ func (d *Driver) searchItem(ctx context.Context, item, platformSlug string, qWor
 		if !romExtensions[strings.ToLower(filepath.Ext(base))] {
 			continue
 		}
-		if nonEnglishRe.MatchString(base) && !englishRe.MatchString(base) {
+		if !keepAllRegions && nonEnglishRe.MatchString(base) && !englishRe.MatchString(base) {
 			continue
 		}
 		fWords := tokenize(strings.TrimSuffix(base, filepath.Ext(base)))

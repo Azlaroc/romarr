@@ -100,14 +100,54 @@ func TestSearch_RegionFilter(t *testing.T) {
 	defer srv.Close()
 	d := newDriver(t, srv.URL)
 
-	// The only Gran Turismo in the fixture is a (Japan) dump with no English
-	// tag -> filtered out.
+	// No stated region interest: the only Gran Turismo in the fixture is a
+	// (Japan) dump with no English tag, so the coarse pre-filter drops it.
 	rel, err := d.Search(context.Background(), driver.Query{Text: "gran turismo", PlatformSlug: "psx"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(rel) != 0 {
 		t.Fatalf("expected Japan-only title filtered, got %v", titles(rel))
+	}
+}
+
+// TestSearch_RegionFilterYieldsToTheProfile is the fix for the driver-level
+// hard drop: a profile that ranks Japan could not see a Japanese dump at all,
+// because the filter ran where the selector could never observe it. Under
+// collection mode that is worse than a missed grab — it becomes a gap that
+// can never fill, and it reads as a short catalog rather than as a filter.
+func TestSearch_RegionFilterYieldsToTheProfile(t *testing.T) {
+	srv := metadataServer(t)
+	defer srv.Close()
+	d := newDriver(t, srv.URL)
+
+	rel, err := d.Search(context.Background(), driver.Query{
+		Text: "gran turismo", PlatformSlug: "psx",
+		Regions: []string{"usa", "world", "japan"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(rel) == 0 {
+		t.Fatal("a profile that ranks japan must be able to see the Japanese dump")
+	}
+	for _, r := range rel {
+		if !strings.Contains(r.Title, "Japan") {
+			t.Errorf("unexpected extra release %q", r.Title)
+		}
+	}
+
+	// English-only interest still drops it: the filter yields to a stated
+	// interest, it does not disappear.
+	rel, err = d.Search(context.Background(), driver.Query{
+		Text: "gran turismo", PlatformSlug: "psx",
+		Regions: []string{"usa", "europe"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(rel) != 0 {
+		t.Errorf("english-only profile should not see %v", titles(rel))
 	}
 }
 

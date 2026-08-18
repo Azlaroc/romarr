@@ -159,19 +159,25 @@ func main() {
 	}
 
 	// Initialize scheduler
-	searchFn := func(query, platformSlug string) []*models.SearchResult {
+	// The profile arrives resolved: the scheduler resolves once per wishlist
+	// item (honouring that item's own override) and passes it here, rather
+	// than this closure and the scheduler each resolving a platform default.
+	searchFn := func(query, platformSlug string, prof *db.QualityProfile) []*models.SearchResult {
 		slug := platformSlug
 		if slug == "all" {
 			slug = ""
 		}
-		allResults := search.FanOut(context.Background(), search.BuildSources(cfg), query, slug)
+		if prof == nil {
+			prof = database.ResolveQualityProfile(slug)
+		}
+		allResults := search.FanOut(context.Background(), search.BuildSources(cfg), query, slug,
+			search.Opts{Regions: prof.RegionPriority})
 		// Shared F4 preparation — the scheduler path finally gets the same
 		// blocklist / release-profile / tier-sort treatment as /api/search.
 		pl := &selection.Pipeline{
 			Blocklisted:     database.IsBlocklisted,
 			ReleaseProfiles: database.ApplyReleaseProfiles,
 		}
-		prof := database.ResolveQualityProfile(slug)
 		results := pl.Prepare(allResults, query, platformSlug, prof)
 		if results == nil {
 			results = []*models.SearchResult{}

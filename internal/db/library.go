@@ -24,12 +24,16 @@ type LibraryItem struct {
 	AddedAt      string `json:"added_at"`
 }
 
-// WishlistItem represents a game on the wishlist.
+// WishlistItem represents a game on the wishlist. ProfileID is the per-title
+// quality profile chosen at add time; 0 means "whatever this platform
+// defaults to when the cycle runs", which is the common case and stays
+// correct if that default later changes.
 type WishlistItem struct {
 	ID           int64  `json:"id"`
 	Title        string `json:"title"`
 	Platform     string `json:"platform"`
 	PlatformSlug string `json:"platform_slug"`
+	ProfileID    int64  `json:"profile_id"`
 	AddedAt      string `json:"added_at"`
 }
 
@@ -69,6 +73,10 @@ func (s *JobStore) migrateExtra() {
 	s.migrateDat()
 	s.migratePlatformSizes()
 	s.migratePlatforms()
+	// Runs after both tables exist: templates are profile rows, and the
+	// platform→profile link moves the legacy mapping onto the registry.
+	s.seedProfileTemplates()
+	s.linkPlatformDefaults()
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS library_items (
@@ -90,6 +98,7 @@ func (s *JobStore) migrateExtra() {
 			title TEXT NOT NULL,
 			platform TEXT NOT NULL DEFAULT '',
 			platform_slug TEXT NOT NULL DEFAULT '',
+			profile_id INTEGER NOT NULL DEFAULT 0,
 			added_at TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 		`CREATE TABLE IF NOT EXISTS activity_log (
@@ -111,6 +120,39 @@ func (s *JobStore) migrateExtra() {
 			slog.Warn("migrate extra table", "error", err)
 		}
 	}
+
+	// CREATE TABLE IF NOT EXISTS is a no-op on an existing install, so a new
+	// column on an old table needs its own ALTER. wishlist.profile_id is the
+	// per-title profile override.
+	if !s.columnExists("wishlist", "profile_id") {
+		if _, err := s.db.Exec(`ALTER TABLE wishlist ADD COLUMN profile_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate wishlist profile_id", "error", err)
+		}
+	}
+}
+
+// columnExists reports whether a table already has a column, via PRAGMA
+// table_info. The generic form of the probe quality_profiles has used since
+// the F4 migration.
+func (s *JobStore) columnExists(table, name string) bool {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var colName, colType string
+		var notNull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &dflt, &pk); err != nil {
+			continue
+		}
+		if colName == name {
+			return true
+		}
+	}
+	return false
 }
 
 // DB returns the underlying sql.DB for direct use.
@@ -278,11 +320,20 @@ func buildLibraryWhere(query, platformSlug string) (string, []interface{}) {
 
 // ── Wishlist ───────────────────────────────────────────────────────────────────
 
-// AddWishlistItem adds an item to the wishlist.
+// AddWishlistItem adds an item to the wishlist under the platform's default
+// profile (resolved when the cycle runs, so a later change to that default
+// still applies).
 func (s *JobStore) AddWishlistItem(title, platform, platformSlug string) (int64, error) {
+	return s.AddWishlistItemWithProfile(title, platform, platformSlug, 0)
+}
+
+// AddWishlistItemWithProfile pins a specific quality profile to one title —
+// "the Japanese revision of this one game" — which the platform's default
+// cannot express. profileID 0 means "use the platform default".
+func (s *JobStore) AddWishlistItemWithProfile(title, platform, platformSlug string, profileID int64) (int64, error) {
 	result, err := s.db.Exec(
-		"INSERT INTO wishlist (title, platform, platform_slug) VALUES (?, ?, ?)",
-		title, platform, platformSlug,
+		"INSERT INTO wishlist (title, platform, platform_slug, profile_id) VALUES (?, ?, ?, ?)",
+		title, platform, platformSlug, profileID,
 	)
 	if err != nil {
 		return 0, err
@@ -290,9 +341,19 @@ func (s *JobStore) AddWishlistItem(title, platform, platformSlug string) (int64,
 	return result.LastInsertId()
 }
 
+// SetWishlistProfile changes (or clears, with 0) one row's profile override.
+func (s *JobStore) SetWishlistProfile(id, profileID int64) (bool, error) {
+	res, err := s.db.Exec("UPDATE wishlist SET profile_id = ? WHERE id = ?", profileID, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // GetWishlist returns all wishlist items.
 func (s *JobStore) GetWishlist() []WishlistItem {
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, added_at FROM wishlist ORDER BY added_at DESC")
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, profile_id, added_at FROM wishlist ORDER BY added_at DESC")
 	if err != nil {
 		return nil
 	}
@@ -300,7 +361,7 @@ func (s *JobStore) GetWishlist() []WishlistItem {
 	var items []WishlistItem
 	for rows.Next() {
 		var item WishlistItem
-		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug, &item.AddedAt)
+		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug, &item.ProfileID, &item.AddedAt)
 		items = append(items, item)
 	}
 	return items

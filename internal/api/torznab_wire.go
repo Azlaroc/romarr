@@ -17,7 +17,12 @@ func (s *Server) searchForTorznab(ctx context.Context, query, platformSlug strin
 	if slug == "all" {
 		slug = ""
 	}
-	allResults := search.FanOut(ctx, search.BuildSources(s.cfg), query, slug)
+	// Downstream *arr consumers do their own post-processing, but region
+	// policy is ours: a platform whose profile ranks JP must serve JP here
+	// too, or the driver silently narrows what the indexer can offer.
+	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	allResults := search.FanOut(ctx, search.BuildSources(s.cfg), query, slug,
+		search.Opts{Regions: prof.RegionPriority})
 
 	// Split + filter torrent results; pass DDL through (FilterGameResults
 	// targets torrent-only release artefacts like NFO/SFV/sample dirs).

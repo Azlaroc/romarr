@@ -48,11 +48,17 @@ func TestQualityProfiles_LegacyMigrationBackfill(t *testing.T) {
 	defer store.Close()
 
 	byName := map[string]QualityProfile{}
+	userRows := 0
 	for _, p := range store.GetQualityProfiles() {
 		byName[p.Name] = p
+		if !p.IsTemplate {
+			userRows++
+		}
 	}
-	if len(byName) != 2 {
-		t.Fatalf("expected the 2 legacy rows to survive, got %d", len(byName))
+	// Templates are seeded alongside; the migration must not add or drop a
+	// user-facing row.
+	if userRows != 2 {
+		t.Fatalf("expected the 2 legacy rows to survive, got %d", userRows)
 	}
 
 	rom, ok := byName["ROM Default"]
@@ -100,8 +106,21 @@ func TestQualityProfiles_LegacyMigrationBackfill(t *testing.T) {
 		t.Fatalf("reopen migrated db: %v", err)
 	}
 	defer store2.Close()
-	if got := len(store2.GetQualityProfiles()); got != 2 {
-		t.Errorf("after reopen: %d profiles, want 2", got)
+	// Idempotent in both directions: no duplicated user row, and the template
+	// seed does not run a second time.
+	users, templates := 0, 0
+	for _, p := range store2.GetQualityProfiles() {
+		if p.IsTemplate {
+			templates++
+		} else {
+			users++
+		}
+	}
+	if users != 2 {
+		t.Errorf("after reopen: %d user profiles, want 2", users)
+	}
+	if templates != len(templateSeed) {
+		t.Errorf("after reopen: %d templates, want %d", templates, len(templateSeed))
 	}
 }
 
@@ -201,20 +220,34 @@ func TestQualityProfiles_DefaultFlagUnique(t *testing.T) {
 	}
 }
 
-func TestQualityProfiles_PlatformSlugUniqueIndex(t *testing.T) {
+// TestQualityProfiles_TwoProfilesPerPlatform replaces the old unique-index
+// test. idx_qp_platform allowed exactly one profile per platform, which is
+// the constraint profiles v2 removes: "PSX CHD" and "PSX raw" are both
+// legitimate, a title picks one, and which one the PLATFORM defaults to lives
+// on the platform row rather than being inferred from the profile.
+func TestQualityProfiles_TwoProfilesPerPlatform(t *testing.T) {
 	store := newTestStore(t)
 
 	if _, err := store.AddQualityProfile(&QualityProfile{Name: "SNES A", PlatformSlug: "snes"}); err != nil {
 		t.Fatalf("first snes profile: %v", err)
 	}
-	if _, err := store.AddQualityProfile(&QualityProfile{Name: "SNES B", PlatformSlug: "snes"}); err == nil {
-		t.Error("second profile for the same platform_slug should violate idx_qp_platform")
+	if _, err := store.AddQualityProfile(&QualityProfile{Name: "SNES B", PlatformSlug: "snes"}); err != nil {
+		t.Fatalf("a platform may now carry more than one profile: %v", err)
 	}
-	// Multiple global ('') profiles are allowed — the partial index ignores them.
 	if _, err := store.AddQualityProfile(&QualityProfile{Name: "Global A"}); err != nil {
 		t.Fatalf("global profile A: %v", err)
 	}
 	if _, err := store.AddQualityProfile(&QualityProfile{Name: "Global B"}); err != nil {
 		t.Fatalf("global profile B: %v", err)
+	}
+
+	// The index is gone, not merely unenforced on this path.
+	var count int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_qp_platform'`).Scan(&count); err != nil {
+		t.Fatalf("query index: %v", err)
+	}
+	if count != 0 {
+		t.Error("idx_qp_platform still exists — one profile per platform is still enforced")
 	}
 }

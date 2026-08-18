@@ -140,6 +140,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)
 	r.Post("/api/wishlist", s.handleAddWishlist)
+	r.Patch("/api/wishlist/{id}", s.handleUpdateWishlist)
 	r.Delete("/api/wishlist/{id}", s.handleDeleteWishlist)
 
 	// Activity
@@ -255,6 +256,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 
 	// Quality Profiles
 	r.Get("/api/quality-profiles", s.handleGetQualityProfiles)
+	r.Get("/api/quality-profiles/{id}", s.handleGetQualityProfile)
 	r.Post("/api/quality-profiles", s.handleCreateQualityProfile)
 	r.Put("/api/quality-profiles/{id}", s.handleUpdateQualityProfile)
 	r.Delete("/api/quality-profiles/{id}", s.handleDeleteQualityProfile)
@@ -461,7 +463,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if slug == "all" {
 		slug = ""
 	}
-	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug)
+	// The profile is resolved BEFORE the fan-out, not after: its region
+	// priority is what tells a source not to pre-drop a region the user
+	// actually wants.
+	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug,
+		search.Opts{Regions: prof.RegionPriority})
 
 	// One shared preparation stage (F4): torrent gates, blocklist, release
 	// profiles, attrs parse, unified score, profile-tiered sort.
@@ -469,7 +476,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Blocklisted:     s.mgr.Jobs().IsBlocklisted,
 		ReleaseProfiles: s.mgr.Jobs().ApplyReleaseProfiles,
 	}
-	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
 	results := pl.Prepare(allResults, query, platformFilter, prof)
 	if results == nil {
 		results = []*models.SearchResult{}

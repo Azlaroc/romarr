@@ -93,6 +93,7 @@ func (s *Server) handleAddWishlist(w http.ResponseWriter, r *http.Request) {
 		Title        string `json:"title"`
 		Platform     string `json:"platform"`
 		PlatformSlug string `json:"platform_slug"`
+		ProfileID    int64  `json:"profile_id"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -106,12 +107,79 @@ func (s *Server) handleAddWishlist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Field exceeds maximum length")
 		return
 	}
-	id, err := s.mgr.Jobs().AddWishlistItem(req.Title, req.Platform, req.PlatformSlug)
+	jobs := s.mgr.Jobs()
+	if req.ProfileID > 0 {
+		p, err := jobs.GetQualityProfile(req.ProfileID)
+		if err != nil || p == nil {
+			writeError(w, 400, "Unknown quality profile")
+			return
+		}
+		if p.IsTemplate {
+			writeError(w, 400, "That profile is a template — it is cloned for new platforms, not used directly")
+			return
+		}
+	}
+
+	// Adding the first title on a platform materializes its default profile
+	// from the class template. That is the whole point of templates: adding a
+	// platform stops being a setup step, and the operator is told once that a
+	// profile now exists rather than being asked to create one first.
+	var materialized *db.QualityProfile
+	if req.ProfileID == 0 && req.PlatformSlug != "" && req.PlatformSlug != "all" {
+		if p, created := jobs.EnsurePlatformProfile(req.PlatformSlug); created {
+			materialized = p
+		}
+	}
+
+	id, err := jobs.AddWishlistItemWithProfile(req.Title, req.Platform, req.PlatformSlug, req.ProfileID)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]interface{}{"success": true, "id": id})
+	resp := map[string]interface{}{"success": true, "id": id}
+	if materialized != nil {
+		resp["materialized_profile"] = map[string]interface{}{
+			"id": materialized.ID, "name": materialized.Name,
+		}
+	}
+	writeJSON(w, 200, resp)
+}
+
+// handleUpdateWishlist changes one row's profile override. 0 clears it, which
+// returns the row to "whatever this platform defaults to when the cycle runs".
+func (s *Server) handleUpdateWishlist(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, 400, "Invalid wishlist id")
+		return
+	}
+	var req struct {
+		ProfileID *int64 `json:"profile_id"`
+	}
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if req.ProfileID == nil {
+		writeError(w, 400, "profile_id required")
+		return
+	}
+	if *req.ProfileID > 0 {
+		p, err := s.mgr.Jobs().GetQualityProfile(*req.ProfileID)
+		if err != nil || p == nil || p.IsTemplate {
+			writeError(w, 400, "Unknown quality profile")
+			return
+		}
+	}
+	ok, err := s.mgr.Jobs().SetWishlistProfile(id, *req.ProfileID)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if !ok {
+		writeError(w, 404, "Wishlist item not found")
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"success": true, "id": id, "profile_id": *req.ProfileID})
 }
 
 func (s *Server) handleDeleteWishlist(w http.ResponseWriter, r *http.Request) {

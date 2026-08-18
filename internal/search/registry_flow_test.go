@@ -172,7 +172,7 @@ func TestSourceEnableGuards(t *testing.T) {
 		rs := newRecordingServer(t, 200, "{}")
 		reg := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{BaseURL: rs.URL, Enabled: &off,
 			Items: map[string]string{"psx": "some-item"}}}
-		if got := SearchArchiveOrg(reg, "mario", "psx"); got != nil {
+		if got := SearchArchiveOrg(reg, "mario", "psx", nil); got != nil {
 			t.Errorf("results = %d, want none", len(got))
 		}
 		if rs.hit() {
@@ -208,8 +208,8 @@ func TestArchiveOrgDriverMemoized(t *testing.T) {
 	reg := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{
 		BaseURL: rs.URL, Items: map[string]string{"psx": "it"}}}
 
-	_ = SearchArchiveOrg(reg, "some game", "psx")
-	_ = SearchArchiveOrg(reg, "another query", "psx")
+	_ = SearchArchiveOrg(reg, "some game", "psx", nil)
+	_ = SearchArchiveOrg(reg, "another query", "psx", nil)
 	if got := len(rs.requestURIs()); got != 1 {
 		t.Errorf("metadata fetches for two searches on one registry = %d, want 1 (cache dead?)", got)
 	}
@@ -219,7 +219,7 @@ func TestArchiveOrgDriverMemoized(t *testing.T) {
 	rs2 := newRecordingServer(t, 200, metadata)
 	reg2 := &sources.Registry{ArchiveOrg: sources.ArchiveOrgSpec{
 		BaseURL: rs2.URL, Items: map[string]string{"psx": "it"}}}
-	_ = SearchArchiveOrg(reg2, "some game", "psx")
+	_ = SearchArchiveOrg(reg2, "some game", "psx", nil)
 	if !rs2.hit() {
 		t.Error("new registry did not get a fresh driver")
 	}

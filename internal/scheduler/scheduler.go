@@ -13,12 +13,17 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
+	"gamarr/internal/platform"
 	"gamarr/internal/selection"
 	"gamarr/internal/webhook"
 )
 
-// SearchFunc searches all sources for a query and platform, returning scored results.
-type SearchFunc func(query, platformSlug string) []*models.SearchResult
+// SearchFunc searches all sources for a query and platform, returning scored
+// results. The profile comes from the caller because it is a property of the
+// TITLE being searched for, not of the platform: a wishlist row may carry its
+// own, and the same profile has to drive both the sources' region policy and
+// the tier sort. A nil profile means "resolve the platform default".
+type SearchFunc func(query, platformSlug string, prof *db.QualityProfile) []*models.SearchResult
 
 // DownloadFunc executes one selector grab and returns a job ID. Legacy
 // (off/shadow) picks arrive as a bare Grab{Result: best}; enforce-mode grabs
@@ -223,6 +228,7 @@ func (s *Scheduler) run() {
 	totalResults := 0
 	autoDownloads := repairGrabs
 	minScore := s.cfg.MinScore()
+	skippedPlatforms := map[string]int{}
 
 	var owned func(title, platformSlug string) *db.LibraryItem
 	var ownedByHash func(md5, sha1 string) *db.LibraryItem
@@ -254,7 +260,19 @@ func (s *Scheduler) run() {
 			}
 		}
 
-		results := s.searchFn(item.Title, item.PlatformSlug)
+		// A platform with acquisition turned off keeps its wishlist rows —
+		// they are still wanted — but nothing is searched or grabbed for it.
+		// The row survives so flipping the switch back resumes where it left
+		// off rather than losing the request.
+		if item.PlatformSlug != "" && !platform.AcquisitionEnabled(item.PlatformSlug) {
+			skippedPlatforms[item.PlatformSlug]++
+			continue
+		}
+
+		// One resolution per item, honouring the row's own profile override.
+		prof := s.jobs.ResolveProfileForItem(item.ProfileID, item.PlatformSlug)
+
+		results := s.searchFn(item.Title, item.PlatformSlug, prof)
 		if len(results) == 0 {
 			continue
 		}
@@ -286,7 +304,7 @@ func (s *Scheduler) run() {
 			Query:        item.Title,
 			PlatformSlug: item.PlatformSlug,
 			MinScore:     minScore,
-			Profile:      s.jobs.ResolveQualityProfile(item.PlatformSlug),
+			Profile:      prof,
 		}
 		if mode == "enforce" {
 			opts.Owned = owned
@@ -378,6 +396,12 @@ func (s *Scheduler) run() {
 	s.lastResults = totalResults
 	s.autoDownloads += autoDownloads
 	s.mu.Unlock()
+
+	if len(skippedPlatforms) > 0 {
+		// Named, not silent: "nothing happened for this title" must be
+		// traceable to the switch that caused it.
+		slog.Info("scheduler: skipped platforms with acquisition off", "platforms", skippedPlatforms)
+	}
 
 	slog.Info("scheduler: completed", "wishlist_items", len(wishlist),
 		"results", totalResults, "auto_downloads", autoDownloads)
