@@ -70,12 +70,15 @@ Range GET ok: 206 Partial Content  content-range="bytes 0-15/392826195"
 The `Content-Range` total matches the metadata `size` exactly, and the server
 honours `Range` → the fetch is resumable (`curl -C -` semantics).
 
-## Enabling a platform (registry, not code)
+## Preferred collections (registry, not code)
 
-The driver is **inert until a platform is mapped to a collection item**. The
-embedded defaults ship an empty `archiveorg.items`, so on a live server the
-archive.org branch is a no-op until an operator opts a platform in via
-`GAMARR_SOURCES_PATH` / `GAMARR_SOURCES_URL`:
+Mapping a platform to a collection item makes that item the **preferred** place
+to look: curated No-Intro/Redump sets are consistently named, and one cached
+metadata read answers the whole platform. It is not a prerequisite — a platform
+with no mapping is searched against archive.org itself (see *Open search*
+below), which is why the embedded defaults can ship empty.
+
+Map platforms via `GAMARR_SOURCES_PATH` / `GAMARR_SOURCES_URL`:
 
 ```json
 {
@@ -145,14 +148,41 @@ candidate item needs verification before it's mapped:
 Redump disc items that are pre-made `.chd` are open; the bin/cue Redump items
 are frequently auth-gated — prefer open sources.
 
+## Open search
+
+When the preferred collection has no match — or the platform has no mapping at
+all — the driver queries archive.org's own index (`/advancedsearch.php` over the
+software corpus) and reads the top candidate items' metadata, matching files
+exactly the way it matches inside a pinned item. Releases keep their per-file
+md5/sha1, so an open-search result is as verifiable as a curated one.
+
+The widening step runs **only when the preferred pass found nothing**. That is a
+cost decision: one open search is a query plus up to a handful of metadata
+reads, a wishlist cycle is hundreds of titles, and archive.org's anonymous
+budget is roughly a request a second. Widening every search would multiply
+traffic by an order of magnitude, mostly to find worse-named copies of games the
+curated set already has.
+
+Three things keep it inside that budget:
+
+- **Query caching, including empty answers** — an unfindable title is exactly
+  the one that would otherwise re-query every cycle, forever.
+- **Pacing** — a minimum interval between queries, applied across concurrent
+  searches.
+- **A candidate cap** — how many items a single query may read metadata for.
+
+Set `"open_search": false` in the registry's `archiveorg` block to go back to
+pinned-collections-only.
+
 ## Disabling a source
 
 Flip the source's **Enabled** toggle in Settings › Indexers (or PUT
 `{"enabled": false}` to `/api/source-registry/{name}`) — every search skips it
-immediately. A source is *active* only when enabled AND it has platforms
-mapped: an enabled source with an empty mapping is skipped too (the old
-empty-mapping fall-through that returned cross-platform, mis-slugged hits is
-guarded by the Active predicates). The legacy dead-port trick
+immediately. Vimm is *active* only when enabled AND it has platforms
+mapped — with an empty mapping its site search returns cross-platform hits
+mis-tagged with the requested slug, so the Active predicate guards it.
+Archive.org is active on **enabled alone**: its mappings are preferred
+collections, and with none it simply searches archive.org openly. The legacy dead-port trick
 (`"base_url": "http://127.0.0.1:1/"`) still works but is obsolete.
 - A hashless-but-live search paired with a dead fetch lane is the worst
   combination: the search keeps feeding the selector candidates whose download
