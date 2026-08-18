@@ -114,9 +114,9 @@ func TestScoreResults_DDLSeederScore(t *testing.T) {
 		{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "ddl"},
 	}
 	scored := ScoreResults(results, "Game", "")
-	// DDL gets flat 10
-	if scored[0].ScoreBreakdown.SeederScore != 10 {
-		t.Errorf("DDL SeederScore=%d, want 10", scored[0].ScoreBreakdown.SeederScore)
+	// Direct HTTP tops the protocol order, with no seeders involved.
+	if scored[0].ScoreBreakdown.SeederScore != 15 {
+		t.Errorf("DDL SeederScore=%d, want 15", scored[0].ScoreBreakdown.SeederScore)
 	}
 }
 
@@ -125,8 +125,9 @@ func TestScoreResults_NZBSeederScore(t *testing.T) {
 		{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "indexer", DownloadProtocol: "nzb"},
 	}
 	scored := ScoreResults(results, "Game", "")
-	if scored[0].ScoreBreakdown.SeederScore != 10 {
-		t.Errorf("NZB SeederScore=%d, want 10", scored[0].ScoreBreakdown.SeederScore)
+	// nzb sits between direct HTTP and any torrent.
+	if scored[0].ScoreBreakdown.SeederScore != 12 {
+		t.Errorf("NZB SeederScore=%d, want 12", scored[0].ScoreBreakdown.SeederScore)
 	}
 }
 
@@ -138,12 +139,12 @@ func TestScoreResults_SeederTiers(t *testing.T) {
 	}{
 		{"zero seeders", 0, 0},
 		{"1 seeder", 1, 0},
-		{"2 seeders", 2, 4},
-		{"5 seeders", 5, 7},
-		{"10 seeders", 10, 10},
-		{"20 seeders", 20, 12},
-		{"50 seeders", 50, 15},
-		{"100 seeders", 100, 15},
+		{"2 seeders", 2, 2},
+		{"5 seeders", 5, 4},
+		{"10 seeders", 10, 6},
+		{"20 seeders", 20, 8},
+		{"50 seeders", 50, 10},
+		{"100 seeders", 100, 10},
 	}
 
 	for _, tt := range tests {
@@ -156,6 +157,25 @@ func TestScoreResults_SeederTiers(t *testing.T) {
 				t.Errorf("SeederScore=%d, want %d", scored[0].ScoreBreakdown.SeederScore, tt.want)
 			}
 		})
+	}
+}
+
+// The locked protocol order is direct-HTTP > nzb > torrent. Asserted as an
+// ordering rather than three magic numbers so retuning the tiers cannot quietly
+// invert the preference — which is exactly how a well-seeded torrent came to
+// outrank every direct source.
+func TestScoreResults_ProtocolPreferenceOrdering(t *testing.T) {
+	ddl := []*models.SearchResult{{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "ddl"}}
+	nzb := []*models.SearchResult{{Title: "Game", Seeders: 0, Size: 1_000_000_000, SourceType: "indexer", DownloadProtocol: "nzb"}}
+	// A torrent as healthy as torrents get: it must still lose to both.
+	torrent := []*models.SearchResult{{Title: "Game", Seeders: 5000, Size: 1_000_000_000, SourceType: "indexer"}}
+
+	d := ScoreResults(ddl, "Game", "")[0].ScoreBreakdown.SeederScore
+	n := ScoreResults(nzb, "Game", "")[0].ScoreBreakdown.SeederScore
+	tr := ScoreResults(torrent, "Game", "")[0].ScoreBreakdown.SeederScore
+
+	if !(d > n && n > tr) {
+		t.Errorf("protocol order broken: ddl=%d nzb=%d torrent(5000 seeders)=%d, want ddl > nzb > torrent", d, n, tr)
 	}
 }
 

@@ -1,5 +1,15 @@
-// Package config loads Gamarr's runtime configuration from environment
-// variables, including the source-driver registry consumed by search drivers.
+// Package config loads Gamarr's runtime configuration.
+//
+// Preferences live in the DB and are hot-applied: anything an operator would
+// reasonably change while the app is running is a settings row, read through
+// SettingsSource below, with the env value serving only as a first-boot
+// fallback. Env alone remains correct for deploy-contract values — paths,
+// ports, container wiring, credentials and process-lifetime tunables that
+// cannot change without a restart anyway.
+//
+// So a knob still being env-only here is not automatically an oversight; check
+// which of those two it is before promoting it. The registry of source drivers
+// consumed by search drivers is loaded here as well.
 package config
 
 import (
