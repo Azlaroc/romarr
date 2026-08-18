@@ -14,6 +14,7 @@ import type {
   AppConfig,
   Platform,
   PlatformRow,
+  WishlistAddResponse,
   SearchResponse,
   SearchResult,
   LibraryPage,
@@ -424,7 +425,24 @@ export function useDeleteLibraryItem() {
 export function useAddWishlist() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (v: { title: string; platform: string; platform_slug: string }) => api.post('/api/wishlist', v),
+    mutationFn: (v: { title: string; platform: string; platform_slug: string; profile_id?: number }) =>
+      api.post<WishlistAddResponse>('/api/wishlist', v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.wishlist })
+      // An add can materialize a platform's default profile, which changes
+      // both lists.
+      qc.invalidateQueries({ queryKey: keys.qualityProfiles })
+      qc.invalidateQueries({ queryKey: keys.platformRegistry })
+    },
+  })
+}
+
+/** Change (or clear, with 0) one wishlist row's profile override. */
+export function useSetWishlistProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { id: number; profile_id: number }) =>
+      api.patch(`/api/wishlist/${v.id}`, { profile_id: v.profile_id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.wishlist }),
   })
 }

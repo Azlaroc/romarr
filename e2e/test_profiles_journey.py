@@ -41,17 +41,22 @@ def test_quality_profile_crud(ui):
     page = ui["page"]
     _open_profiles(page)
 
-    # Seeded rows render.
+    # Seeded rows render, including the two templates a new platform clones
+    # its default from.
     qlist = page.get_by_test_id("profiles-quality-list")
     expect(qlist).to_contain_text("ROM Default", timeout=SLOW_MS)
     expect(qlist).to_contain_text("PC Default", timeout=SLOW_MS)
+    expect(qlist).to_contain_text("Carts Default", timeout=SLOW_MS)
+    expect(qlist).to_contain_text("Discs Default", timeout=SLOW_MS)
 
-    # Create a snes-scoped profile.
+    # Create a profile. A profile is free-standing now — no platform field —
+    # and which platform DEFAULTS to it is set on the Platforms page, so the
+    # editor reports that relationship rather than owning it.
     page.get_by_test_id("qp-add").click()
     page.get_by_test_id("qp-name").fill("E2E SNES")
-    page.get_by_test_id("qp-platform").fill("snes")
-    # A platform profile can't be the global default.
-    expect(page.get_by_test_id("qp-default-toggle")).to_be_disabled()
+    expect(page.get_by_test_id("qp-platform")).to_have_count(0)
+    # Any profile may be the global default now; nothing disables the toggle.
+    expect(page.get_by_test_id("qp-default-toggle")).to_be_enabled()
 
     page.get_by_test_id("qp-region-add-usa").click()
     page.get_by_test_id("qp-region-add-world").click()
@@ -65,13 +70,16 @@ def test_quality_profile_crud(ui):
     page.get_by_test_id("qp-save").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("E2E SNES", timeout=SLOW_MS)
 
-    # Duplicate platform slug -> backend 409 rendered inline.
+    # Two profiles may now target the same platform — "PSX CHD" and "PSX raw"
+    # are both legitimate — so the old duplicate-platform refusal is gone.
     page.get_by_test_id("qp-add").click()
     page.get_by_test_id("qp-name").fill("E2E SNES Two")
-    page.get_by_test_id("qp-platform").fill("snes")
     page.get_by_test_id("qp-save").click()
-    expect(page.get_by_text("Another profile already covers this platform")).to_be_visible(timeout=SLOW_MS)
-    page.get_by_test_id("qp-cancel").click()
+    expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("E2E SNES Two", timeout=SLOW_MS)
+    row = page.locator('[data-testid="profiles-quality-list"] > div', has_text="E2E SNES Two").first
+    row.locator('[data-testid^="qp-delete-"]').click()
+    page.get_by_test_id("confirm-ok").click()
+    expect(page.get_by_test_id("profiles-quality-list")).not_to_contain_text("E2E SNES Two", timeout=SLOW_MS)
 
     # Duplicate name -> caught client-side (backend would 500 on its UNIQUE column).
     page.get_by_test_id("qp-add").click()
@@ -88,6 +96,8 @@ def test_quality_profile_crud(ui):
     expect(page.get_by_test_id("qp-region-item-2")).to_contain_text("world")
     expect(page.get_by_test_id("qp-1g1r")).not_to_be_checked()
     expect(page.get_by_test_id("qp-size-min")).to_have_value("1")
+    # The editor says what defaults to this profile instead of setting it.
+    expect(page.get_by_test_id("qp-used-by")).to_contain_text("No platform defaults to this profile")
     page.get_by_test_id("qp-cancel").click()
 
     # Delete it again (state-neutral).

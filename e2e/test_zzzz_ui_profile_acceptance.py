@@ -1,6 +1,11 @@
-"""#254 acceptance clause, UI-driven (F6 PR-C): define a per-platform quality
-profile in the UI, wishlist a title in the UI, and watch the enforce-mode
-scheduler grab it under that profile — queue → imported → library.
+"""Acceptance clause, UI-driven: define a quality profile in the UI, wishlist
+a title under it in the UI, and watch the enforce-mode scheduler grab it under
+that profile — queue → imported → library.
+
+Profiles v2 sharpened this: the profile is chosen PER TITLE at add time rather
+than being inferred from the platform, so this now exercises the override path
+end to end — the add dialog's choice, the wishlist row that carries it, and
+the scheduler resolving it.
 
 Ordering reality: pytest groups the [chromium]-parametrized browser tests into
 one block that runs BEFORE the unparametrized API-only test_z* journeys, so
@@ -56,15 +61,15 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     page = ui["page"]
     base = app["base"]
 
-    # 1. Define the per-platform profile through the UI (gb; usa > world; the
-    #    stub zips are ~1KB so widen the size band like the selector journey
-    #    does globally — but here per-platform, via the screen under test).
+    # 1. Define the profile through the UI. It carries no platform — a
+    #    profile is free-standing now — and the title picks it at add time,
+    #    which is the whole point of profiles v2. (usa > world; the stub zips
+    #    are ~1KB so the band is widened here rather than globally.)
     _nav(page, "settings", "Settings")
     page.get_by_test_id("nav-settings-profiles").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_be_visible(timeout=SLOW_MS)
     page.get_by_test_id("qp-add").click()
     page.get_by_test_id("qp-name").fill("GB E2E")
-    page.get_by_test_id("qp-platform").fill("gb")
     page.get_by_test_id("qp-region-add-usa").click()
     page.get_by_test_id("qp-region-add-world").click()
     page.get_by_test_id("qp-size-min").fill("1")
@@ -72,12 +77,17 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     page.get_by_test_id("qp-save").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("GB E2E", timeout=SLOW_MS)
 
-    # 2. Wishlist the title through the UI (unused stub catalog entry).
+    # 2. Wishlist the title through the UI, choosing that profile for this
+    #    one title. The row says so, which is the per-title override arriving
+    #    where the scheduler will read it.
     _nav(page, "wanted", "Wanted")
     page.get_by_test_id("wish-title").fill("Wario Land - Super Mario Land 3")
     page.get_by_test_id("wish-platform").select_option("gb")
+    page.get_by_test_id("wish-profile").select_option(label="GB E2E")
     page.get_by_test_id("wish-add").click()
     expect(page.get_by_test_id("wishlist")).to_contain_text("Wario Land", timeout=SLOW_MS)
+    expect(page.get_by_test_id("wishlist")).to_contain_text("GB E2E", timeout=SLOW_MS)
+    expect(page.get_by_test_id("wishlist")).to_contain_text("chosen for this title", timeout=SLOW_MS)
 
     # 3. Trigger a scheduler cycle (the Tasks screen button ships in PR-G; the
     #    trigger is not the surface under test here).
@@ -127,8 +137,9 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     _nav(page, "wanted", "Wanted")
     expect(page.get_by_test_id("wishlist")).not_to_contain_text("Wario Land", timeout=SLOW_MS)
 
-    # Delete the gb profile so it can't shadow the global default profile
-    # test_zzz_selector_journey.py tunes for its Kirby (gb) grab.
+    # Delete the profile. It is no longer platform-scoped, so it cannot
+    # shadow anything — but leaving it would still add a row to the list the
+    # other journeys read.
     gb = next(p for p in _req(base, "/api/quality-profiles").get("profiles", [])
               if p.get("name") == "GB E2E")
     _req(base, f"/api/quality-profiles/{gb['id']}", "DELETE")

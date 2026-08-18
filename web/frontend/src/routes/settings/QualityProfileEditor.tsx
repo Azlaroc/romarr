@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { useQualityProfiles, useSaveQualityProfile } from '../../api/queries'
+import { usePlatformRegistry, useQualityProfiles, useSaveQualityProfile } from '../../api/queries'
 import { ApiError } from '../../api/client'
 import type { QualityProfile } from '../../api/types'
 import { REGION_TOKENS, FORMAT_TOKENS } from '../../lib/profileVocab'
@@ -43,10 +43,10 @@ export function QualityProfileEditor() {
   // No GET-by-id on the backend — hydrate from the list query's cache/fetch.
   const { data: profiles, isSuccess } = useQualityProfiles()
   const save = useSaveQualityProfile()
+  const { data: platformRows } = usePlatformRegistry()
 
   const [form, setForm] = useState<QualityProfile | null>(isNew ? { ...NEW_PROFILE } : null)
   const [nameError, setNameError] = useState('')
-  const [platformError, setPlatformError] = useState('')
   const [apiError, setApiError] = useState('')
 
   useEffect(() => {
@@ -54,6 +54,13 @@ export function QualityProfileEditor() {
     const found = profiles?.find((p) => p.id === Number(params.id))
     if (found) setForm({ ...found })
   }, [isNew, form, isSuccess, profiles, params.id])
+
+  // Which platforms default to this profile — what an operator would orphan
+  // by deleting it, read off the registry rather than inferred from a column
+  // on the profile.
+  const usedBy = (platformRows ?? [])
+    .filter((pl) => pl.default_profile_id === Number(params.id))
+    .map((pl) => pl.display_name)
 
   const set = <K extends keyof QualityProfile>(key: K, value: QualityProfile[K]) => {
     setForm((f) => (f ? { ...f, [key]: value } : f))
@@ -87,7 +94,6 @@ export function QualityProfileEditor() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setNameError('')
-    setPlatformError('')
     setApiError('')
 
     const name = form.name.trim()
@@ -103,20 +109,16 @@ export function QualityProfileEditor() {
       return
     }
 
-    const payload: QualityProfile = {
-      ...form,
-      name,
-      platform_slug: form.platform_slug.trim().toLowerCase(),
-      // A platform profile can't be the global default.
-      is_default: form.platform_slug.trim() ? false : form.is_default,
-    }
+    // platform_slug is legacy and no longer written: a profile is free-standing,
+    // and which platform defaults to it lives on the platform row.
+    const payload: QualityProfile = { ...form, name, platform_slug: '' }
     try {
       await save.mutateAsync(payload)
       toast('Profile saved', 'success')
       navigate('/settings/profiles')
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setPlatformError('Another profile already covers this platform')
+      if (err instanceof ApiError && err.status === 400) {
+        setApiError(err.message)
       } else if (err instanceof ApiError && err.status === 400) {
         setApiError(err.message)
       } else if (err instanceof ApiError && err.status === 500) {
@@ -127,8 +129,6 @@ export function QualityProfileEditor() {
     }
   }
 
-  const isPlatform = form.platform_slug.trim() !== ''
-
   return (
     <>
       <PageHeader title="Settings" subtitle={isNew ? 'New quality profile' : `Quality profile: ${form.name || '…'}`} />
@@ -138,27 +138,31 @@ export function QualityProfileEditor() {
           <FormRow label="Name">
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} error={nameError} placeholder="e.g. PSX — USA, CHD first" data-testid="qp-name" />
           </FormRow>
-          <FormRow label="Platform" hint="Blank = global profile; one profile per platform.">
-            <Input
-              value={form.platform_slug}
-              onChange={(e) => set('platform_slug', e.target.value)}
-              onBlur={(e) => set('platform_slug', e.target.value.trim().toLowerCase())}
-              error={platformError}
-              placeholder="platform slug, e.g. psx"
-              data-testid="qp-platform"
-            />
+          <FormRow
+            label="Used by"
+            hint="A profile is chosen per title when you add one. Which platform defaults to it is set on the Platforms page."
+          >
+            <div className="text-sm text-slate-400" data-testid="qp-used-by">
+              {usedBy.length ? (
+                <>
+                  Default for <span className="text-slate-200">{usedBy.join(', ')}</span> —{' '}
+                  <Link to="/platforms" className="underline decoration-dotted">change on Platforms</Link>
+                </>
+              ) : (
+                <>
+                  No platform defaults to this profile.{' '}
+                  <Link to="/platforms" className="underline decoration-dotted">Assign it on Platforms</Link>, or pick
+                  it per title on the wishlist.
+                </>
+              )}
+            </div>
           </FormRow>
           <FormRow label="Global default">
             <Toggle
-              checked={form.is_default && !isPlatform}
+              checked={form.is_default}
               onChange={(v) => set('is_default', v)}
-              disabled={isPlatform}
               label="Use as the global default"
-              hint={
-                isPlatform
-                  ? 'Defaults apply to global profiles; platform profiles always win for their platform.'
-                  : 'Turning this on removes the default flag from every other profile.'
-              }
+              hint="Applies to any title whose platform has no default of its own. Turning this on removes the flag from every other profile."
               data-testid="qp-default-toggle"
             />
           </FormRow>

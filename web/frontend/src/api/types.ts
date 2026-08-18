@@ -132,7 +132,18 @@ export interface WishlistItem {
   title: string
   platform?: string
   platform_slug?: string
+  /** Per-title profile override; 0 means "whatever the platform defaults to". */
+  profile_id?: number
   added_at?: string
+}
+
+/** What POST /api/wishlist answers. materialized_profile is present only when
+ *  the add created a platform's default profile — announced once, not on
+ *  every subsequent add. */
+export interface WishlistAddResponse {
+  id: number
+  success?: boolean
+  materialized_profile?: { id: number; name: string }
 }
 
 export interface SourceInfo {
