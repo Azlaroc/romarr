@@ -82,8 +82,7 @@ func (s vimmSource) Search(_ context.Context, query, platformSlug string, _ Opts
 }
 
 // archiveOrgSource adapts the native Internet Archive driver to the Source
-// contract. It searches every platform; a registry mapping only makes a
-// platform's curated collection the preferred place to look first.
+// contract. It is inert until a platform is opted into the registry.
 type archiveOrgSource struct{ reg *sources.Registry }
 
 func (archiveOrgSource) Name() string { return "archiveorg" }

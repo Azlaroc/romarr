@@ -146,18 +146,11 @@ func TestEnabledFlagSemantics(t *testing.T) {
 		t.Error("disabled specs must not be active")
 	}
 
-	// Enabled but nothing mapped: Vimm stays inactive (without a platform
-	// mapping its site search returns cross-platform junk tagged with the
-	// requested slug). Archive.org is ACTIVE — its mappings are preferred
-	// collections, and with none it searches archive.org openly. Requiring a
-	// mapping there is what made a registry edit a prerequisite for finding
-	// anything on a new platform.
+	// Enabled but nothing mapped → inactive (the driver can't produce
+	// correctly-slugged results without a mapping).
 	empty := Registry{Vimm: VimmSpec{BaseURL: "v"}, ArchiveOrg: ArchiveOrgSpec{BaseURL: "a"}}
-	if empty.VimmActive() {
-		t.Error("Vimm with no mappings must not be active")
-	}
-	if !empty.ArchiveOrgActive() {
-		t.Error("archive.org with no mappings must still be active (open search)")
+	if empty.VimmActive() || empty.ArchiveOrgActive() {
+		t.Error("specs with no mappings must not be active")
 	}
 
 	// Nil receiver tolerated.

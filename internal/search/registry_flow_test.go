@@ -210,17 +210,8 @@ func TestArchiveOrgDriverMemoized(t *testing.T) {
 
 	_ = SearchArchiveOrg(reg, "some game", "psx", nil)
 	_ = SearchArchiveOrg(reg, "another query", "psx", nil)
-	// Count metadata reads only: the second query matches nothing in the
-	// mapped item, so it also widens to an open search, and that request is
-	// this driver working as intended rather than a dead cache.
-	meta := 0
-	for _, u := range rs.requestURIs() {
-		if strings.HasPrefix(u, "/metadata/") {
-			meta++
-		}
-	}
-	if meta != 1 {
-		t.Errorf("metadata fetches for two searches on one registry = %d, want 1 (cache dead?)", meta)
+	if got := len(rs.requestURIs()); got != 1 {
+		t.Errorf("metadata fetches for two searches on one registry = %d, want 1 (cache dead?)", got)
 	}
 
 	// A different registry instance (fresh config / test isolation) must get
