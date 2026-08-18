@@ -79,6 +79,25 @@ jobs:
             exit 1
           fi
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: web/frontend/package-lock.json}
+      - name: install
+        run: npm ci
+        working-directory: web/frontend
+      - name: typecheck
+        run: npm run typecheck
+        working-directory: web/frontend
+      # Component tests for the shared page template. The e2e job drives the
+      # real SPA in a browser; these cover the logic that is expensive to reach
+      # that way — dirty tracking, the unsaved-changes guard, table states.
+      - name: unit tests
+        run: npm run test
+        working-directory: web/frontend
+
   docker:
     runs-on: ubuntu-latest
     steps:
