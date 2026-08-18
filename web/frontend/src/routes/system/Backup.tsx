@@ -94,9 +94,6 @@ export function Backup() {
             <a href="/api/export/wishlist" className="text-accent-fg hover:text-accent-300">
               Wishlist JSON
             </a>
-            <a href="/api/export/requests" className="text-accent-fg hover:text-accent-300">
-              Requests JSON
-            </a>
           </div>
         </Card>
       </div>

@@ -359,37 +359,6 @@ export interface BlocklistItem {
   created_at: string // SQLite datetime text ("2026-08-14 03:09:00"), NOT RFC3339
 }
 
-export type RequestStatus =
-  | 'pending'
-  | 'approved'
-  | 'searching'
-  | 'downloading'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-
-export interface GameRequest {
-  id: string // request IDs are strings, not ints
-  user_id: string
-  title: string
-  platform: string
-  platform_slug: string
-  status: RequestStatus | string
-  notes?: string
-  admin_notes?: string
-  cover_url?: string
-  year?: string
-  genre?: string
-  retry_count: number
-  created_at: string // RFC3339 (Go time.Time) — render substrings only
-  updated_at: string
-}
-
-export interface RequestsPage {
-  requests: GameRequest[]
-  total: number
-}
-
 /** GET /api/calendar[.../recent] entry (empty until a metadata provider is wired). */
 export interface CalendarEntry {
   id: number

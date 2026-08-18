@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Heart, Search, Trash2 } from 'lucide-react'
 import {
   useWishlist,
@@ -19,6 +19,7 @@ import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { useToast } from '../../components/ui/Toast'
+import { InteractiveSearch } from '../../components/search/InteractiveSearch'
 
 const inputCls =
   'w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-white placeholder-slate-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500'
@@ -56,13 +57,16 @@ export function Wishlist() {
   const del = useDeleteWishlist()
   const setProfile = useSetWishlistProfile()
   const platformName = usePlatformName()
-  const navigate = useNavigate()
   const { toast } = useToast()
 
   const [title, setTitle] = useState('')
   const [platform, setPlatform] = useState('')
   const [profileID, setProfileID] = useState(0)
   const [materialized, setMaterialized] = useState<{ id: number; name: string } | null>(null)
+  // The row being searched by hand. Interactive search lives on the row it is
+  // about — the arrs put manual search next to the thing you are waiting for,
+  // not on a separate screen.
+  const [searching, setSearching] = useState<WishlistItem | null>(null)
 
   // Templates are cloned for new platforms, never applied to a title.
   const selectable = (profiles ?? []).filter((p) => !p.is_template)
@@ -172,7 +176,12 @@ export function Wishlist() {
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-              <Button size="sm" variant="secondary" onClick={() => navigate(`/add?q=${encodeURIComponent(w.title)}`)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setSearching(w)}
+                data-testid={`wish-search-${w.id}`}
+              >
                 <Search className="h-3.5 w-3.5" /> Search
               </Button>
               <Button size="sm" variant="danger" onClick={() => del.mutate(w.id)} aria-label="Delete" data-testid="wish-delete">
@@ -190,6 +199,14 @@ export function Wishlist() {
       {items.length === 0 && (
         <EmptyState icon={Heart} title="Wishlist is empty" hint="Add a title above; the scheduler will auto-search for it." />
       )}
+
+      <InteractiveSearch
+        open={searching !== null}
+        onClose={() => setSearching(null)}
+        title={searching?.title ?? ''}
+        platformSlug={searching?.platform_slug}
+        wishlistId={searching?.id}
+      />
     </>
   )
 }

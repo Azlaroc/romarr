@@ -32,10 +32,6 @@ type WebhookConfig struct {
 const (
 	EventDownloadComplete = "download_complete"
 	EventDownloadFailed   = "download_failed"
-	EventRequestCreated   = "request_created"
-	EventRequestApproved  = "request_approved"
-	EventRequestCompleted = "request_completed"
-	EventRequestFailed    = "request_failed"
 	EventSchedulerMatch   = "scheduler_match"
 )
 

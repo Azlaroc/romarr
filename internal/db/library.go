@@ -58,7 +58,6 @@ type LibraryPage struct {
 }
 
 func (s *JobStore) migrateExtra() {
-	s.migrateRequests()
 	s.migrateNotifications()
 	s.migrateWebhooks()
 	s.migrateHistory()
@@ -365,6 +364,21 @@ func (s *JobStore) GetWishlist() []WishlistItem {
 		items = append(items, item)
 	}
 	return items
+}
+
+// GetWishlistItem returns one wishlist row. Interactive search needs the
+// row's own profile, not just its title: a title added under a chosen profile
+// must be searched under that profile, or the manual pick is ranked by a
+// policy the automatic one would not have used.
+func (s *JobStore) GetWishlistItem(id int64) (WishlistItem, bool) {
+	var w WishlistItem
+	err := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, COALESCE(profile_id, 0), added_at FROM wishlist WHERE id = ?", id,
+	).Scan(&w.ID, &w.Title, &w.Platform, &w.PlatformSlug, &w.ProfileID, &w.AddedAt)
+	if err != nil {
+		return WishlistItem{}, false
+	}
+	return w, true
 }
 
 // DeleteWishlistItem removes a wishlist item.

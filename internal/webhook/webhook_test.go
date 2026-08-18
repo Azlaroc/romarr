@@ -136,7 +136,7 @@ func TestMatchesEvent(t *testing.T) {
 		{"download_complete", EventDownloadComplete, true},
 		{"download_complete,download_failed", EventDownloadFailed, true},
 		{"download_complete, download_failed", EventDownloadFailed, true},
-		{"download_complete", EventRequestCreated, false},
+		{"download_complete", EventSchedulerMatch, false},
 	}
 
 	for _, tt := range tests {
@@ -241,7 +241,7 @@ func TestSend_EventFilter(t *testing.T) {
 	configs := []WebhookConfig{
 		{Name: "filtered", URL: server.URL, Type: TypeGeneric, Enabled: true, Events: "download_complete"},
 	}
-	Send(configs, Payload{Event: EventRequestCreated})
+	Send(configs, Payload{Event: EventSchedulerMatch})
 
 	time.Sleep(100 * time.Millisecond)
 	if called {

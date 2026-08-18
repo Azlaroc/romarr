@@ -31,7 +31,7 @@ const WEBHOOK_TYPES = [
 ]
 
 const EVENT_HINT =
-  'Comma-separated events, or * for all: download_complete, download_failed, request_created, request_approved, request_completed, request_failed, scheduler_match'
+  'Comma-separated events, or * for all: download_complete, download_failed, scheduler_match'
 
 export function Connect() {
   const [showAdvanced, setShowAdvanced] = useShowAdvanced()
@@ -101,7 +101,7 @@ function Webhooks() {
     <Card title="Webhooks">
       <div className="space-y-3">
         <p className="text-xs text-slate-500">
-          Notify external services when things happen — downloads completing or failing, requests moving through
+          Notify external services when things happen — downloads completing or failing, the scheduler matching
           their lifecycle, scheduler matches.
         </p>
         <div className="space-y-2" data-testid="cn-webhook-list">

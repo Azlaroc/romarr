@@ -44,20 +44,23 @@ Single ~17MB Go binary, no runtime dependencies — **~9MB RSS idle** in a real 
 - **Rename on import** -- configurable pattern (e.g., `{title} ({platform}).{ext}`), scene tag cleanup
 - **File organization** -- auto-sort ROMs by platform directory, PC games to vault
 - **Manual import** -- scan directories and import existing files
-- **Import/export** -- JSON and CSV for library, wishlist, and requests
+- **Import/export** -- JSON and CSV for library and wishlist
 - **Backup and restore** -- full database backup with admin-only access
 
-### Requests and Wishlist
+### Wanted
 
-- **Request workflow** -- pending, approved, searching, downloading, completed states
-- **Wishlist** -- save wanted games, track availability
+- **Wishlist** -- save wanted games, each with its own quality profile
+- **Interactive search** -- pick a title, see every release, choose one by hand; reachable from a wishlist row or a library item, ranked under that title's profile
 - **Scheduled searches** -- automatic wishlist searches with configurable interval, auto-download best match
+
+A public request queue is deliberately not part of RomArr, the same way Radarr
+leaves that to Overseerr.
 
 ### Notifications
 
 - **In-app notifications** -- unread count, mark read, per-event tracking
 - **Webhooks** -- Discord and generic webhook support with per-event filtering
-- **Event types** -- download complete, request approved/completed/failed
+- **Event types** -- download complete, download failed, scheduler match
 
 ### Integrations
 
@@ -254,7 +257,7 @@ cmd/gamarr/main.go              Entry point
 internal/
   config/                        Environment variable configuration
   db/                            SQLite persistence + migrations
-  models/                        Core types (games, downloads, requests, notifications)
+  models/                        Core types (games, downloads, notifications)
   api/                           HTTP handlers + chi router + auth + rate limiting
   search/                        Source drivers (Torznab, DDL archive, web-scrape)
   sources/                       Runtime sources registry (embedded defaults + loader)
