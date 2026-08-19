@@ -85,6 +85,23 @@ PSX_FILES = [
     "Chrono Cross (USA) (Disc 2).zip",
 ]
 
+# IGDB fixture: one game with cover art, on a platform the registry maps
+# (Game Boy is IGDB id 33) plus one it does not, so the unmapped path renders.
+IGDB_GAMES = [
+    {
+        "id": 1074,
+        "name": "Wario Land - Super Mario Land 3",
+        "slug": "wario-land-super-mario-land-3",
+        "summary": "Wario's first outing.",
+        "first_release_date": 728006400,
+        "cover": {"url": "//images.igdb.com/igdb/image/upload/t_thumb/e2e-cover.jpg"},
+        "platforms": [
+            {"id": 33, "name": "Game Boy", "slug": "gb"},
+            {"id": 9999, "name": "Some Platform With No Lane", "slug": "nolane"},
+        ],
+    }
+]
+
 # item -> (files, inner ROM extension) the stub serves.
 IA_ITEMS = {
     IA_GB_ITEM: (GB_FILES, ".gb"),
@@ -280,7 +297,16 @@ class _StubHandler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802 (http.server API)
         body = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)).decode("utf-8", "replace")
         path = self.path.split("?")[0]
-        if path == "/api/v2/auth/login":
+        if path == "/oauth2/token":
+            # Twitch client-credentials: IGDB is Twitch-owned.
+            self._send(200, json.dumps(
+                {"access_token": "e2e-igdb-token", "expires_in": 5000000, "token_type": "bearer"}
+            ).encode(), "application/json")
+        elif path == "/games":
+            # IGDB's APIcalypse endpoint. The stub answers any search with the
+            # fixture game — the journey is about the door, not the ranking.
+            self._send(200, json.dumps(IGDB_GAMES).encode(), "application/json")
+        elif path == "/api/v2/auth/login":
             # Real qBittorrent 5.x behavior: HTTP 200 + "Ok." on success.
             self._send(200, b"Ok.", "text/plain")
         elif path == "/api/v2/torrents/add":
@@ -590,6 +616,12 @@ def _app_env(stub_server: str, data: Path, port: int) -> dict:
         # F4 selector: enforce mode drives the scheduler in the selector
         # journey; harmless elsewhere (nothing else triggers a scheduler run).
         "SELECTOR_MODE": "enforce",
+        # Metadata authority: the stub answers both the Twitch token endpoint
+        # and IGDB's /games, so the Discover door works offline.
+        "IGDB_CLIENT_ID": "e2e-client",
+        "IGDB_CLIENT_SECRET": "e2e-secret",
+        "IGDB_API_BASE": stub_server,
+        "IGDB_AUTH_BASE": stub_server,
     }
 
 
