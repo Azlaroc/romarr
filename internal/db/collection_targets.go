@@ -23,7 +23,9 @@ import (
 const (
 	// TargetWanted: in the set, not owned, ready to be searched.
 	TargetWanted = "wanted"
-	// TargetGrabbed: a release was dispatched; the import will retire the row.
+	// TargetGrabbed: a release was dispatched. The row leaves the queue while
+	// the download runs, and the next sync retires it once the set is
+	// satisfied — or re-opens it if the grab did not fill the gap.
 	TargetGrabbed = "grabbed"
 	// TargetUnavailable: searched and nothing usable came back. Still wanted —
 	// it backs off rather than disappearing.
@@ -79,6 +81,16 @@ type CollectionGap struct {
 	DumpName string
 }
 
+// grabbedTimeout is how long a dispatched grab has to actually fill its gap.
+//
+// 🔴 A grab is not a fill. Observed on a live install the day this shipped: a
+// gap was grabbed, the release imported, and the set still wanted the game —
+// the dump that landed was not the one the catalog names, so the gap never
+// closed while the row sat in "grabbed" forever, never retried and never
+// retired. Anything still wanted this long after its grab did not get filled by
+// it, whatever the download said.
+const grabbedTimeout = 12 * time.Hour
+
 // SyncCollectionTargets makes the stored gap list match the set's.
 //
 // New gaps are inserted; gaps that are still gaps keep their attempt history
@@ -121,6 +133,19 @@ func (s *JobStore) SyncCollectionTargets(platformSlug string, gaps []CollectionG
 				`UPDATE collection_targets SET title = ?, dump_name = ? WHERE platform_slug = ? AND set_key = ?`,
 				g.Title, g.DumpName, platformSlug, g.SetKey); err != nil {
 				slog.Warn("refresh collection target", "error", err)
+			}
+			// The game is STILL wanted, so a grab that has aged out did not
+			// fill it. Re-open the row — attempts survive, so its own backoff
+			// decides when it is tried again.
+			if _, err := tx.Exec(
+				`UPDATE collection_targets
+				    SET status = ?, last_reason = ?
+				  WHERE platform_slug = ? AND set_key = ? AND status = ? AND last_attempt < ?`,
+				TargetWanted, "the grabbed release did not fill this gap",
+				platformSlug, g.SetKey, TargetGrabbed,
+				time.Now().UTC().Add(-grabbedTimeout).Format("2006-01-02 15:04:05"),
+			); err != nil {
+				slog.Warn("reopen collection target", "error", err)
 			}
 			continue
 		}
