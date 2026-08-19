@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gamarr/internal/config"
+	"gamarr/internal/dat"
 	"gamarr/internal/db"
 )
 
@@ -440,5 +441,37 @@ func TestCadenceStaysDormantWhileTheToggleIsOff(t *testing.T) {
 	h.svc.EnsureRunning()
 	if h.svc.LoopRunning() {
 		t.Fatal("the cadence must ship off: no goroutine, no ticker, no network")
+	}
+}
+
+// 🔴 Identical bytes imported by an OLDER parser are stale rows, not current
+// ones. Without the parser version in the unchanged check, an improvement to
+// what the parser derives never reaches a catalog whose source has not moved —
+// and most catalogs do not move for months.
+func TestParserBumpReimportsUnchangedBytes(t *testing.T) {
+	h := newHarness(t, func(string) ([]byte, bool) { return catalog("2026.08.01", 3, ""), true })
+	h.pointAt(t, "no-intro", "/mirror/")
+	h.refreshAndWait(t, "no-intro")
+
+	first, ok := h.store.ActiveDatSnapshot("gb")
+	if !ok {
+		t.Fatal("no snapshot after the first refresh")
+	}
+	if first.ParserVersion != dat.ParserVersion {
+		t.Fatalf("stored parser version = %d, want the current %d", first.ParserVersion, dat.ParserVersion)
+	}
+
+	// Pretend those rows came from an older derivation.
+	if err := h.store.SetSnapshotParserVersion(first.ID, dat.ParserVersion-1); err != nil {
+		t.Fatalf("age the snapshot: %v", err)
+	}
+	h.refreshAndWait(t, "no-intro")
+
+	second, _ := h.store.ActiveDatSnapshot("gb")
+	if second.ID == first.ID {
+		t.Error("a stale-parser catalog was short-circuited on identical bytes")
+	}
+	if second.ParserVersion != dat.ParserVersion {
+		t.Errorf("re-imported at parser version %d, want %d", second.ParserVersion, dat.ParserVersion)
 	}
 }

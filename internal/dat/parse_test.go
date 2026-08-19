@@ -184,3 +184,48 @@ func TestParseSniffsFormatAndRejectsEmpty(t *testing.T) {
 		t.Error("RomCount zero")
 	}
 }
+
+// 🔴 The mirror's DATs declare ONE primary region while the name lists every
+// region the dump covers: `region "USA"` on a game named
+// "Air-Sea Battle ~ Target Fun (Japan, USA) (En)". Preferring the attribute
+// alone threw away the fact that it is a USA release, and that cost a real
+// 1G1R keeper — the dump filed as Japan-only lost to a European one under a
+// USA-first region order.
+func TestRegionUnionsTheAttributeAndTheName(t *testing.T) {
+	data := []byte("clrmamepro (\n\tname \"Test\"\n\tversion \"1\"\n)\n\n" +
+		"game (\n\tname \"Air-Sea Battle ~ Target Fun (Japan, USA) (En)\"\n" +
+		"\tregion \"Japan\"\n" +
+		"\trom ( name \"a.a26\" size 2048 crc 00000001 )\n)\n\n" +
+		"game (\n\tname \"Solo Game (Europe)\"\n\tregion \"Europe\"\n" +
+		"\trom ( name \"b.a26\" size 2048 crc 00000002 )\n)\n")
+	f, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(f.Games) != 2 {
+		t.Fatalf("games = %d, want 2", len(f.Games))
+	}
+
+	// Both regions survive, the declared one first.
+	got := f.Games[0].Region
+	for _, want := range []string{"japan", "usa"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("region = %q, want it to carry %q", got, want)
+		}
+	}
+	if !strings.HasPrefix(got, "japan") {
+		t.Errorf("region = %q, want the DAT's declared region first", got)
+	}
+	// A single-region entry is unchanged and gains no duplicates.
+	if f.Games[1].Region != "europe" {
+		t.Errorf("single-region entry = %q, want europe", f.Games[1].Region)
+	}
+}
+
+func TestParserVersionIsStated(t *testing.T) {
+	// A derivation change that does not bump this never reaches a catalog
+	// whose bytes have not moved — which is most of them.
+	if ParserVersion < 2 {
+		t.Errorf("ParserVersion = %d, want the region-union derivation's version", ParserVersion)
+	}
+}

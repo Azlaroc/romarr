@@ -273,17 +273,23 @@ func readBlock(toks []cmpTok, open int) (cmpBlock, int) {
 
 // annotate fills the attributes the canonical DAT name encodes, reusing the
 // selection engine's No-Intro/Redump name parser so both layers speak one
-// vocabulary instead of two drifting implementations. An explicit region
-// attribute from the DAT wins over the name-derived one.
+// vocabulary instead of two drifting implementations.
+//
+// 🔴 The explicit region attribute is UNIONED with the name's, not preferred
+// over it. The mirror's DATs declare one primary region while the name lists
+// every region the dump covers — `region "USA"` on a game named
+// "Air-Sea Battle ~ Target Fun (Japan, USA) (En)" — and taking the attribute
+// alone throws away the fact that it is a USA release. That cost a real 1G1R
+// keeper: the dump filed as Japan-only lost to a European one under a
+// USA-first region order, on a platform where the user wanted the USA dump.
+// The attribute leads because it is the publisher's own primary; the name's
+// regions follow because they are true too.
 func annotate(g *Game, explicitRegion string) {
 	attrs := selection.Parse(g.Name)
 	g.BareTitle = selection.BareTitle(g.Name)
 	g.Revision = attrs.Revision
 	g.Languages = strings.Join(attrs.Languages, ",")
-	g.Region = strings.ToLower(strings.TrimSpace(explicitRegion))
-	if g.Region == "" {
-		g.Region = strings.Join(attrs.Regions, ",")
-	}
+	g.Region = unionRegions(explicitRegion, attrs.Regions)
 	g.Flags = flagList(
 		boolFlag(attrs.IsBIOS, "bios"),
 		boolFlag(attrs.IsProto, "proto"),
@@ -292,6 +298,28 @@ func annotate(g *Game, explicitRegion string) {
 		boolFlag(attrs.BadDump, "bad"),
 		boolFlag(attrs.VerifiedDump, "verified"),
 	)
+}
+
+// unionRegions merges the DAT's declared region with the name's, primary
+// first, without duplicates. Either side may be empty.
+func unionRegions(explicit string, fromName []string) string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(r string) {
+		r = strings.ToLower(strings.TrimSpace(r))
+		if r == "" || seen[r] {
+			return
+		}
+		seen[r] = true
+		out = append(out, r)
+	}
+	for _, r := range strings.Split(explicit, ",") {
+		add(r)
+	}
+	for _, r := range fromName {
+		add(r)
+	}
+	return strings.Join(out, ",")
 }
 
 func boolFlag(on bool, name string) string {

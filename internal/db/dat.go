@@ -100,11 +100,16 @@ type DatSnapshotMeta struct {
 	Version      string `json:"version"`
 	SourceSHA256 string `json:"source_sha256,omitempty"`
 	RawPath      string `json:"raw_path,omitempty"`
-	SizeMin      int64  `json:"size_min"`
-	SizeMax      int64  `json:"size_max"`
-	SizeP01      int64  `json:"size_p01"`
-	SizeP50      int64  `json:"size_p50"`
-	SizeP99      int64  `json:"size_p99"`
+	// ParserVersion is the derivation version the rows were imported under.
+	// Stored so an unchanged-bytes check can still notice that the PARSER
+	// moved: identical bytes plus a newer parser is a stale catalog, not an
+	// up-to-date one.
+	ParserVersion int   `json:"parser_version,omitempty"`
+	SizeMin       int64 `json:"size_min"`
+	SizeMax       int64 `json:"size_max"`
+	SizeP01       int64 `json:"size_p01"`
+	SizeP50       int64 `json:"size_p50"`
+	SizeP99       int64 `json:"size_p99"`
 }
 
 // DatSnapshotRow is a stored snapshot.
@@ -178,7 +183,8 @@ func (s *JobStore) migrateDat() {
 			diff_added INTEGER NOT NULL DEFAULT 0,
 			diff_removed INTEGER NOT NULL DEFAULT 0,
 			diff_changed INTEGER NOT NULL DEFAULT 0,
-			active INTEGER NOT NULL DEFAULT 0
+			active INTEGER NOT NULL DEFAULT 0,
+			parser_version INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS dat_games (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,6 +221,14 @@ func (s *JobStore) migrateDat() {
 	for _, ddl := range tables {
 		if _, err := s.db.Exec(ddl); err != nil {
 			slog.Warn("migrate dat table", "error", err)
+		}
+	}
+	// CREATE TABLE IF NOT EXISTS is a no-op on an existing install. Defaulting
+	// to 0 is deliberate: every snapshot imported before this column existed
+	// predates the current parser, so each one re-imports on its next refresh.
+	if !s.columnExists("dat_snapshots", "parser_version") {
+		if _, err := s.db.Exec(`ALTER TABLE dat_snapshots ADD COLUMN parser_version INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate dat_snapshots parser_version", "error", err)
 		}
 	}
 	s.seedDatDefaults()
@@ -492,11 +506,11 @@ func (s *JobStore) InsertDatSnapshot(meta DatSnapshotMeta, games []DatGameRow) (
 	res, err := tx.Exec(`INSERT INTO dat_snapshots
 		(authority, platform_slug, version, source_sha256, raw_path, fetched_at,
 		 game_count, rom_count, size_min, size_max, size_p01, size_p50, size_p99,
-		 diff_added, diff_removed, diff_changed, active)
-		VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		 diff_added, diff_removed, diff_changed, active, parser_version)
+		VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
 		meta.Authority, meta.PlatformSlug, meta.Version, meta.SourceSHA256, meta.RawPath,
 		len(games), romTotal, meta.SizeMin, meta.SizeMax, meta.SizeP01, meta.SizeP50, meta.SizeP99,
-		added, removed, changed)
+		added, removed, changed, meta.ParserVersion)
 	if err != nil {
 		return DatSnapshotRow{}, err
 	}
@@ -652,11 +666,11 @@ func (s *JobStore) ActiveDatSnapshot(slug string) (DatSnapshotRow, bool) {
 	var active int
 	err := s.db.QueryRow(`SELECT id, authority, platform_slug, version, source_sha256, raw_path,
 		fetched_at, game_count, rom_count, size_min, size_max, size_p01, size_p50, size_p99,
-		diff_added, diff_removed, diff_changed, active
+		diff_added, diff_removed, diff_changed, active, parser_version
 		FROM dat_snapshots WHERE platform_slug = ? AND active = 1`, slug).
 		Scan(&r.ID, &r.Authority, &r.PlatformSlug, &r.Version, &r.SourceSHA256, &r.RawPath,
 			&r.FetchedAt, &r.GameCount, &r.RomCount, &r.SizeMin, &r.SizeMax, &r.SizeP01, &r.SizeP50, &r.SizeP99,
-			&r.DiffAdded, &r.DiffRemoved, &r.DiffChanged, &active)
+			&r.DiffAdded, &r.DiffRemoved, &r.DiffChanged, &active, &r.ParserVersion)
 	if err != nil {
 		return DatSnapshotRow{}, false
 	}
@@ -907,4 +921,12 @@ func (s *JobStore) SetLibraryCatalogStatus(sourceID, status string) {
 	if err != nil {
 		slog.Warn("record catalog status", "error", err)
 	}
+}
+
+// SetSnapshotParserVersion rewrites a snapshot's derivation stamp. Tests use it
+// to age a catalog; nothing in the app does, because the stamp is written by
+// the import that produced the rows.
+func (s *JobStore) SetSnapshotParserVersion(id int64, version int) error {
+	_, err := s.db.Exec(`UPDATE dat_snapshots SET parser_version = ? WHERE id = ?`, version, id)
+	return err
 }
