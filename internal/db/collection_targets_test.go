@@ -145,3 +145,59 @@ func TestDueCollectionTargetsOrdersAndLimits(t *testing.T) {
 		t.Errorf("counts = %v, want 1 grabbed / 2 wanted", counts)
 	}
 }
+
+// 🔴 A grab is not a fill. Seen on a live install the day collection mode
+// shipped: a gap was grabbed, the release imported, and the set still wanted
+// the game — the dump that landed was not the one the catalog names. The row
+// sat in "grabbed", which the due query excludes, so it was never retried and
+// never retired. A grab that has aged out without closing its gap re-opens.
+func TestAgedGrabThatDidNotFillItsGapReopens(t *testing.T) {
+	store, _ := datStore(t)
+	store.SyncCollectionTargets("atari7800", []CollectionGap{gap("k", "Super Huey UH-IX", "Super Huey UH-IX (USA)")})
+	row := targetsOf(t, store, "atari7800")["k"]
+	store.RecordCollectionAttempt(row.ID, TargetGrabbed, "best single release")
+
+	// Still within the window: a download in flight must be left alone.
+	store.SyncCollectionTargets("atari7800", []CollectionGap{gap("k", "Super Huey UH-IX", "Super Huey UH-IX (USA)")})
+	if got := targetsOf(t, store, "atari7800")["k"]; got.Status != TargetGrabbed {
+		t.Fatalf("status = %q, want a fresh grab left alone", got.Status)
+	}
+
+	// Age the grab past the window, with the game still wanted.
+	stale := time.Now().UTC().Add(-grabbedTimeout - time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := store.db.Exec(`UPDATE collection_targets SET last_attempt = ? WHERE id = ?`, stale, row.ID); err != nil {
+		t.Fatalf("age the grab: %v", err)
+	}
+	store.SyncCollectionTargets("atari7800", []CollectionGap{gap("k", "Super Huey UH-IX", "Super Huey UH-IX (USA)")})
+
+	got := targetsOf(t, store, "atari7800")["k"]
+	if got.Status != TargetWanted {
+		t.Errorf("status = %q, want the gap re-opened", got.Status)
+	}
+	if got.Attempts != 1 {
+		t.Errorf("attempts = %d, want the history kept so the backoff still applies", got.Attempts)
+	}
+	if got.LastReason == "" || got.LastReason == "best single release" {
+		t.Errorf("reason = %q, want it to say the grab did not fill the gap", got.LastReason)
+	}
+}
+
+// The other ending: the grab worked, the set stops wanting the game, and the
+// row is retired rather than re-opened.
+func TestFilledGapIsRemovedNotReopened(t *testing.T) {
+	store, _ := datStore(t)
+	store.SyncCollectionTargets("gb", []CollectionGap{gap("k", "Tetris", "Tetris (World)")})
+	row := targetsOf(t, store, "gb")["k"]
+	store.RecordCollectionAttempt(row.ID, TargetGrabbed, "best single release")
+	if _, err := store.db.Exec(`UPDATE collection_targets SET last_attempt = ? WHERE id = ?`,
+		time.Now().UTC().Add(-grabbedTimeout-time.Hour).Format("2006-01-02 15:04:05"), row.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The set no longer lists it: it is owned.
+	store.SyncCollectionTargets("gb", nil)
+
+	if len(targetsOf(t, store, "gb")) != 0 {
+		t.Error("a filled gap survived the sync")
+	}
+}

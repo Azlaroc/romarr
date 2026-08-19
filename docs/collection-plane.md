@@ -129,10 +129,19 @@ rules.
 
 ```
 sync    reconcile the set → insert new gaps, keep existing ones' history,
+        re-open a grab that did not fill its gap,
         delete gaps that are filled or no longer wanted
 fill    take the due targets, oldest attempt first, up to the cycle budget
 record  grabbed | unavailable (with the reason) | retired, if it turned out owned
 ```
+
+🔴 **A grab is not a fill.** Seen on a live install the day this shipped: a gap
+was grabbed, the release imported cleanly, and the set still wanted the game —
+what landed was a differently-named dump the catalog does not carry. The row sat
+in `grabbed`, which the due query excludes, so it was never retried and never
+retired. A grab that is still wanted 12 hours later re-opens, keeping its
+attempt count so its own backoff decides when to try again. Whether the gap is
+filled is measured against the catalog, never against "a download succeeded".
 
 Two switches, independent on purpose:
 
