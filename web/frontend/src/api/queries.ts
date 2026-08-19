@@ -60,6 +60,8 @@ import type {
   DatStatus,
   DatUploadResponse,
   SizeDefinition,
+  CollectionTargetsResponse,
+  CollectionSyncResult,
   SizeDefinitionsResponse,
 } from './types'
 
@@ -103,6 +105,7 @@ export const keys = {
   datStatus: ['dat-status'] as const,
   datCoverage: ['dat-coverage'] as const,
   sizeDefinitions: ['size-definitions'] as const,
+  collectionTargets: ['collection-targets'] as const,
 }
 
 // ---------- queries ----------
@@ -947,6 +950,36 @@ export function useUploadDat() {
       qc.invalidateQueries({ queryKey: keys.datCoverage })
       qc.invalidateQueries({ queryKey: keys.sizeDefinitions })
     },
+  })
+}
+
+/** The gap list collection mode is working through. */
+export function useCollectionTargets(params: {
+  platform?: string
+  status?: string
+  page?: number
+}): UseQueryResult<CollectionTargetsResponse> {
+  const query = new URLSearchParams()
+  if (params.platform) query.set('platform', params.platform)
+  if (params.status && params.status !== 'all') query.set('status', params.status)
+  query.set('page', String(params.page ?? 1))
+  query.set('page_size', '50')
+  return useQuery({
+    queryKey: [...keys.collectionTargets, params.platform ?? '', params.status ?? '', params.page ?? 1],
+    queryFn: () => api.get<CollectionTargetsResponse>(`/api/collection/targets?${query.toString()}`),
+  })
+}
+
+/** Rebuild the gap list now rather than at the next scheduler cycle. */
+export function useSyncCollection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (platform?: string) =>
+      api.post<{ results: CollectionSyncResult[] }>(
+        `/api/collection/sync${platform ? `?platform=${encodeURIComponent(platform)}` : ''}`,
+        {},
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.collectionTargets }),
   })
 }
 

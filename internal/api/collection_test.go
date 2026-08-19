@@ -158,3 +158,52 @@ func TestCloneListsReportPlatformsAndBase(t *testing.T) {
 		t.Error("the fetch base must be visible — it is an editable setting")
 	}
 }
+
+func TestCollectionTargetsAndSync(t *testing.T) {
+	env := newTestEnv(t, nil)
+	seedSet(t, env)
+
+	// Nothing is in collection mode yet, so a sync produces nothing.
+	rr := env.do("POST", "/api/collection/sync", "")
+	wantStatus(t, rr, 200)
+	if results, _ := decodeMap(t, rr)["results"].([]interface{}); len(results) != 0 {
+		t.Errorf("results = %v, want none before any platform opts in", results)
+	}
+
+	rr = env.do("PUT", "/api/platforms/atari7800", `{"collection_mode":true}`)
+	wantStatus(t, rr, 200)
+	if got := decodeMap(t, rr)["collection_mode"]; got != true {
+		t.Fatalf("collection_mode = %v after the patch", got)
+	}
+
+	rr = env.do("POST", "/api/collection/sync", "")
+	wantStatus(t, rr, 200)
+	results, _ := decodeMap(t, rr)["results"].([]interface{})
+	if len(results) != 1 {
+		t.Fatalf("results = %v, want the one platform", results)
+	}
+
+	rr = env.do("GET", "/api/collection/targets", "")
+	wantStatus(t, rr, 200)
+	body := decodeMap(t, rr)
+	targets, _ := body["targets"].([]interface{})
+	if len(targets) != 1 {
+		t.Fatalf("targets = %d, want the single gap (Ballblazer)", len(targets))
+	}
+	first, _ := targets[0].(map[string]interface{})
+	if first["title"] != "Ballblazer" || first["status"] != "wanted" {
+		t.Errorf("target = %v, want Ballblazer wanted", first)
+	}
+	if body["fill_per_cycle"] == nil {
+		t.Error("the pace has to be visible next to the queue it paces")
+	}
+
+	// 🔴 Leaving collection mode drops the queue with it.
+	rr = env.do("PUT", "/api/platforms/atari7800", `{"collection_mode":false}`)
+	wantStatus(t, rr, 200)
+	rr = env.do("GET", "/api/collection/targets", "")
+	wantStatus(t, rr, 200)
+	if targets, _ := decodeMap(t, rr)["targets"].([]interface{}); len(targets) != 0 {
+		t.Errorf("targets = %d after collection mode went off, want 0", len(targets))
+	}
+}

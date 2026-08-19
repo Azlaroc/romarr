@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -80,6 +81,7 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 		MediaClass         *string `json:"media_class"`
 		ConvertsToCHD      *bool   `json:"converts_to_chd"`
 		AcquisitionEnabled *bool   `json:"acquisition_enabled"`
+		CollectionMode     *bool   `json:"collection_mode"`
 		DefaultProfileID   *int64  `json:"default_profile_id"`
 	}
 	if !decodeJSONBody(w, r, &req) {
@@ -113,10 +115,20 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 		MediaClass:         req.MediaClass,
 		ConvertsToCHD:      req.ConvertsToCHD,
 		AcquisitionEnabled: req.AcquisitionEnabled,
+		CollectionMode:     req.CollectionMode,
 		DefaultProfileID:   req.DefaultProfileID,
 	}); err != nil {
 		writeError(w, http.StatusNotFound, "Unknown platform")
 		return
+	}
+	// Turning collection mode off drops the gap list with it. The targets are
+	// derived from a policy that no longer applies, and leaving them would
+	// leave the scheduler work nobody asked for — the switch has to mean what
+	// it says immediately, not at the next sync.
+	if req.CollectionMode != nil && !*req.CollectionMode {
+		if n := s.mgr.Jobs().ClearCollectionTargets(slug); n > 0 {
+			slog.Info("collection mode off: gap list cleared", "platform", slug, "targets", n)
+		}
 	}
 	s.handlePlatform(w, r)
 }

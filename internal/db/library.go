@@ -74,6 +74,7 @@ func (s *JobStore) migrateExtra() {
 	s.migrateCloneLists()
 	s.migratePlatformSizes()
 	s.migratePlatforms()
+	s.migrateCollectionTargets()
 	// Runs after both tables exist: templates are profile rows, and the
 	// platform→profile link moves the legacy mapping onto the registry.
 	s.seedProfileTemplates()

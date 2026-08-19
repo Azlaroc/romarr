@@ -110,12 +110,62 @@ homebrew pile becomes a prune candidate rather than something invisible.
 Counts always describe the whole set, never the filtered page: "84 gaps" is the
 number an operator acts on.
 
+## Collection mode: from a set to work
+
+A platform in **collection mode** monitors its whole set. Everything the set
+wants and the library does not have becomes a row in `collection_targets` — the
+gap list under Wanted → Collection.
+
+The gap list is a **table**, not a derivation recomputed per cycle, because a
+gap needs memory: how often it has been tried, what came back, and when to try
+again. A title nothing indexes must stop being searched every hour. Backoff
+doubles per attempt and caps at a week.
+
+It is deliberately **not** the wishlist. The wishlist is what a person asked for
+by name; these are what a policy implies, and one platform's set can imply
+hundreds. Both feed **one** pipeline (`processWanted`), so a gap is acquired
+under exactly the policy a wishlist row would have been — two queues, one set of
+rules.
+
+```
+sync    reconcile the set → insert new gaps, keep existing ones' history,
+        delete gaps that are filled or no longer wanted
+fill    take the due targets, oldest attempt first, up to the cycle budget
+record  grabbed | unavailable (with the reason) | retired, if it turned out owned
+```
+
+Two switches, independent on purpose:
+
+| switch | says |
+|---|---|
+| **collection mode** | what is wanted — the whole 1G1R set |
+| **acquisition** | whether RomArr may go and get it |
+
+With collection on and acquisition off, the gap list still builds and nothing is
+searched: you can look before you leap. Leaving collection mode **drops that
+platform's gap list immediately** — the rows derive from a policy that no longer
+applies, and a stale queue would keep the scheduler busy with work nobody asked
+for.
+
+`collection_fill_per_cycle` (default 10) bounds what ONE cycle asks of the
+indexers, across all platforms. It is a pace, not a switch: emptying a whole
+catalog's gap list into a source in one pass is how an anonymous budget gets
+spent.
+
+🔴 An empty wishlist is not an empty cycle any more. The scheduler used to
+return early when the wishlist was empty; collection gaps come from a platform's
+set, so that early return would have meant the feature never ran on an install
+that works this way.
+
 ## API
 
 ```
 GET  /api/platforms/{slug}/set   ?status=owned|gap|out|all &q= &page= &page_size=
 GET  /api/clonelists             (admin) locators, stored lists, fetch base, run status
 POST /api/clonelists/refresh     (admin) re-fetch every assigned list; 409 while running
+GET  /api/collection/targets     ?platform= &status= &q= &page= &page_size=
+POST /api/collection/sync        (admin) ?platform= for one, omitted for every monitored platform
+PUT  /api/platforms/{slug}       {"collection_mode": true|false}
 ```
 
 The fetch base is the setting `clonelist_fetch_base` — repointing at a mirror, a

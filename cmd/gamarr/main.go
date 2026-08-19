@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gamarr/internal/api"
+	"gamarr/internal/collectionsvc"
 	"gamarr/internal/config"
 	"gamarr/internal/converto"
 	"gamarr/internal/datsvc"
@@ -230,6 +231,11 @@ func main() {
 	// path, so upgrading an installation whose catalogs are current would
 	// leave every platform unbounded for good.
 	datSvc.BackfillSizeDefinitions()
+
+	// Collection mode: the scheduler's second queue. The API builds its own
+	// handle (it needs nothing but the config and the store); this one is the
+	// scheduler's, and it is what turns a platform's set into wanted work.
+	sched.SetCollections(collectionsvc.New(cfg, database))
 
 	// Configure circuit breaker
 	search.InitHealthConfig(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerTimeoutS)

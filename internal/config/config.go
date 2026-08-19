@@ -143,6 +143,8 @@ type Config struct {
 	SelectorSetTimeoutHours int    // disc-set degrade timeout; read via DiscSetTimeoutHours()
 
 	// DAT catalogs
+	CollectionFillPerCycle int // read via CollectionFill()
+
 	DatAutoRefreshEnabled bool
 	DatRefreshIntervalD   int // read via DatRefreshIntervalDays()
 
@@ -254,6 +256,7 @@ func Load() *Config {
 		WebhookType: envStr("WEBHOOK_TYPE", "generic"),
 
 		SchedulerEnabled:        envBool("SCHEDULER_ENABLED", false),
+		CollectionFillPerCycle:  envInt("COLLECTION_FILL_PER_CYCLE", 10),
 		SchedulerIntervalHours:  envInt("SCHEDULER_INTERVAL_HOURS", 24),
 		SchedulerAutoDownload:   envBool("SCHEDULER_AUTO_DOWNLOAD", true),
 		SchedulerMinScore:       envInt("SCHEDULER_MIN_SCORE", 70),
@@ -505,6 +508,24 @@ func (c *Config) DatRefreshIntervalDays() int {
 	}
 	if n < 1 {
 		return 30
+	}
+	return n
+}
+
+// CollectionFill is how many collection-mode gaps one scheduler cycle may
+// search for, across all platforms.
+//
+// It is a PACE, not a switch: a platform's acquisition toggle is what stops
+// RomArr acting at all. The default is deliberately small — a set can imply
+// hundreds of gaps, and emptying that queue into an indexer in one pass is how
+// an anonymous source budget gets spent (or a host gets rate-limited).
+func (c *Config) CollectionFill() int {
+	n := c.CollectionFillPerCycle
+	if v, ok := c.settingInt("collection_fill_per_cycle"); ok {
+		n = v
+	}
+	if n < 0 {
+		return 0
 	}
 	return n
 }

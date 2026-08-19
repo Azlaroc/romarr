@@ -40,6 +40,7 @@ export const NAV: NavItem[] = [
     icon: Heart,
     children: [
       { to: '/wanted/wishlist', label: 'Wishlist' },
+      { to: '/wanted/collection', label: 'Collection' },
     ],
   },
   { to: '/platforms', label: 'Platforms', icon: MonitorSmartphone },

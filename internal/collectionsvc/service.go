@@ -75,6 +75,12 @@ type SetResult struct {
 // no DAT lane is a legitimate state — switch is shop-native, arcade's MAME
 // authority ships dormant — and the caller renders "no catalog", not a failure.
 func (s *Service) Set(slug string) SetResult {
+	return s.NewCycle().Set(slug)
+}
+
+// Set builds a platform's reconciled 1G1R set against this cycle's snapshot.
+func (c *Cycle) Set(slug string) SetResult {
+	s := c.svc
 	slug = strings.TrimSpace(slug)
 	res := SetResult{Platform: slug, Grouping: "title"}
 	if slug == "" {
@@ -95,7 +101,7 @@ func (s *Service) Set(slug string) SetResult {
 		return res
 	}
 	groups := collection.Build(members, overlay, policy)
-	res.Entries = collection.Reconcile(groups, s.indexFor(slug))
+	res.Entries = collection.Reconcile(groups, c.index(slug))
 	res.Counts = collection.Summarise(res.Entries)
 	return res
 }
@@ -162,33 +168,60 @@ func mapMembers(rows []db.DatSetMember) []collection.Member {
 	return out
 }
 
-// libraryIndex is the ownership oracle: one snapshot of the platform's library
-// under all three matching tiers. Built once per set build — the alternative
-// is a query per catalogued dump, and psx has 10,970 of them.
+// A Cycle amortises the library snapshot across many platforms.
+//
+// Reconciling one platform needs the whole library indexed three ways. The
+// scheduler reconciles every collection-mode platform in a pass, so building
+// those indexes per platform would re-read the library thirty times for one
+// cycle's work. A Cycle builds them once and answers for any platform.
+//
+// It is a snapshot on purpose: a cycle-stale view is fine — an import landing
+// mid-cycle is caught by the next one — and a live view would mean a query per
+// catalogued dump.
+type Cycle struct {
+	svc    *Service
+	hash   map[string]*db.LibraryItem
+	names  map[string]map[string]*db.LibraryItem
+	titles map[string]map[string]*db.LibraryItem
+}
+
+// NewCycle snapshots the library.
+func (s *Service) NewCycle() *Cycle {
+	c := &Cycle{
+		svc:    s,
+		hash:   s.store.LibraryHashIndex(),
+		names:  s.store.LibraryNameIndexByPlatform(),
+		titles: map[string]map[string]*db.LibraryItem{},
+	}
+	for key, item := range s.store.GetAllLibraryTitles() {
+		cut := strings.LastIndex(key, "|")
+		if cut < 0 {
+			continue
+		}
+		titleish, slug := key[:cut], key[cut+1:]
+		byTitle, ok := c.titles[slug]
+		if !ok {
+			byTitle = map[string]*db.LibraryItem{}
+			c.titles[slug] = byTitle
+		}
+		for _, k := range selection.OwnershipKeys(titleish) {
+			if _, dup := byTitle[k]; !dup {
+				byTitle[k] = item
+			}
+		}
+	}
+	return c
+}
+
+func (c *Cycle) index(slug string) collection.Index {
+	return &libraryIndex{byHash: c.hash, byName: c.names[slug], byTitle: c.titles[slug]}
+}
+
+// libraryIndex is the ownership oracle for one platform.
 type libraryIndex struct {
 	byHash  map[string]*db.LibraryItem
 	byName  map[string]*db.LibraryItem
 	byTitle map[string]*db.LibraryItem
-}
-
-func (s *Service) indexFor(slug string) collection.Index {
-	idx := &libraryIndex{
-		byHash:  s.store.LibraryHashIndex(),
-		byName:  s.store.LibraryNameIndex(slug),
-		byTitle: map[string]*db.LibraryItem{},
-	}
-	suffix := "|" + slug
-	for key, item := range s.store.GetAllLibraryTitles() {
-		if !strings.HasSuffix(key, suffix) {
-			continue
-		}
-		for _, k := range selection.OwnershipKeys(strings.TrimSuffix(key, suffix)) {
-			if _, dup := idx.byTitle[k]; !dup {
-				idx.byTitle[k] = item
-			}
-		}
-	}
-	return idx
 }
 
 func (i *libraryIndex) ByHash(md5, sha1 string) (collection.Match, bool) {

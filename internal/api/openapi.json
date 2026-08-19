@@ -1382,6 +1382,30 @@
         "responses": { "200": { "description": "A page of set entries, whole-set counts, the policy that decided them, and the clone list in play" } }
       }
     },
+    "/api/collection/targets": {
+      "get": {
+        "summary": "The gap list collection mode is working through",
+        "description": "One row per game a monitored platform's 1G1R set wants and the library does not have. A table rather than a derivation because a gap needs memory: attempts, the last result, and a backoff that doubles per attempt and caps at a week. Not the wishlist — that is what a person asked for by name; these are what a policy implies.",
+        "parameters": [
+          { "name": "platform", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["wanted", "grabbed", "unavailable", "all"] } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of gaps, status counts, the monitored platforms and the per-cycle pace" } }
+      }
+    },
+    "/api/collection/sync": {
+      "post": {
+        "summary": "Rebuild the gap list now (admin)",
+        "description": "Reconciles every monitored platform, or one named by the platform parameter, and writes the difference. New gaps are added, existing ones keep their attempt history, and gaps that are filled or no longer wanted are removed. Synchronous — it is one reconciliation against an in-memory snapshot.",
+        "parameters": [
+          { "name": "platform", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Per-platform added, removed and set counts" } }
+      }
+    },
     "/api/clonelists": {
       "get": {
         "summary": "Clone-list plane status (admin)",

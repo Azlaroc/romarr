@@ -188,6 +188,8 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// coverage; the lists are configuration, so admin-only like authorities.
 	r.Get("/api/platforms/{slug}/set", s.handlePlatformSet)
 	r.Get("/api/clonelists", requireAdmin(s.handleCloneLists))
+	r.Get("/api/collection/targets", s.handleCollectionTargets)
+	r.Post("/api/collection/sync", requireAdmin(s.handleCollectionSync))
 	r.Post("/api/clonelists/refresh", requireAdmin(s.handleRefreshCloneLists))
 	r.Get("/api/dat/games/{id}/roms", s.handleDatGameRoms)
 

@@ -48,6 +48,12 @@ type Row struct {
 	AcquisitionEnabled bool `json:"acquisition_enabled"`
 	IsSystem           bool `json:"is_system"`
 
+	// CollectionMode monitors the platform's whole 1G1R set: its gaps become
+	// wanted work rather than each title being asked for by hand. Off unless
+	// an operator turned it on — nothing opts a platform into acquiring a
+	// whole catalog on its behalf.
+	CollectionMode bool `json:"collection_mode"`
+
 	// DefaultProfileID is the quality profile new titles on this platform
 	// default to. Zero means none has been materialized yet.
 	DefaultProfileID int64  `json:"default_profile_id"`
@@ -227,6 +233,19 @@ func AcquisitionEnabled(slug string) bool {
 		return r.AcquisitionEnabled
 	}
 	return true
+}
+
+// CollectionModeOn reports whether a platform monitors its whole 1G1R set.
+//
+// Unlike AcquisitionEnabled, an unregistered slug answers FALSE. The two
+// defaults differ because the failure modes do: acquisition defaulting off
+// would silently stop work an operator asked for, while collection mode
+// defaulting on would start work nobody asked for — across an entire catalog.
+func CollectionModeOn(slug string) bool {
+	if r, ok := Lookup(slug); ok {
+		return r.CollectionMode
+	}
+	return false
 }
 
 // CategoriesFor returns the Prowlarr category IDs a platform publishes under.
