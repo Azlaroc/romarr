@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"gamarr/internal/collectionsvc"
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/models"
@@ -48,6 +49,8 @@ type Scheduler struct {
 	autoDownloads int
 	stopCh        chan struct{}
 	rateLimit     time.Duration // wait between wishlist searches
+	// collections is the collection-mode plane. Nil leaves the fill half off.
+	collections *collectionsvc.Service
 }
 
 // New creates a new Scheduler.
@@ -215,14 +218,12 @@ func (s *Scheduler) run() {
 	repairGrabs := s.repairDegradedSets(mode)
 
 	wishlist := s.jobs.GetWishlist()
+	// 🔴 An empty wishlist is NOT an empty cycle any more. Collection mode's
+	// gaps come from a platform's set, not from the wishlist, and the install
+	// this was built for runs with an empty wishlist most of the time — an
+	// early return here would have meant the whole feature never ran.
 	if len(wishlist) == 0 {
-		slog.Info("scheduler: wishlist empty, nothing to do")
-		s.mu.Lock()
-		s.lastRun = time.Now()
-		s.lastResults = 0
-		s.autoDownloads += repairGrabs
-		s.mu.Unlock()
-		return
+		slog.Info("scheduler: wishlist empty")
 	}
 
 	totalResults := 0
@@ -232,13 +233,18 @@ func (s *Scheduler) run() {
 
 	var owned func(title, platformSlug string) *db.LibraryItem
 	var ownedByHash func(md5, sha1 string) *db.LibraryItem
-	if mode == "enforce" {
+	// Guarded by "is there anything to measure": removing the empty-wishlist
+	// early return would otherwise parse a 20k-title library every cycle on an
+	// install with nothing wanted at all.
+	if mode == "enforce" && (len(wishlist) > 0 || s.hasCollectionWork()) {
 		// One library snapshot per cycle: parsing 20k+ titles per wishlist
 		// item would be wasteful, and a cycle-stale index is fine — newly
 		// imported titles are caught by the ActiveGrab jobs check instead.
 		owned = s.buildOwnedIndex()
 		ownedByHash = s.buildHashIndex()
 	}
+
+	cx := &cycleCtx{mode: mode, minScore: minScore, owned: owned, ownedByHash: ownedByHash}
 
 	for i, item := range wishlist {
 		// Check for stop signal between items, and rate-limit before every
@@ -269,127 +275,21 @@ func (s *Scheduler) run() {
 			continue
 		}
 
-		// One resolution per item, honouring the row's own profile override.
-		prof := s.jobs.ResolveProfileForItem(item.ProfileID, item.PlatformSlug)
-
-		results := s.searchFn(item.Title, item.PlatformSlug, prof)
-		if len(results) == 0 {
-			continue
-		}
-
-		// Sort by score descending
-		sort.SliceStable(results, func(i, j int) bool {
-			return results[i].Score > results[j].Score
-		})
-
-		totalResults += len(results)
-
-		// F4 selector (SELECTOR_MODE):
-		//   off     — pre-F4 behavior exactly: top score >= min grabs, and the
-		//             wishlist row is deleted at grab time.
-		//   shadow  — legacy pick still drives the grab; the selector runs
-		//             alongside and its decision is logged next to the legacy
-		//             pick (the live diff channel).
-		//   enforce — the selector's Decision drives the grab: skip reasons
-		//             honored, disc sets dispatched as stamped members, and
-		//             the wishlist row survives until a later cycle's Owned
-		//             check sees the title in the library (delete-at-grab
-		//             lost rows when an async torrent submit failed).
-		if mode == "off" {
-			autoDownloads += s.legacyGrab(item, results, minScore)
-			continue
-		}
-
-		opts := selection.SelectOpts{
-			Query:        item.Title,
-			PlatformSlug: item.PlatformSlug,
-			MinScore:     minScore,
-			Profile:      prof,
-		}
-		if mode == "enforce" {
-			opts.Owned = owned
-			opts.ActiveGrab = s.activeGrab
-			opts.OwnedByHash = ownedByHash
-		}
-		dec := selection.Select(results, opts)
-
-		chosen := ""
-		if len(dec.Grabs) > 0 {
-			chosen = dec.Grabs[0].Result.Title
-		}
-		legacy := ""
-		if len(results) > 0 {
-			legacy = results[0].Title
-		}
-		slog.Info("selector_decision",
-			"mode", mode, "wishlist_title", item.Title,
-			"action", dec.Action.String(), "chosen", chosen, "grabs", len(dec.Grabs),
-			"reason", dec.Reason, "rejected", len(dec.Rejected), "legacy_pick", legacy)
-		s.jobs.LogActivity("selector_decision", item.Title,
-			fmt.Sprintf("[%s] %s: %s (grabs=%d, rejected=%d; legacy pick: %s)",
-				mode, dec.Action.String(), dec.Reason, len(dec.Grabs), len(dec.Rejected), legacy), "", nil)
-		// One line per discarded candidate. The count alone says a search
-		// found nothing usable without saying why, which is how a filter
-		// rejecting an entire platform stayed invisible for months. The
-		// activity feed keeps the summary — per-candidate rows would drown
-		// it — so this lives in the logs.
-		for _, rej := range dec.Rejected {
-			slog.Info("selector_rejected", "mode", mode, "wishlist_title", item.Title,
-				"platform", item.PlatformSlug, "candidate", rej.Title, "reason", rej.Reason)
-		}
-
-		if mode == "shadow" {
-			autoDownloads += s.legacyGrab(item, results, minScore)
-			continue
-		}
-
-		// enforce
-		switch dec.Action {
-		case selection.ActionSkip:
-			if dec.Reason == "owned" {
-				// Owned means fulfilled — this is where the wishlist row's
-				// life ends under enforce (not at grab time).
-				s.jobs.DeleteWishlistItem(item.ID)
-				s.jobs.LogActivity("wishlist_fulfilled", item.Title,
-					"In library — removed from wishlist", "", nil)
-			}
-		case selection.ActionGrab, selection.ActionGrabSet:
-			if !s.cfg.AutoDownload() {
-				continue
-			}
-			grabbed := 0
-			for _, g := range dec.Grabs {
-				jobID, err := s.downloadFn(g)
-				if err != nil {
-					// A partially-dispatched set is tolerable: the disc-set
-					// sweep degrades it if the missing member never lands.
-					slog.Warn("scheduler: download failed", "title", g.Result.Title, "error", err)
-					continue
-				}
-				grabbed++
-				s.jobs.LogActivity("scheduler_download", item.Title,
-					"Auto-downloaded from wishlist search: "+g.Result.Title, jobID, nil)
-			}
-			if grabbed == 0 {
-				continue
-			}
-			autoDownloads += grabbed
-			if s.webhookFn != nil {
-				msg := "Selector grabbed: " + chosen + " (score: " + itoa(dec.Grabs[0].Result.Score) + ")"
-				if dec.Action == selection.ActionGrabSet {
-					msg = fmt.Sprintf("Selector grabbed disc set: %s (%d discs)", dec.Grabs[0].SetDir, grabbed)
-				}
-				webhook.Send(s.webhookFn(), webhook.Payload{
-					Event:    webhook.EventSchedulerMatch,
-					Title:    item.Title,
-					Platform: dec.Grabs[0].Result.Platform,
-					Status:   "downloading",
-					Message:  msg,
-				})
-			}
-			// Wishlist row intentionally NOT deleted here — see mode comment.
+		out := s.processWanted(wantedOf(item), cx)
+		totalResults += out.Results
+		autoDownloads += out.Grabs
+		if out.Fulfilled {
+			// Owned means fulfilled — this is where a wishlist row's life ends
+			// under enforce (not at grab time).
+			s.jobs.DeleteWishlistItem(item.ID)
+			s.jobs.LogActivity("wishlist_fulfilled", item.Title,
+				"In library — removed from wishlist", "", nil)
 		}
 	}
+
+	// Collection mode runs after the wishlist: a title a person asked for by
+	// name outranks one a policy implies, and both share the cycle's budget.
+	autoDownloads += s.fillCollections(stop, cx)
 
 	s.mu.Lock()
 	s.lastRun = time.Now()
@@ -407,10 +307,185 @@ func (s *Scheduler) run() {
 		"results", totalResults, "auto_downloads", autoDownloads)
 }
 
+// wantedItem is one thing the scheduler is trying to acquire, whoever asked
+// for it: a wishlist row a person added by name, or a gap a platform's 1G1R
+// set implies. Both feed ONE pipeline — search, select, grab — because the
+// moment there are two they drift, which is the lesson the requests plane's
+// duplicate pipeline already taught.
+type wantedItem struct {
+	Title        string
+	PlatformSlug string
+	ProfileID    int64
+	// WishlistID is the row a person added, or 0 when the title is wanted
+	// because a set implies it. Only legacy ("off") mode reads it: that mode
+	// deletes the wishlist row at grab time, and a collection target has no
+	// row to delete.
+	WishlistID int64
+}
+
+func wantedOf(item db.WishlistItem) wantedItem {
+	return wantedItem{
+		Title: item.Title, PlatformSlug: item.PlatformSlug,
+		ProfileID: item.ProfileID, WishlistID: item.ID,
+	}
+}
+
+// wantedOutcome is what one pass over one wanted title did.
+//
+// The CALLER owns the bookkeeping: a wishlist row is deleted when fulfilled, a
+// collection target is retired or backed off. Deciding that here would mean
+// this function knowing which queue it was called from, which is exactly what
+// it must not know.
+type wantedOutcome struct {
+	Results int
+	Grabs   int
+	// Fulfilled is true when the title turned out to be owned already.
+	Fulfilled bool
+	// Reason is the selector's verdict, or why nothing happened. It is what a
+	// collection target records as its last attempt's result.
+	Reason string
+}
+
+// cycleCtx is the per-cycle state every wanted title is measured against.
+type cycleCtx struct {
+	mode        string
+	minScore    int
+	owned       func(title, platformSlug string) *db.LibraryItem
+	ownedByHash func(md5, sha1 string) *db.LibraryItem
+}
+
+// processWanted runs one title through search, selection and grabbing.
+func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
+	var out wantedOutcome
+
+	// One resolution per item, honouring the row's own profile override.
+	prof := s.jobs.ResolveProfileForItem(item.ProfileID, item.PlatformSlug)
+
+	results := s.searchFn(item.Title, item.PlatformSlug, prof)
+	if len(results) == 0 {
+		out.Reason = "no results"
+		return out
+	}
+
+	// Sort by score descending
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	out.Results = len(results)
+
+	// F4 selector (SELECTOR_MODE):
+	//   off     — pre-F4 behavior exactly: top score >= min grabs, and the
+	//             wishlist row is deleted at grab time.
+	//   shadow  — legacy pick still drives the grab; the selector runs
+	//             alongside and its decision is logged next to the legacy
+	//             pick (the live diff channel).
+	//   enforce — the selector's Decision drives the grab: skip reasons
+	//             honored, disc sets dispatched as stamped members, and
+	//             the wishlist row survives until a later cycle's Owned
+	//             check sees the title in the library (delete-at-grab
+	//             lost rows when an async torrent submit failed).
+	if cx.mode == "off" {
+		out.Grabs = s.legacyGrab(item, results, cx.minScore)
+		return out
+	}
+
+	opts := selection.SelectOpts{
+		Query:        item.Title,
+		PlatformSlug: item.PlatformSlug,
+		MinScore:     cx.minScore,
+		Profile:      prof,
+	}
+	if cx.mode == "enforce" {
+		opts.Owned = cx.owned
+		opts.ActiveGrab = s.activeGrab
+		opts.OwnedByHash = cx.ownedByHash
+	}
+	dec := selection.Select(results, opts)
+	out.Reason = dec.Reason
+
+	chosen := ""
+	if len(dec.Grabs) > 0 {
+		chosen = dec.Grabs[0].Result.Title
+	}
+	legacy := ""
+	if len(results) > 0 {
+		legacy = results[0].Title
+	}
+	slog.Info("selector_decision",
+		"mode", cx.mode, "wishlist_title", item.Title,
+		"action", dec.Action.String(), "chosen", chosen, "grabs", len(dec.Grabs),
+		"reason", dec.Reason, "rejected", len(dec.Rejected), "legacy_pick", legacy)
+	s.jobs.LogActivity("selector_decision", item.Title,
+		fmt.Sprintf("[%s] %s: %s (grabs=%d, rejected=%d; legacy pick: %s)",
+			cx.mode, dec.Action.String(), dec.Reason, len(dec.Grabs), len(dec.Rejected), legacy), "", nil)
+	// One line per discarded candidate. The count alone says a search
+	// found nothing usable without saying why, which is how a filter
+	// rejecting an entire platform stayed invisible for months. The
+	// activity feed keeps the summary — per-candidate rows would drown
+	// it — so this lives in the logs.
+	for _, rej := range dec.Rejected {
+		slog.Info("selector_rejected", "mode", cx.mode, "wishlist_title", item.Title,
+			"platform", item.PlatformSlug, "candidate", rej.Title, "reason", rej.Reason)
+	}
+
+	if cx.mode == "shadow" {
+		out.Grabs = s.legacyGrab(item, results, cx.minScore)
+		return out
+	}
+
+	// enforce
+	switch dec.Action {
+	case selection.ActionSkip:
+		// Owned is the one skip the caller acts on: a wishlist row is
+		// fulfilled, a collection target is no longer a gap.
+		out.Fulfilled = dec.Reason == "owned"
+	case selection.ActionGrab, selection.ActionGrabSet:
+		if !s.cfg.AutoDownload() {
+			out.Reason = "auto-download off"
+			return out
+		}
+		grabbed := 0
+		for _, g := range dec.Grabs {
+			jobID, err := s.downloadFn(g)
+			if err != nil {
+				// A partially-dispatched set is tolerable: the disc-set
+				// sweep degrades it if the missing member never lands.
+				slog.Warn("scheduler: download failed", "title", g.Result.Title, "error", err)
+				continue
+			}
+			grabbed++
+			s.jobs.LogActivity("scheduler_download", item.Title,
+				"Auto-downloaded from wishlist search: "+g.Result.Title, jobID, nil)
+		}
+		if grabbed == 0 {
+			out.Reason = "every dispatch failed"
+			return out
+		}
+		out.Grabs = grabbed
+		if s.webhookFn != nil {
+			msg := "Selector grabbed: " + chosen + " (score: " + itoa(dec.Grabs[0].Result.Score) + ")"
+			if dec.Action == selection.ActionGrabSet {
+				msg = fmt.Sprintf("Selector grabbed disc set: %s (%d discs)", dec.Grabs[0].SetDir, grabbed)
+			}
+			webhook.Send(s.webhookFn(), webhook.Payload{
+				Event:    webhook.EventSchedulerMatch,
+				Title:    item.Title,
+				Platform: dec.Grabs[0].Result.Platform,
+				Status:   "downloading",
+				Message:  msg,
+			})
+		}
+		// A wishlist row is intentionally NOT deleted on a grab — see the
+		// mode comment above.
+	}
+	return out
+}
+
 // legacyGrab is the pre-F4 top-pick block, kept verbatim for off mode and as
 // shadow mode's executor: grab results[0] when it clears the score bar, log,
 // webhook, and delete the wishlist row at grab time. Returns grabs made (0/1).
-func (s *Scheduler) legacyGrab(item db.WishlistItem, results []*models.SearchResult, minScore int) int {
+func (s *Scheduler) legacyGrab(item wantedItem, results []*models.SearchResult, minScore int) int {
 	if !s.cfg.AutoDownload() || len(results) == 0 || results[0].Score < minScore {
 		return 0
 	}
@@ -437,8 +512,11 @@ func (s *Scheduler) legacyGrab(item db.WishlistItem, results []*models.SearchRes
 		})
 	}
 
-	// Remove from wishlist after successful download
-	s.jobs.DeleteWishlistItem(item.ID)
+	// Remove from wishlist after successful download. A title wanted because
+	// a set implies it has no wishlist row: its bookkeeping is the caller's.
+	if item.WishlistID > 0 {
+		s.jobs.DeleteWishlistItem(item.WishlistID)
+	}
 	return 1
 }
 

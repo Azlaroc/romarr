@@ -9,6 +9,7 @@ import { PlayLog } from './routes/PlayLog'
 import { Queue } from './routes/activity/Queue'
 import { History } from './routes/activity/History'
 import { Blocklist } from './routes/activity/Blocklist'
+import { Collection } from './routes/wanted/Collection'
 import { Wishlist } from './routes/wanted/Wishlist'
 import { Settings } from './routes/settings/Settings'
 import { MediaManagement } from './routes/settings/MediaManagement'
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: 'activity/blocklist', element: <Blocklist /> },
       { path: 'wanted', element: <Navigate to="/wanted/wishlist" replace /> },
       { path: 'wanted/wishlist', element: <Wishlist /> },
+      { path: 'wanted/collection', element: <Collection /> },
       { path: 'settings', element: <Navigate to="/settings/media-management" replace /> },
       { path: 'settings/media-management', element: <MediaManagement /> },
       { path: 'settings/indexers', element: <Indexers /> },

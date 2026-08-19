@@ -22,6 +22,8 @@ export interface PlatformRow {
   media_class: string // carts | discs | arcade | computer | pc
   converts_to_chd: boolean
   acquisition_enabled: boolean
+  /** Monitors the platform's whole 1G1R set: its gaps become wanted work. */
+  collection_mode: boolean
   is_system: boolean
   default_profile_id: number
   updated_at?: string
@@ -624,4 +626,35 @@ export interface DatGame {
   clone_of?: string
   flags?: string
   total_size: number
+}
+
+/** One gap: what a platform's 1G1R set wants that the library does not have. */
+export interface CollectionTarget {
+  id: number
+  platform_slug: string
+  set_key: string
+  title: string
+  dump_name?: string
+  status: string // wanted | grabbed | unavailable
+  attempts: number
+  last_attempt?: string
+  last_reason?: string
+  created_at?: string
+}
+
+export interface CollectionTargetsResponse {
+  targets: CollectionTarget[]
+  total: number
+  page: number
+  page_size: number
+  counts: Record<string, number>
+  platforms: string[]
+  fill_per_cycle: number
+}
+
+export interface CollectionSyncResult {
+  platform: string
+  added: number
+  removed: number
+  counts: { groups: number; owned: number; gaps: number; out: number; surplus: number }
 }

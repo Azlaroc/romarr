@@ -25,6 +25,7 @@ import { formatSize } from '../lib/format'
 interface RowEdit {
   default_profile_id?: number
   acquisition_enabled?: boolean
+  collection_mode?: boolean
 }
 
 const CLASS_COLOR: Record<string, 'blue' | 'purple' | 'orange' | 'slate'> = {
@@ -75,6 +76,7 @@ export function Platforms() {
   const effective = (row: PlatformRow) => ({
     profileID: edits[row.slug]?.default_profile_id ?? row.default_profile_id,
     acquisition: edits[row.slug]?.acquisition_enabled ?? row.acquisition_enabled,
+    collection: edits[row.slug]?.collection_mode ?? row.collection_mode,
   })
 
   const edit = (row: PlatformRow, patch: RowEdit) => {
@@ -85,7 +87,13 @@ export function Platforms() {
       const cand = next[row.slug]
       const profileID = cand.default_profile_id ?? row.default_profile_id
       const acquisition = cand.acquisition_enabled ?? row.acquisition_enabled
-      if (profileID === row.default_profile_id && acquisition === row.acquisition_enabled) delete next[row.slug]
+      const collection = cand.collection_mode ?? row.collection_mode
+      if (
+        profileID === row.default_profile_id &&
+        acquisition === row.acquisition_enabled &&
+        collection === row.collection_mode
+      )
+        delete next[row.slug]
       return next
     })
   }
@@ -107,6 +115,9 @@ export function Platforms() {
             : {}),
           ...(e.acquisition_enabled !== undefined && e.acquisition_enabled !== row.acquisition_enabled
             ? { acquisition_enabled: e.acquisition_enabled }
+            : {}),
+          ...(e.collection_mode !== undefined && e.collection_mode !== row.collection_mode
+            ? { collection_mode: e.collection_mode }
             : {}),
         })
         ok++
@@ -201,6 +212,24 @@ export function Platforms() {
       ),
     },
     {
+      key: 'collection',
+      header: 'Collection',
+      align: 'right',
+      sortValue: (r) => (effective(r).collection ? 0 : 1),
+      render: (r) => (
+        <div className="flex justify-end">
+          <Toggle
+            checked={effective(r).collection}
+            onChange={(v) => edit(r, { collection_mode: v })}
+            label=""
+            aria-label={`Collection mode for ${r.display_name}`}
+            data-testid={`plat-collection-${r.slug}`}
+            disabled={!r.dat_authority}
+          />
+        </div>
+      ),
+    },
+    {
       key: 'acquisition',
       header: 'Acquisition',
       align: 'right',
@@ -244,7 +273,12 @@ export function Platforms() {
                 A platform&apos;s <strong>default profile</strong> applies to titles added for it that do not choose
                 their own. The first title added on a platform with no default gets one created from its type&apos;s
                 template. Turning <strong>acquisition</strong> off stops searching and grabbing for that platform;
-                anything already on the wishlist stays there and resumes when you turn it back on.
+                anything already on the wishlist stays there and resumes when you turn it back on.{' '}
+                <strong>Collection</strong> monitors the platform&apos;s whole 1G1R set — one dump per game, chosen by
+                the platform&apos;s profile — and everything missing from it becomes wanted work, listed under Wanted →
+                Collection. It needs a catalog, so platforms with no DAT authority cannot use it. The two switches are
+                independent: with collection on and acquisition off you can watch the gap list without RomArr acting
+                on it.
               </InfoPopover>
             </>
           }

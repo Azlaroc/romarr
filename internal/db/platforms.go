@@ -40,6 +40,7 @@ type PlatformPatch struct {
 	MediaClass         *string
 	ConvertsToCHD      *bool
 	AcquisitionEnabled *bool
+	CollectionMode     *bool
 	DefaultProfileID   *int64
 }
 
@@ -58,6 +59,7 @@ func (s *JobStore) migratePlatforms() {
 			acquisition_enabled INTEGER NOT NULL DEFAULT 1,
 			is_system INTEGER NOT NULL DEFAULT 0,
 			default_profile_id INTEGER NOT NULL DEFAULT 0,
+			collection_mode INTEGER NOT NULL DEFAULT 0,
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 		// The IGDB identity is unique where it is claimed at all. Rows without
@@ -68,6 +70,14 @@ func (s *JobStore) migratePlatforms() {
 	for _, ddl := range stmts {
 		if _, err := s.db.Exec(ddl); err != nil {
 			slog.Warn("migrate platforms", "error", err)
+		}
+	}
+	// CREATE TABLE IF NOT EXISTS is a no-op on an existing install, so a new
+	// column arrives by ALTER or not at all. Off by default: a platform
+	// nobody has opted in must not start acquiring a whole catalog.
+	if !s.columnExists("platforms", "collection_mode") {
+		if _, err := s.db.Exec(`ALTER TABLE platforms ADD COLUMN collection_mode INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate platforms collection_mode", "error", err)
 		}
 	}
 	s.seedPlatformDefaults()
@@ -198,13 +208,14 @@ func (s *JobStore) seedPlatformDefaults() {
 func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 	var p platform.Row
 	var cats string
-	var chd, acq, sys int
+	var chd, acq, sys, coll int
 	err := rows.Scan(&p.Slug, &p.DisplayName, &p.IGDBSlug, &p.IGDBID, &p.RommFSSlug, &cats,
-		&p.TorznabCategory, &p.MediaClass, &chd, &acq, &sys, &p.DefaultProfileID, &p.UpdatedAt)
+		&p.TorznabCategory, &p.MediaClass, &chd, &acq, &sys, &p.DefaultProfileID, &coll, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}
 	p.ConvertsToCHD, p.AcquisitionEnabled, p.IsSystem = chd == 1, acq == 1, sys == 1
+	p.CollectionMode = coll == 1
 	if cats != "" {
 		_ = json.Unmarshal([]byte(cats), &p.ProwlarrCategories)
 	}
@@ -213,7 +224,7 @@ func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 
 const platformCols = `slug, display_name, igdb_slug, igdb_id, romm_fs_slug, prowlarr_categories,
 	torznab_category, media_class, converts_to_chd, acquisition_enabled, is_system,
-	default_profile_id, updated_at`
+	default_profile_id, collection_mode, updated_at`
 
 // PlatformRows implements platform.Registry.
 func (s *JobStore) PlatformRows() []platform.Row {
@@ -268,6 +279,9 @@ func (s *JobStore) PatchPlatform(slug string, p PlatformPatch) error {
 	}
 	if p.AcquisitionEnabled != nil {
 		sets, args = append(sets, "acquisition_enabled = ?"), append(args, boolInt(*p.AcquisitionEnabled))
+	}
+	if p.CollectionMode != nil {
+		sets, args = append(sets, "collection_mode = ?"), append(args, boolInt(*p.CollectionMode))
 	}
 	if p.DefaultProfileID != nil {
 		sets, args = append(sets, "default_profile_id = ?"), append(args, *p.DefaultProfileID)

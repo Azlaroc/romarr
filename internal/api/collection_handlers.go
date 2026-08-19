@@ -124,3 +124,61 @@ func (s *Server) handleRefreshCloneLists(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{"success": true, "status": s.coll.RefreshStatus()})
 }
+
+// The gap list: what collection mode is trying to acquire, and how it is
+// getting on. A derived set answers "what should exist"; these rows answer
+// "what have we actually been doing about it".
+
+func (s *Server) handleCollectionTargets(w http.ResponseWriter, r *http.Request) {
+	pageSize := clampInt(intParam(r, "page_size", 50), 1, 200)
+	page := intParam(r, "page", 1)
+	if page < 1 {
+		page = 1
+	}
+	jobs := s.mgr.Jobs()
+	targets, total := jobs.ListCollectionTargets(db.CollectionTargetQuery{
+		PlatformSlug: strings.TrimSpace(r.URL.Query().Get("platform")),
+		Status:       strings.TrimSpace(r.URL.Query().Get("status")),
+		Text:         r.URL.Query().Get("q"),
+		Limit:        pageSize,
+		Offset:       (page - 1) * pageSize,
+	})
+	if targets == nil {
+		targets = []db.CollectionTarget{}
+	}
+	platforms := []string{}
+	if s.coll != nil {
+		platforms = s.coll.CollectionPlatforms()
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"targets":        targets,
+		"total":          total,
+		"page":           page,
+		"page_size":      pageSize,
+		"counts":         jobs.CollectionTargetCounts(),
+		"platforms":      platforms,
+		"fill_per_cycle": s.cfg.CollectionFill(),
+	})
+}
+
+// handleCollectionSync rebuilds the gap list now rather than at the next
+// scheduler cycle. Synchronous: it is one reconciliation per platform against
+// an in-memory snapshot, and an operator who just switched a platform on wants
+// the answer, not a job id.
+func (s *Server) handleCollectionSync(w http.ResponseWriter, r *http.Request) {
+	if s.coll == nil {
+		writeError(w, http.StatusServiceUnavailable, "collection service unavailable")
+		return
+	}
+	slug := strings.TrimSpace(r.URL.Query().Get("platform"))
+	if slug != "" {
+		res := s.coll.NewCycle().SyncTargets(slug)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "results": []interface{}{res}})
+		return
+	}
+	results := s.coll.SyncAll()
+	if results == nil {
+		results = []collectionsvc.SyncResult{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "results": results})
+}

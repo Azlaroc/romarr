@@ -316,23 +316,24 @@ func (s *JobStore) DatSetMembers(slug string) []DatSetMember {
 	return out
 }
 
-// LibraryNameIndex maps a library file's name forms to its row: the file's
-// base name and its stem, both lowered. This is the middle ownership tier —
-// weaker than a hash, stronger than a parsed title — and it is what makes a
-// renamed-to-canonical library match its catalogue entry exactly.
-func (s *JobStore) LibraryNameIndex(platformSlug string) map[string]*LibraryItem {
-	q := `SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items`
-	args := []interface{}{}
-	if platformSlug != "" {
-		q += ` WHERE platform_slug = ?`
-		args = append(args, platformSlug)
-	}
-	rows, err := s.db.Query(q, args...)
+// LibraryNameIndexByPlatform maps every library file's name forms to its row,
+// grouped by platform. This is the middle ownership tier — weaker than a hash,
+// stronger than a parsed title — and it is what makes a renamed-to-canonical
+// library match its catalogue entry exactly.
+//
+// Grouped rather than flat because names collide across platforms: "Tetris
+// (World).zip" exists on several, and a flat index would hand one platform's
+// file to another platform's set. One query for every platform, because the
+// scheduler reconciles many platforms per cycle.
+func (s *JobStore) LibraryNameIndexByPlatform() map[string]map[string]*LibraryItem {
+	rows, err := s.db.Query(`SELECT id, title, platform, platform_slug, is_pc, file_path, file_size,
+		source, source_type, source_id, metadata, added_at FROM library_items`)
 	if err != nil {
+		slog.Warn("library name index", "error", err)
 		return nil
 	}
 	defer rows.Close()
-	idx := map[string]*LibraryItem{}
+	out := map[string]map[string]*LibraryItem{}
 	for rows.Next() {
 		var item LibraryItem
 		var isPC int
@@ -343,17 +344,31 @@ func (s *JobStore) LibraryNameIndex(platformSlug string) map[string]*LibraryItem
 		}
 		item.IsPC = isPC != 0
 		cp := item
+		byName, ok := out[item.PlatformSlug]
+		if !ok {
+			byName = map[string]*LibraryItem{}
+			out[item.PlatformSlug] = byName
+		}
 		base := item.FilePath
 		if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
 			base = base[i+1:]
 		}
 		for _, k := range nameKeys(base) {
-			if _, dup := idx[k]; !dup {
-				idx[k] = &cp
+			if _, dup := byName[k]; !dup {
+				byName[k] = &cp
 			}
 		}
 	}
-	return idx
+	return out
+}
+
+// LibraryNameIndex is one platform's slice of the same index.
+func (s *JobStore) LibraryNameIndex(platformSlug string) map[string]*LibraryItem {
+	all := s.LibraryNameIndexByPlatform()
+	if idx, ok := all[platformSlug]; ok {
+		return idx
+	}
+	return map[string]*LibraryItem{}
 }
 
 // nameKeys are the lowered forms a file name is matched under: the name as
