@@ -27,6 +27,7 @@ const VERDICT: Record<string, { color: BadgeColor; label: string }> = {
   archive: { color: 'purple', label: 'surplus' },
   review: { color: 'yellow', label: 'review' },
   'excluded-group': { color: 'orange', label: 'off-catalog group' },
+  'uncatalogued-duplicate': { color: 'yellow', label: 'off-catalog spare' },
   uncatalogued: { color: 'blue', label: 'not in any catalog' },
 }
 
@@ -37,6 +38,7 @@ function verdictOf(row: PrunePreviewRow) {
 export function LibraryDeclutter() {
   const [scope, setScope] = useState('all')
   const [includeExcluded, setIncludeExcluded] = useState(false)
+  const [includeDupes, setIncludeDupes] = useState(false)
   const [page, setPage] = useState(1)
   const [excluded, setExcluded] = useState<Set<number>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -64,7 +66,7 @@ export function LibraryDeclutter() {
     setExcluded(new Set())
     setPage(1)
     try {
-      const res = await preview.mutateAsync({ platformSlug: scope, includeExcluded })
+      const res = await preview.mutateAsync({ platformSlug: scope, includeExcluded, includeDupes })
       if (res.success) toast('Preview started — nothing moves until you apply.', 'success')
       else toast(res.error || 'Failed to start', 'error')
     } catch {
@@ -135,8 +137,15 @@ export function LibraryDeclutter() {
           checked={includeExcluded}
           onChange={setIncludeExcluded}
           label="Include off-catalog groups"
-          hint="Hacks, prototypes and unlicensed dumps — archiving one removes a game, not a duplicate"
+          hint="Catalogued hacks, prototypes and unlicensed dumps — archiving one removes a game, not a duplicate"
           data-testid="prune-include-excluded"
+        />
+        <Toggle
+          checked={includeDupes}
+          onChange={setIncludeDupes}
+          label="Include off-catalog spares"
+          hint="Files no catalog knows whose title is a game you already own the catalogued dump of — the hack and alt-dump pile"
+          data-testid="prune-include-dupes"
         />
       </div>
 
@@ -150,6 +159,9 @@ export function LibraryDeclutter() {
             <span className={counts['excluded-group'] ? 'text-orange-400' : ''}>
               {counts['excluded-group'] ?? 0} off-catalog
             </span>
+            <span className={counts['uncatalogued-duplicate'] ? 'text-yellow-400' : ''}>
+              {counts['uncatalogued-duplicate'] ?? 0} off-catalog spares
+            </span>
             <span>{status.data?.uncatalogued ?? 0} not in any catalog</span>
             <span className={status.data?.errors ? 'text-red-400' : ''}>{status.data?.errors ?? 0} errors</span>
           </>
@@ -160,7 +172,8 @@ export function LibraryDeclutter() {
           deleted, and a manifest records where each one came from and what replaced it. A dump is only surplus when
           the one the set actually keeps is already on disk — if the keeper is still missing, the copy you have is
           the collection and it is left alone. Files no catalog has heard of are counted and listed but never
-          archived: the catalog&apos;s silence is not evidence of redundancy.
+          archived — unless its title is a game you already own the catalogued dump of, which is the hack and
+          alt-dump pile and has its own opt-in.
         </InfoPopover>
       </div>
 

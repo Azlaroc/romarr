@@ -2,6 +2,7 @@ package selection
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"gamarr/internal/models"
@@ -186,5 +187,28 @@ func TestParseRevisionLetters(t *testing.T) {
 	}
 	if got := Parse("Game (USA) (Rev 3)").Revision; got != 3 {
 		t.Errorf("Rev 3 = %d, want 3", got)
+	}
+}
+
+// 🔴 An extension this package does not know stays inside CleanTitle and
+// BareTitle, so every title-based comparison for that platform silently fails
+// to match — ownership checks, duplicate detection, the lot. Nine cart lanes
+// were lit up after the list was first written; five of their extensions never
+// arrived with them.
+func TestCartLaneExtensionsAreStripped(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"Asteroids (USA).a78", "Asteroids"},
+		{"Chip's Challenge (USA, Europe).lnx", "Chip's Challenge"},
+		{"Mario's Tennis (Japan, USA).vb", "Mario's Tennis"},
+		{"Rockman EXE WS (Japan).wsc", "Rockman EXE WS"},
+		{"Sonic the Hedgehog Pocket Adventure (World).ngc", "Sonic the Hedgehog Pocket Adventure"},
+		{"Knuckles' Chaotix (USA).32x", "Knuckles' Chaotix"},
+	} {
+		if got := BareTitle(tc.name); got != tc.want {
+			t.Errorf("BareTitle(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+		if attrs := Parse(tc.name); strings.Contains(attrs.CleanTitle, ".") {
+			t.Errorf("Parse(%q).CleanTitle = %q, still carries an extension", tc.name, attrs.CleanTitle)
+		}
 	}
 }

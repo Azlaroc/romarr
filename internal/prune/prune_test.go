@@ -90,7 +90,7 @@ func catGame(name, region, md5, flags string) db.DatGameRow {
 
 func (e *env) preview(t *testing.T, scope string, includeOut bool) []PreviewRow {
 	t.Helper()
-	if !e.runner.TriggerPreview(scope, includeOut) {
+	if !e.runner.TriggerPreview(scope, Opts{IncludeExcluded: includeOut}) {
 		t.Fatal("preview did not start")
 	}
 	e.wait(t, "preview")
@@ -371,5 +371,79 @@ func TestExcludedDumpInAnOwnedGroupSaysWhy(t *testing.T) {
 	}
 	if !strings.Contains(row.Reason, "Alien (USA)") {
 		t.Errorf("reason = %q, want it to name what the set keeps", row.Reason)
+	}
+}
+
+// The clutter that started #211: a shop listing eighteen Asteroids, where the
+// extras are hacks and alternate dumps of a game already owned properly. They
+// are uncatalogued, so the conservative pass leaves them; this verdict is how
+// they become actionable without touching homebrew that exists nowhere else.
+func TestUncataloguedDuplicateNeedsItsOwnOptIn(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{catGame("Asteroids (USA)", "usa", "aaa", "")})
+	e.own(t, "atari7800", "Asteroids", "Asteroids (USA).a78", "aaa")
+	// A hack of the game we own, and a homebrew that exists nowhere else.
+	e.own(t, "atari7800", "Asteroids SS", "Asteroids (1979) (Atari) [a1][!].a78", "hhh")
+	e.own(t, "atari7800", "Borgwars", "Totally Original Homebrew (2003).a78", "zzz")
+
+	rows := e.preview(t, "atari7800", false)
+	dupe, ok := rowFor(rows, "Asteroids (1979) (Atari) [a1][!].a78")
+	if !ok {
+		t.Fatalf("hack row missing: %+v", rows)
+	}
+	if dupe.Verdict != VerdictUncataloguedDupe {
+		t.Errorf("verdict = %q, want %q", dupe.Verdict, VerdictUncataloguedDupe)
+	}
+	if dupe.Status == StatusPlanned {
+		t.Error("an uncatalogued duplicate was planned without the opt-in")
+	}
+	if dupe.Keeper != "Asteroids (USA)" {
+		t.Errorf("keeper = %q, want the catalogued dump we hold", dupe.Keeper)
+	}
+
+	// 🔴 The homebrew stays plain uncatalogued whatever the opt-in says: no
+	// catalogued dump covers it, so archiving it would remove the only way to
+	// play a game.
+	home, _ := rowFor(rows, "Totally Original Homebrew (2003).a78")
+	if home.Verdict != VerdictUncatalogued {
+		t.Errorf("homebrew verdict = %q, want plain uncatalogued", home.Verdict)
+	}
+
+	// With the opt-in, only the duplicate becomes actionable.
+	if !e.runner.TriggerPreview("atari7800", Opts{IncludeUncataloguedDupes: true}) {
+		t.Fatal("preview did not start")
+	}
+	e.wait(t, "preview")
+	rows, _ = e.runner.PreviewPage(1, 500)
+	dupe, _ = rowFor(rows, "Asteroids (1979) (Atari) [a1][!].a78")
+	home, _ = rowFor(rows, "Totally Original Homebrew (2003).a78")
+	if dupe.Status != StatusPlanned {
+		t.Errorf("duplicate status = %q, want planned under the opt-in", dupe.Status)
+	}
+	if home.Status == StatusPlanned {
+		t.Error("standalone homebrew was planned — the opt-in must not reach it")
+	}
+	if got := e.runner.Status()["total"]; got != 1 {
+		t.Errorf("planned total = %v, want just the duplicate", got)
+	}
+}
+
+// A title match against a game whose keeper is NOT owned is not a duplicate of
+// anything: it is the only copy, one tier out.
+func TestUncataloguedIsNotADupeWhenTheKeeperIsMissing(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{catGame("Asteroids (USA)", "usa", "aaa", "")})
+	// The catalogued dump is NOT owned; all we have is an off-catalog version.
+	// A realistic hack: its stored title does not collide with the catalogued
+	// name, only its FILE name does.
+	e.own(t, "atari7800", "Asteroids SS", "Asteroids (1979) (Atari) [a1][!].a78", "hhh")
+
+	rows := e.preview(t, "atari7800", true)
+	row, ok := rowFor(rows, "Asteroids (1979) (Atari) [a1][!].a78")
+	if !ok {
+		t.Fatalf("row missing: %+v", rows)
+	}
+	if row.Verdict != VerdictUncatalogued || row.Status == StatusPlanned {
+		t.Errorf("verdict/status = %q/%q, want plain uncatalogued and never planned", row.Verdict, row.Status)
 	}
 }
