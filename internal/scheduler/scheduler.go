@@ -442,35 +442,9 @@ func (s *Scheduler) legacyGrab(item db.WishlistItem, results []*models.SearchRes
 	return 1
 }
 
-// ownershipKeys returns the lowered comparison keys a title matches under:
-// the raw title, the parsed CleanTitle (classified tags stripped), and the
-// BareTitle (ALL tags stripped). Raw and clean keep exact titles exact; bare
-// is what lets a wishlist "Kirby's Dream Land 2" meet a library row
-// "Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)" or a Vimm release
-// carrying a trailing "(GB)" system tag.
-func ownershipKeys(title string) []string {
-	keys := make([]string, 0, 3)
-	add := func(k string) {
-		k = strings.ToLower(strings.TrimSpace(k))
-		if k == "" {
-			return
-		}
-		for _, have := range keys {
-			if have == k {
-				return
-			}
-		}
-		keys = append(keys, k)
-	}
-	add(title)
-	add(selection.Parse(title).CleanTitle)
-	add(selection.BareTitle(title))
-	return keys
-}
-
 // buildOwnedIndex snapshots the library into an ownership lookup. It indexes
 // the GetAllLibraryTitles map KEYS — which carry both the stored titles and
-// the RomM search_keys — under all ownershipKeys variants, so lookups match
+// the RomM search_keys — under all OwnershipKeys variants, so lookups match
 // regardless of which side carries the No-Intro/Vimm tags.
 func (s *Scheduler) buildOwnedIndex() func(title, platformSlug string) *db.LibraryItem {
 	all := s.jobs.GetAllLibraryTitles()
@@ -481,12 +455,12 @@ func (s *Scheduler) buildOwnedIndex() func(title, platformSlug string) *db.Libra
 			continue
 		}
 		titleish, slugSuffix := key[:cut], key[cut:]
-		for _, k := range ownershipKeys(titleish) {
+		for _, k := range selection.OwnershipKeys(titleish) {
 			idx[k+slugSuffix] = it
 		}
 	}
 	return func(title, platformSlug string) *db.LibraryItem {
-		for _, k := range ownershipKeys(title) {
+		for _, k := range selection.OwnershipKeys(title) {
 			if it := idx[k+"|"+platformSlug]; it != nil {
 				return it
 			}
@@ -525,7 +499,7 @@ func (s *Scheduler) buildHashIndex() func(md5, sha1 string) *db.LibraryItem {
 // while a download or set is still converging.
 func (s *Scheduler) activeGrab(title, platformSlug string) bool {
 	want := map[string]bool{}
-	for _, k := range ownershipKeys(title) {
+	for _, k := range selection.OwnershipKeys(title) {
 		want[k] = true
 	}
 	for _, item := range s.jobs.Items() {
@@ -537,7 +511,7 @@ func (s *Scheduler) activeGrab(title, platformSlug string) bool {
 		if jobTitle == "" || !jobInFlight(item.Data) {
 			continue
 		}
-		for _, k := range ownershipKeys(jobTitle) {
+		for _, k := range selection.OwnershipKeys(jobTitle) {
 			if want[k] {
 				return true
 			}

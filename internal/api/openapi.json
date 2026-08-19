@@ -1345,6 +1345,60 @@
         }
       }
     },
+    "/api/dat/games": {
+      "get": {
+        "summary": "Browse a platform's catalogued dumps",
+        "description": "Reads the platform's ACTIVE snapshot only. This is the catalog as the authority published it — one entry per dump, so a game the authority lists once per dump format appears once per format.",
+        "parameters": [
+          { "name": "platform", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of catalogued dumps plus the total" } }
+      }
+    },
+    "/api/dat/games/{id}/roms": {
+      "get": {
+        "summary": "The files of one catalogued dump",
+        "description": "A disc is several rows — the cue plus every track — which is why the files are a separate call rather than a column on the game.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": { "200": { "description": "The dump's files with their sizes and hashes" } }
+      }
+    },
+    "/api/platforms/{slug}/set": {
+      "get": {
+        "summary": "The platform's 1G1R set, reconciled against the library",
+        "description": "One keeper per game, every other catalogued dump surplus, and a readable reason on every row. Groups come from parsed titles plus the platform's clone list. Region priority ORDERS keepers and never removes one, so a game that only ever released in Japan keeps its Japanese dump. Statuses: owned (the keeper is on disk), gap (the set wants it and we do not have it), out (policy excludes the group entirely). Counts always describe the whole set, never the filtered page.",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["owned", "gap", "out", "all"] } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of set entries, whole-set counts, the policy that decided them, and the clone list in play" } }
+      }
+    },
+    "/api/clonelists": {
+      "get": {
+        "summary": "Clone-list plane status (admin)",
+        "description": "Which platforms carry a clone-list locator, what is stored for each, the fetch base, and whether a refresh is running. Clone lists are the upstream opinion about which differently-named dumps are the same game — the catalogs themselves ship no parent/clone data at all.",
+        "responses": { "200": { "description": "Locators, stored lists and refresh status" } }
+      }
+    },
+    "/api/clonelists/refresh": {
+      "post": {
+        "summary": "Re-fetch every assigned clone list (admin)",
+        "description": "Asynchronous: it returns immediately and the stored rows are the status. A run already in flight returns 409.",
+        "responses": {
+          "202": { "description": "Refresh started" },
+          "409": { "description": "A refresh is already running" }
+        }
+      }
+    },
     "/api/dat/coverage": {
       "get": {
         "summary": "Owned versus catalogued, per platform",

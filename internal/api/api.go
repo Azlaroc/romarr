@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"gamarr/internal/collectionsvc"
 	"gamarr/internal/config"
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
@@ -46,6 +47,10 @@ type Server struct {
 	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
 	dat       *datsvc.Service
+	// coll answers set questions. Built here rather than threaded through
+	// NewRouter for the same reason meta is: it needs only the config and the
+	// store, and it holds no state a caller has to own.
+	coll *collectionsvc.Service
 	// meta is the metadata authority (IGDB). Built from config here rather
 	// than threaded through NewRouter: it needs nothing but credentials, and
 	// an unconfigured one is a valid state the settings screen reports.
@@ -62,6 +67,7 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 		metaOpts = append(metaOpts, metadata.WithIGDBBase(cfg.IGDBAPIBase, cfg.IGDBAuthBase))
 	}
 	s.meta = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret, metaOpts...)
+	s.coll = collectionsvc.New(cfg, mgr.Jobs())
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -177,6 +183,12 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/metadata/providers", s.handleMetadataProviders)
 	r.Get("/api/metadata/search", s.handleMetadataSearch)
 	r.Get("/api/dat/games", s.handleDatGames)
+
+	// The 1G1R set and the clone lists that shape it. The set is a read like
+	// coverage; the lists are configuration, so admin-only like authorities.
+	r.Get("/api/platforms/{slug}/set", s.handlePlatformSet)
+	r.Get("/api/clonelists", requireAdmin(s.handleCloneLists))
+	r.Post("/api/clonelists/refresh", requireAdmin(s.handleRefreshCloneLists))
 	r.Get("/api/dat/games/{id}/roms", s.handleDatGameRoms)
 
 	// The platform registry. Reads are open — every picker in the app needs
