@@ -48,6 +48,10 @@ func (s *Server) handlePrunePreview(w http.ResponseWriter, r *http.Request) {
 		// a game the set covers and already holds. Opt-in separately because
 		// the evidence is a title match, not a hash.
 		IncludeUncataloguedDupes bool `json:"include_uncatalogued_duplicates"`
+		// IncludeUncataloguedHacks adds files no catalog knows whose NAME
+		// declares them a hack, alternate or bad dump, pirate release or fan
+		// translation.
+		IncludeUncataloguedHacks bool `json:"include_uncatalogued_hacks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.PlatformSlug) == "" {
 		writeError(w, http.StatusBadRequest, "platform_slug required (a slug or \"all\")")
@@ -56,6 +60,7 @@ func (s *Server) handlePrunePreview(w http.ResponseWriter, r *http.Request) {
 	if !s.prune.TriggerPreview(strings.TrimSpace(req.PlatformSlug), prune.Opts{
 		IncludeExcluded:          req.IncludeExcluded,
 		IncludeUncataloguedDupes: req.IncludeUncataloguedDupes,
+		IncludeUncataloguedHacks: req.IncludeUncataloguedHacks,
 	}) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "already running"})
 		return

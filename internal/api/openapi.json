@@ -1392,7 +1392,7 @@
     "/api/library/prune/preview": {
       "post": {
         "summary": "Classify a platform's surplus (admin)",
-        "description": "Reads the 1G1R set in the prune direction and classifies every owned dump the set does not keep. Nothing moves. A dump is only planned for archiving when the dump the set DOES keep is already on disk and the match was by hash or canonical name; a title-only match or a missing keeper is review-only, and a file no catalog knows is reported but never actioned. include_excluded opts in to groups policy leaves out of the set entirely — archiving one of those removes a game rather than a duplicate.",
+        "description": "Reads the 1G1R set in the prune direction and classifies every owned dump the set does not keep, plus every library file no catalog knows. Nothing moves. A dump is only planned for archiving when the dump the set DOES keep is already on disk and the match was by hash or canonical name; a title-only match or a missing keeper is review-only. Three opt-ins widen it, each with weaker evidence than the last: include_excluded (catalogued hacks, prototypes and unlicensed dumps — archiving one removes a game rather than a duplicate), include_uncatalogued_duplicates (off-catalog files whose title is a game whose catalogued dump is already on disk), include_uncatalogued_hacks (off-catalog files whose name declares them a hack, alternate or bad dump, pirate release or fan translation). None of them can reach a file when the set is still missing that game's catalogued dump.",
         "responses": {
           "200": { "description": "Preview started, or a reason it did not" },
           "400": { "description": "platform_slug missing" }

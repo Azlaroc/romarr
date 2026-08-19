@@ -182,6 +182,7 @@ the diff first.
 | `review` | matched only by a parsed title, **or** the keeper is still missing | never |
 | `excluded-group` | an owned dump in a group policy leaves out of the set (hacks, prototypes, unlicensed) | opt-in per run |
 | `uncatalogued-duplicate` | no catalogued dump matches it, but its TITLE is a game the set covers and whose catalogued dump is already on disk | opt-in per run |
+| `uncatalogued-hack` | no catalogued dump matches it, and its NAME declares it a hack, alternate/bad dump, pirate release or fan translation | opt-in per run |
 | `uncatalogued` | no catalogued dump matches this file at all | never |
 
 Three rules it will not bend:
@@ -199,7 +200,19 @@ Three rules it will not bend:
   **and whose catalogued dump is already on disk** is a spare copy of something
   owned — the hack and alt-dump pile that makes a shop list eighteen Asteroids.
   That is its own verdict with its own opt-in, and it never touches the
-  standalone homebrew (1,716 of those 1,945) that exists nowhere else.
+  standalone homebrew that exists nowhere else.
+
+  A second exception covers what the first cannot see: a hack named for itself
+  (`Asteroids SS (Asteroids Hack)`) never collides with the title it hacks, so
+  no duplicate check can find it. The file's own name is the evidence —
+  GoodTools-era markers (`[a1]`, `[h1]`, `[t1]`, `[b]`, `[o1]`, `[p1]`,
+  `[T-Eng]`) and the explicit `(… Hack)` tag. `[!]` means verified good and
+  never matches.
+
+  🔴 Both exceptions stop at the same wall: if the set is still MISSING the
+  catalogued dump of that game, the off-catalog file may be the only copy there
+  is. It is review-only with every opt-in switched on — the lone-European-dump
+  rule, one tier out.
 
 The archive lives at `<roms>/.archive/<platform>/` by default
 (`prune_archive_path` overrides it). Inside the ROM root and dot-prefixed on
