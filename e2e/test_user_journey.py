@@ -51,52 +51,72 @@ def test_no_cdn_and_csp(ui, app):
 
 # ── search (Add New) ──────────────────────────────────────────────────────────
 
+def _search_from_wishlist(page, title: str, platform_slug: str):
+    """Open interactive search on a fresh wishlist row.
+
+    Release search moved out of Add New — that page is a discovery door now
+    (metadata search and DAT browse). Picking a specific release by hand is
+    the arrs' interactive search, and it lives on the row it is about.
+    Returns the row locator so the caller can clean it up.
+    """
+    _nav(page, "wanted", "Wanted")
+    page.get_by_test_id("wish-title").fill(title)
+    page.get_by_test_id("wish-platform").select_option(platform_slug)
+    page.get_by_test_id("wish-add").click()
+    row = page.locator('[data-testid="wishlist"] > div', has_text=title).first
+    expect(row).to_be_visible(timeout=SLOW_MS)
+    row.locator('[data-testid^="wish-search-"]').click()
+    expect(page.get_by_test_id("interactive-search")).to_be_visible(timeout=SLOW_MS)
+    return row
+
+
+def _close_search_and_delete(page, row, title: str):
+    """Leave the wishlist as it was found (browser journeys run first)."""
+    page.get_by_test_id("interactive-search-close").click()
+    if row.count():
+        row.locator('[data-testid="wish-delete"]').click()
+    expect(page.get_by_test_id("wishlist")).not_to_contain_text(title, timeout=SLOW_MS)
+
+
 def test_ddl_search_renders_results(ui):
     page = ui["page"]
-    _nav(page, "add-new", "Add New")
-    page.get_by_test_id("search-input").fill("tetris")
-    page.get_by_test_id("search-platform").select_option("gb")
-    page.get_by_test_id("search-submit").click()
+    row = _search_from_wishlist(page, "Tetris", "gb")
     results = page.get_by_test_id("results")
     expect(results).to_contain_text("Tetris (World) (Rev 1)", timeout=SLOW_MS)
     expect(results).to_contain_text("Tetris Attack", timeout=SLOW_MS)
+    _close_search_and_delete(page, row, "Tetris")
 
 
 def test_torrent_search_renders_results(ui):
     page = ui["page"]
-    _nav(page, "add-new", "Add New")
-    page.get_by_test_id("search-input").fill("stardew")
-    page.get_by_test_id("search-platform").select_option("all")
-    page.get_by_test_id("search-submit").click()
+    row = _search_from_wishlist(page, "Stardew Harvest", "pc")
     results = page.get_by_test_id("results")
     expect(results).to_contain_text("Stardew Harvest Deluxe Edition", timeout=SLOW_MS)
     expect(results).to_contain_text("StubIndexer", timeout=SLOW_MS)
+    _close_search_and_delete(page, row, "Stardew Harvest")
 
 
 def test_search_no_results_is_clean(ui):
     page = ui["page"]
-    _nav(page, "add-new", "Add New")
-    page.get_by_test_id("search-input").fill("zzzznotagame")
-    page.get_by_test_id("search-platform").select_option("gb")
-    page.get_by_test_id("search-submit").click()
+    row = _search_from_wishlist(page, "zzzznotagame", "gb")
     # Whatever empty-state copy is used, no result rows and no JS errors.
     page.wait_for_timeout(1500)
     assert page.locator('[data-testid^="dl-btn-"]').count() == 0
+    _close_search_and_delete(page, row, "zzzznotagame")
 
 
 # ── the flagship journey: DDL download -> organize -> library ─────────────────
 
 def test_ddl_download_pipeline_to_library(ui, app):
     page = ui["page"]
-    _nav(page, "add-new", "Add New")
-    page.get_by_test_id("search-input").fill("tetris")
-    page.get_by_test_id("search-platform").select_option("gb")
-    page.get_by_test_id("search-submit").click()
+    # Same pipeline as before, driven from where manual search now lives.
+    _search_from_wishlist(page, "Tetris", "gb")
     expect(page.get_by_test_id("results")).to_contain_text(
         "Tetris (World) (Rev 1)", timeout=SLOW_MS)
 
     # Download the first result.
     page.locator('[data-testid^="dl-btn-"]').first.click()
+    page.get_by_test_id("interactive-search-close").click()
 
     # The job must reach the queue and complete. The Activity view self-refreshes
     # every 5s; expect() retries until the status lands.
@@ -111,6 +131,13 @@ def test_ddl_download_pipeline_to_library(ui, app):
     # And the library shows it.
     _nav(page, "library", "Library")
     expect(page.get_by_test_id("library-grid")).to_contain_text("Tetris", timeout=SLOW_MS)
+
+    # The import consumes the wishlist row it came from; if it has not yet,
+    # remove it so the wishlist is as this journey found it.
+    _nav(page, "wanted", "Wanted")
+    leftover = page.locator('[data-testid="wishlist"] > div', has_text="Tetris")
+    if leftover.count():
+        leftover.first.locator('[data-testid="wish-delete"]').click()
 
 
 # ── RomM ownership sync: library rows with no local file ─────────────────────

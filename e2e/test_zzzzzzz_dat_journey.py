@@ -21,6 +21,7 @@ session-scoped app fixture.
 import io
 import json
 import time
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -236,7 +237,8 @@ def test_dat_catalog_journey(app, stub_server):
     assert len(games) == 5, "page_size must bound the page, not the total"
     assert all(g.get("id") for g in games), "browse rows must carry their ids"
 
-    filtered = _req(base, "/api/dat/games?platform=gb&q=" + games[0]["name"].split(" (")[0])
+    term = urllib.parse.quote(games[0]["name"].split(" (")[0])
+    filtered = _req(base, f"/api/dat/games?platform=gb&q={term}")
     assert filtered["total"] >= 1, filtered
 
     roms = _req(base, f"/api/dat/games/{games[0]['id']}/roms")
