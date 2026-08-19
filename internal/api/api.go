@@ -25,6 +25,7 @@ import (
 	"gamarr/internal/metadata"
 	"gamarr/internal/models"
 	"gamarr/internal/platform"
+	"gamarr/internal/prune"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
 	"gamarr/internal/sabnzbd"
@@ -46,7 +47,9 @@ type Server struct {
 	oidc      *OIDCHandler
 	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
-	dat       *datsvc.Service
+	// prune is the declutter half of the collection plane.
+	prune *prune.Runner
+	dat   *datsvc.Service
 	// coll answers set questions. Built here rather than threaded through
 	// NewRouter for the same reason meta is: it needs only the config and the
 	// store, and it holds no state a caller has to own.
@@ -68,6 +71,9 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	}
 	s.meta = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret, metaOpts...)
 	s.coll = collectionsvc.New(cfg, mgr.Jobs())
+	// The same import notifier the renamer gets: a declutter changes the same
+	// tree a rename does, so it owes RomM the same rescan.
+	s.prune = prune.New(cfg, mgr.Jobs(), s.coll, mgr.NotifyImport)
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -152,6 +158,15 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Post("/api/library/normalize/preview", requireAdmin(s.handleNormalizePreview))
 	r.Post("/api/library/normalize/apply", requireAdmin(s.handleNormalizeApply))
 	r.Post("/api/library/normalize/stop", requireAdmin(s.handleNormalizeStop))
+
+	// Declutter: the same set, read in the prune direction. Nothing moves
+	// without a preview a human has seen, so apply is admin-only and the
+	// status read is not.
+	r.Get("/api/library/prune/status", s.handlePruneStatus)
+	r.Get("/api/library/prune/preview/results", requireAdmin(s.handlePruneResults))
+	r.Post("/api/library/prune/preview", requireAdmin(s.handlePrunePreview))
+	r.Post("/api/library/prune/apply", requireAdmin(s.handlePruneApply))
+	r.Post("/api/library/prune/stop", requireAdmin(s.handlePruneStop))
 
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)

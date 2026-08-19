@@ -1382,6 +1382,46 @@
         "responses": { "200": { "description": "A page of set entries, whole-set counts, the policy that decided them, and the clone list in play" } }
       }
     },
+    "/api/library/prune/status": {
+      "get": {
+        "summary": "Declutter run status",
+        "description": "Phase, counts per verdict, how many files no catalog has heard of, and where the archive tree lives.",
+        "responses": { "200": { "description": "Status of the current or last declutter run" } }
+      }
+    },
+    "/api/library/prune/preview": {
+      "post": {
+        "summary": "Classify a platform's surplus (admin)",
+        "description": "Reads the 1G1R set in the prune direction and classifies every owned dump the set does not keep. Nothing moves. A dump is only planned for archiving when the dump the set DOES keep is already on disk and the match was by hash or canonical name; a title-only match or a missing keeper is review-only, and a file no catalog knows is reported but never actioned. include_excluded opts in to groups policy leaves out of the set entirely — archiving one of those removes a game rather than a duplicate.",
+        "responses": {
+          "200": { "description": "Preview started, or a reason it did not" },
+          "400": { "description": "platform_slug missing" }
+        }
+      }
+    },
+    "/api/library/prune/preview/results": {
+      "get": {
+        "summary": "The held declutter preview (admin)",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of classified rows plus the total" } }
+      }
+    },
+    "/api/library/prune/apply": {
+      "post": {
+        "summary": "Archive the held preview's planned rows (admin)",
+        "description": "Moves each planned file into the archive tree and appends a manifest line recording where it came from, what replaced it and why. Never deletes. exclude_ids drops rows from this apply.",
+        "responses": { "200": { "description": "Apply started, or a reason it did not" } }
+      }
+    },
+    "/api/library/prune/stop": {
+      "post": {
+        "summary": "Stop the running declutter pass (admin)",
+        "responses": { "200": { "description": "Stopping" } }
+      }
+    },
     "/api/collection/targets": {
       "get": {
         "summary": "The gap list collection mode is working through",

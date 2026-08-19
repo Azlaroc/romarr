@@ -157,6 +157,45 @@ return early when the wishlist was empty; collection gaps come from a platform's
 set, so that early return would have meant the feature never ran on an install
 that works this way.
 
+## Declutter: the set read in the other direction
+
+Collection mode asks *what does the set want that I do not have* and fills the
+deficit. Declutter asks *what do I have that the set does not want* and offers
+to prune the surplus. One policy object, two directions — which is why they
+share the reconciliation rather than each carrying an opinion.
+
+The preview classifies; the apply moves. Nothing moves without a human seeing
+the diff first.
+
+| verdict | what it is | applied? |
+|---|---|---|
+| `archive` | a catalogued dump the set does not keep, identified by hash or canonical name, in a group whose keeper is on disk | yes |
+| `review` | matched only by a parsed title, **or** the keeper is still missing | never |
+| `excluded-group` | an owned dump in a group policy leaves out of the set (hacks, prototypes, unlicensed) | opt-in per run |
+| `uncatalogued` | no catalogued dump matches this file at all | never |
+
+Three rules it will not bend:
+
+- 🔴 **Archive, never delete.** Every prune is a MOVE into the archive tree plus
+  a manifest line naming where the file came from, where it went, and what
+  replaced it. Nothing here removes bytes.
+- 🔴 **Never prune the only copy.** A dump is surplus only when the dump the set
+  actually keeps is already on disk. If the keeper is a gap, the copy you have
+  *is* the collection, whatever its region.
+- 🔴 **Never act on the catalog's silence.** A file no catalog has heard of is
+  counted and listed, never archived. On one live platform that is 1,946 of
+  2,691 files — the hack, homebrew and overdump pile — and "not in the DAT" is
+  not evidence of redundancy.
+
+The archive lives at `<roms>/.archive/<platform>/` by default
+(`prune_archive_path` overrides it). Inside the ROM root and dot-prefixed on
+purpose: the roms tree is what the cloud-sync exclusion covers, so an archive
+beside it would start uploading exactly the files an operator just decided they
+did not need online, and a hidden directory is skipped by the same library scans
+that already ignore the renamer's scratch dir. A move is a rename, never a copy
+— a cross-device archive path is refused loudly rather than silently copying
+gigabytes.
+
 ## API
 
 ```
@@ -166,6 +205,12 @@ POST /api/clonelists/refresh     (admin) re-fetch every assigned list; 409 while
 GET  /api/collection/targets     ?platform= &status= &q= &page= &page_size=
 POST /api/collection/sync        (admin) ?platform= for one, omitted for every monitored platform
 PUT  /api/platforms/{slug}       {"collection_mode": true|false}
+
+GET  /api/library/prune/status
+POST /api/library/prune/preview          {"platform_slug": "atari2600", "include_excluded": false}
+GET  /api/library/prune/preview/results  ?page= &page_size=
+POST /api/library/prune/apply            {"exclude_ids": [...]}
+POST /api/library/prune/stop
 ```
 
 The fetch base is the setting `clonelist_fetch_base` — repointing at a mirror, a

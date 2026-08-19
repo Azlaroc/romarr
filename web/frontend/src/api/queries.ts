@@ -60,6 +60,8 @@ import type {
   DatStatus,
   DatUploadResponse,
   SizeDefinition,
+  PruneStatus,
+  PrunePreviewRow,
   CollectionTargetsResponse,
   CollectionSyncResult,
   SizeDefinitionsResponse,
@@ -96,6 +98,8 @@ export const keys = {
   scheduler: ['scheduler-status'] as const,
   normalizeStatus: ['normalize-status'] as const,
   normalizeResults: (page: number) => ['normalize-results', page] as const,
+  pruneStatus: ['prune-status'] as const,
+  pruneResults: (page: number) => ['prune-results', page] as const,
   syncStatus: ['sync-status'] as const,
   users: ['users'] as const,
   invites: ['invites'] as const,
@@ -781,6 +785,54 @@ export function useNormalizeStop() {
   return useMutation({
     mutationFn: () => api.post<{ success: boolean }>('/api/library/normalize/stop'),
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.normalizeStatus }), 500),
+  })
+}
+
+export function usePruneStatus() {
+  return useQuery({
+    queryKey: keys.pruneStatus,
+    queryFn: () => api.get<PruneStatus>('/api/library/prune/status'),
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
+  })
+}
+
+export function usePruneResults(page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.pruneResults(page),
+    queryFn: () =>
+      api.get<{ success: boolean; items: PrunePreviewRow[]; total: number }>(
+        `/api/library/prune/preview/results?page=${page}&page_size=100`,
+      ),
+    enabled,
+  })
+}
+
+export function usePrunePreview() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { platformSlug: string; includeExcluded: boolean }) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/prune/preview', {
+        platform_slug: v.platformSlug,
+        include_excluded: v.includeExcluded,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.pruneStatus }),
+  })
+}
+
+export function usePruneApply() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (excludeIds: number[]) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/prune/apply', { exclude_ids: excludeIds }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.pruneStatus }),
+  })
+}
+
+export function usePruneStop() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean }>('/api/library/prune/stop'),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.pruneStatus }), 500),
   })
 }
 
