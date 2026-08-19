@@ -22,6 +22,7 @@ import {
   useDatAuthorities,
   useDatCoverage,
   useDatStatus,
+  useMetadataProviders,
   useRefreshDat,
   useSaveSetting,
   useSettings,
@@ -40,6 +41,7 @@ const DRIVERS = [
 type AuthorityEdit = Partial<Pick<DatAuthority, 'enabled' | 'fetch_driver' | 'fetch_base' | 'pinned_version'>>
 
 export function Metadata() {
+  const providers = useMetadataProviders()
   const { data, isLoading, error } = useDatAuthorities()
   const { data: status } = useDatStatus()
   const { data: coverage } = useDatCoverage()
@@ -179,6 +181,26 @@ export function Metadata() {
       <div className="space-y-6">
         <Card title="Metadata sources">
           <div className="space-y-2" data-testid="md-sources">
+            {(providers.data?.providers ?? []).map((p) => (
+              <div
+                key={p.name}
+                className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3"
+                data-testid={`md-provider-${p.name}`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm text-white">{p.label}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    The game-layer authority: what a game IS — title, year, cover art, which platforms it came out on.
+                    {p.configured
+                      ? ' Credentials are present.'
+                      : ` Not configured — set ${p.credentials_env.join(' and ')} to enable it.`}
+                  </div>
+                </div>
+                <Badge color={p.configured ? 'emerald' : 'slate'}>
+                  {p.configured ? 'connected' : 'not configured'}
+                </Badge>
+              </div>
+            ))}
             <div className="flex items-center justify-between gap-3 rounded bg-slate-800 p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">DAT authorities</div>

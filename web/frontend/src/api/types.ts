@@ -591,3 +591,24 @@ export interface SizeDefinition {
 export interface SizeDefinitionsResponse {
   definitions: SizeDefinition[]
 }
+
+/** A metadata authority as GET /api/metadata/providers reports it. */
+export interface MetadataProvider {
+  name: string
+  label: string
+  configured: boolean
+  role: string
+  credentials_env: string[]
+}
+
+/** One game from GET /api/metadata/search — an identity, not a release. */
+export interface MetadataGame {
+  provider_id: number
+  name: string
+  slug?: string
+  summary?: string
+  cover_url?: string
+  release_year?: number
+  platforms?: string[]
+  unmapped_platforms?: string[]
+}

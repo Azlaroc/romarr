@@ -73,7 +73,12 @@ var (
 	regRows   map[string]Row
 	regByCat  map[int][]string
 	regByFS   map[string]string
-	regLoaded bool
+	// The IGDB identity indices: our slug is the primary key and IGDB's is a
+	// column, so resolving "which of our platforms is this IGDB platform?" is
+	// a lookup on that column rather than a second vocabulary.
+	regByIGDBSlug map[string]string
+	regByIGDBID   map[int]string
+	regLoaded     bool
 )
 
 // SetRegistry attaches the store. Called once at boot. A nil registry — every
@@ -87,6 +92,8 @@ func SetRegistry(r Registry) {
 	regRows = nil
 	regByCat = nil
 	regByFS = nil
+	regByIGDBSlug = nil
+	regByIGDBID = nil
 	regLoaded = false
 }
 
@@ -117,6 +124,8 @@ func rows() map[string]Row {
 	regRows = map[string]Row{}
 	regByCat = map[int][]string{}
 	regByFS = map[string]string{}
+	regByIGDBSlug = map[string]string{}
+	regByIGDBID = map[int]string{}
 	if regSource != nil {
 		for _, r := range regSource.PlatformRows() {
 			regRows[r.Slug] = r
@@ -125,6 +134,12 @@ func rows() map[string]Row {
 			}
 			if r.RommFSSlug != "" && r.RommFSSlug != r.Slug {
 				regByFS[r.RommFSSlug] = r.Slug
+			}
+			if r.IGDBSlug != "" {
+				regByIGDBSlug[r.IGDBSlug] = r.Slug
+			}
+			if r.IGDBID != 0 {
+				regByIGDBID[r.IGDBID] = r.Slug
 			}
 		}
 	}
@@ -252,3 +267,25 @@ type StaticRegistry []Row
 
 // PlatformRows implements Registry.
 func (s StaticRegistry) PlatformRows() []Row { return []Row(s) }
+
+// SlugForIGDB resolves an IGDB platform identity to our platform slug. The id
+// is authoritative when present (IGDB slugs have been renamed before, ids
+// have not); the slug is the fallback. Reports false when no row claims it,
+// which is the honest answer for a platform RomArr has no lane for — the
+// caller surfaces it rather than guessing.
+func SlugForIGDB(igdbSlug string, igdbID int) (string, bool) {
+	rows() // ensure the indices are built
+	regMu.RLock()
+	defer regMu.RUnlock()
+	if igdbID != 0 {
+		if slug, ok := regByIGDBID[igdbID]; ok {
+			return slug, true
+		}
+	}
+	if igdbSlug != "" {
+		if slug, ok := regByIGDBSlug[igdbSlug]; ok {
+			return slug, true
+		}
+	}
+	return "", false
+}

@@ -103,6 +103,17 @@ type Config struct {
 	RomMURL string
 
 	// RomM API (library ownership sync; RomMURL doubles as the API base)
+	// IGDB (metadata authority; Twitch client credentials). Credentials are
+	// a deploy contract, so they stay env — the settings screen reports
+	// whether they are present, never holds them.
+	IGDBClientID     string
+	IGDBClientSecret string
+	// Host overrides so the metadata plane can be pointed at a stub (the e2e
+	// harness impersonates every external service) or a mirror. Same shape as
+	// the DAT authorities' fetch_base.
+	IGDBAPIBase  string
+	IGDBAuthBase string
+
 	RomMAPIUser          string
 	RomMAPIPass          string
 	RomMSyncEnabled      bool
@@ -225,6 +236,11 @@ func Load() *Config {
 
 		RomMURL: envStr("ROMM_URL", ""),
 
+		IGDBClientID:     envStr("IGDB_CLIENT_ID", ""),
+		IGDBClientSecret: envStr("IGDB_CLIENT_SECRET", ""),
+		IGDBAPIBase:      envStr("IGDB_API_BASE", ""),
+		IGDBAuthBase:     envStr("IGDB_AUTH_BASE", ""),
+
 		RomMAPIUser:           envStr("ROMM_API_USER", ""),
 		RomMAPIPass:           envStr("ROMM_API_PASS", ""),
 		RomMSyncEnabled:       envBool("ROMM_SYNC_ENABLED", true),
@@ -307,6 +323,11 @@ func (c *Config) HasSABnzbd() bool {
 // alone only powers the UI link-out; the API needs credentials too.
 func (c *Config) HasRomMAPI() bool {
 	return c.RomMURL != "" && c.RomMAPIUser != "" && c.RomMAPIPass != ""
+}
+
+// HasIGDB reports whether the metadata authority is configured.
+func (c *Config) HasIGDB() bool {
+	return c != nil && c.IGDBClientID != "" && c.IGDBClientSecret != ""
 }
 
 func (c *Config) HasOIDC() bool {

@@ -36,6 +36,7 @@ import type {
   QualityProfile,
   ReleaseProfile,
   BlocklistItem,
+  MetadataProvider,
   CalendarEntry,
   PlayHistoryEntry,
   PlayHistoryStats,
@@ -374,6 +375,16 @@ export function useClearBlocklist() {
 }
 
 // ---------- mutations ----------
+
+/** The metadata authority roster. Credentials live in the environment (a
+ *  deploy contract), so this reports whether they are present — it never
+ *  holds them. */
+export function useMetadataProviders() {
+  return useQuery({
+    queryKey: ['metadata', 'providers'],
+    queryFn: () => api.get<{ providers: MetadataProvider[] }>('/api/metadata/providers'),
+  })
+}
 
 export function useSearch() {
   return useMutation({

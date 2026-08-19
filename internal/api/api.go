@@ -21,6 +21,7 @@ import (
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
+	"gamarr/internal/metadata"
 	"gamarr/internal/models"
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
@@ -45,6 +46,10 @@ type Server struct {
 	sup       *supervise.Supervisor
 	renamer   *renamer.Runner
 	dat       *datsvc.Service
+	// meta is the metadata authority (IGDB). Built from config here rather
+	// than threaded through NewRouter: it needs nothing but credentials, and
+	// an unconfigured one is a valid state the settings screen reports.
+	meta metadata.Provider
 }
 
 // NewRouter creates a new chi router with all routes.
@@ -52,6 +57,11 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
 	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren, dat: dat}
+	var metaOpts []metadata.IGDBOption
+	if cfg.IGDBAPIBase != "" || cfg.IGDBAuthBase != "" {
+		metaOpts = append(metaOpts, metadata.WithIGDBBase(cfg.IGDBAPIBase, cfg.IGDBAuthBase))
+	}
+	s.meta = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret, metaOpts...)
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -164,6 +174,8 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Put("/api/dat/platforms/{slug}", requireAdmin(s.handleUpdateDatPlatform))
 	r.Get("/api/dat/status", s.handleDatStatus)
 	r.Get("/api/dat/coverage", s.handleDatCoverage)
+	r.Get("/api/metadata/providers", s.handleMetadataProviders)
+	r.Get("/api/metadata/search", s.handleMetadataSearch)
 	r.Get("/api/dat/games", s.handleDatGames)
 	r.Get("/api/dat/games/{id}/roms", s.handleDatGameRoms)
 
