@@ -39,10 +39,17 @@ var formatHints = map[string]string{
 // before tag parsing. Broader than formatHints: extensions with no format
 // preference of their own still must not pollute CleanTitle/SetKey.
 var knownExtensions = []string{
-	".chd", ".cue", ".bin", ".iso", ".gdi", ".zip", ".7z", ".rar",
+	".chd", ".cue", ".bin", ".iso", ".gdi", ".cdi", ".zip", ".7z", ".rar",
 	".nes", ".sfc", ".smc", ".gb", ".gbc", ".gba", ".nds", ".3ds", ".cia",
 	".z64", ".n64", ".v64", ".md", ".gen", ".sms", ".gg", ".pce", ".a26",
-	".col", ".rom", ".wad", ".wbfs", ".rvz", ".nsp", ".nsz", ".xci",
+	".col", ".rom", ".wad", ".wbfs", ".rvz", ".gcz", ".gcm", ".nsp", ".nsz", ".xci",
+	// 🔴 One lane per line that was missing, and each one cost the same thing:
+	// an extension this list does not know stays in CleanTitle and BareTitle,
+	// so every title-based comparison for that platform silently fails to
+	// match. Nine cart lanes were lit up after this list was written and five
+	// of their extensions never arrived with them.
+	".a78", ".a52", ".lnx", ".j64", ".vb", ".ws", ".wsc", ".ngp", ".ngc",
+	".32x", ".sg", ".pbp", ".cso",
 }
 
 var (

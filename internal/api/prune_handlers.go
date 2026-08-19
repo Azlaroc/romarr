@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"gamarr/internal/prune"
 )
 
 // Declutter: the 1G1R set read in the prune direction. Preview classifies,
@@ -42,12 +44,19 @@ func (s *Server) handlePrunePreview(w http.ResponseWriter, r *http.Request) {
 		// the set — hacks, prototypes, unlicensed. Archiving one removes a
 		// game rather than a duplicate, so it is opt-in per run.
 		IncludeExcluded bool `json:"include_excluded"`
+		// IncludeUncataloguedDupes adds files no catalog knows whose TITLE is
+		// a game the set covers and already holds. Opt-in separately because
+		// the evidence is a title match, not a hash.
+		IncludeUncataloguedDupes bool `json:"include_uncatalogued_duplicates"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.PlatformSlug) == "" {
 		writeError(w, http.StatusBadRequest, "platform_slug required (a slug or \"all\")")
 		return
 	}
-	if !s.prune.TriggerPreview(strings.TrimSpace(req.PlatformSlug), req.IncludeExcluded) {
+	if !s.prune.TriggerPreview(strings.TrimSpace(req.PlatformSlug), prune.Opts{
+		IncludeExcluded:          req.IncludeExcluded,
+		IncludeUncataloguedDupes: req.IncludeUncataloguedDupes,
+	}) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "already running"})
 		return
 	}

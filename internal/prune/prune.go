@@ -33,7 +33,44 @@ import (
 	"gamarr/internal/collectionsvc"
 	"gamarr/internal/config"
 	"gamarr/internal/db"
+	"gamarr/internal/platform"
+	"gamarr/internal/selection"
 )
+
+// coveredTitles indexes the games a platform's set covers AND holds: the
+// keeper is on disk, so another file claiming the same title is a spare copy
+// of something already owned rather than the only way to play it.
+type coveredTitles map[string]struct{ keeper, title string }
+
+func ownedTitles(entries []collection.Entry) coveredTitles {
+	out := coveredTitles{}
+	for _, e := range entries {
+		if e.Status != collection.StatusOwned {
+			continue
+		}
+		keeper, ok := e.Keeper()
+		if !ok {
+			continue
+		}
+		for _, key := range selection.OwnershipKeys(e.Title) {
+			if _, dup := out[key]; !dup {
+				out[key] = struct{ keeper, title string }{keeper.Name, e.Title}
+			}
+		}
+	}
+	return out
+}
+
+// lookup matches a library file name against the covered titles, using the
+// same parsed-title vocabulary ownership already speaks.
+func (c coveredTitles) lookup(name string) (keeper, title string, ok bool) {
+	for _, key := range selection.OwnershipKeys(name) {
+		if hit, found := c[key]; found {
+			return hit.keeper, hit.title, true
+		}
+	}
+	return "", "", false
+}
 
 // Verdicts. Stable strings: displayed, logged, and asserted on.
 const (
@@ -50,6 +87,13 @@ const (
 	// VerdictUncatalogued: the catalog has never heard of this file. Counted
 	// and listed, never actioned.
 	VerdictUncatalogued = "uncatalogued"
+	// VerdictUncataloguedDupe: the catalog has never heard of this file
+	// either, but its title is a game the set covers AND we hold the
+	// catalogued dump of. These are the hacks, alternate dumps and
+	// re-releases that pile up under a game you already own properly — the
+	// clutter that makes a shop list eighteen Asteroids. Opt-in, because the
+	// evidence is a title match rather than a hash.
+	VerdictUncataloguedDupe = "uncatalogued-duplicate"
 )
 
 // Row statuses.
@@ -97,6 +141,7 @@ type Runner struct {
 	phase        string // idle | preview | apply
 	scope        string
 	includeOut   bool
+	includeDupes bool
 	total        int
 	done         int
 	archived     int
@@ -137,22 +182,23 @@ func (r *Runner) Status() map[string]interface{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return map[string]interface{}{
-		"configured":   true,
-		"running":      r.running.Load(),
-		"phase":        r.phase,
-		"scope":        r.scope,
-		"include_out":  r.includeOut,
-		"total":        r.total,
-		"done":         r.done,
-		"archived":     r.archived,
-		"skipped":      r.skipped,
-		"errors":       r.errCount,
-		"last_error":   r.lastErr,
-		"counts":       r.counts,
-		"uncatalogued": r.uncatalogued,
-		"archive_root": r.ArchiveRoot(),
-		"started_at":   timeOrEmpty(r.startedAt),
-		"finished_at":  timeOrEmpty(r.finishedAt),
+		"configured":    true,
+		"running":       r.running.Load(),
+		"phase":         r.phase,
+		"scope":         r.scope,
+		"include_out":   r.includeOut,
+		"include_dupes": r.includeDupes,
+		"total":         r.total,
+		"done":          r.done,
+		"archived":      r.archived,
+		"skipped":       r.skipped,
+		"errors":        r.errCount,
+		"last_error":    r.lastErr,
+		"counts":        r.counts,
+		"uncatalogued":  r.uncatalogued,
+		"archive_root":  r.ArchiveRoot(),
+		"started_at":    timeOrEmpty(r.startedAt),
+		"finished_at":   timeOrEmpty(r.finishedAt),
 	}
 }
 
@@ -190,16 +236,29 @@ func (r *Runner) PreviewPage(page, pageSize int) ([]PreviewRow, int) {
 	return out, total
 }
 
+// Opts are a preview's opt-ins. Both default off: each adds a class of file
+// whose evidence is weaker than "a catalogued dump the set does not keep", and
+// neither should arrive because someone left a toggle on.
+type Opts struct {
+	// IncludeExcluded adds owned dumps from policy-excluded groups (hacks,
+	// prototypes, unlicensed). Archiving one removes a game rather than a
+	// duplicate of it.
+	IncludeExcluded bool
+	// IncludeUncataloguedDupes adds uncatalogued files whose title is a game
+	// the set covers and whose catalogued dump we already hold.
+	IncludeUncataloguedDupes bool
+}
+
 // TriggerPreview starts a classification pass over one platform (or "all").
-// includeOut adds owned dumps from policy-excluded groups as archive
-// candidates; without it they are reported and left alone.
-func (r *Runner) TriggerPreview(scope string, includeOut bool) bool {
+func (r *Runner) TriggerPreview(scope string, opts Opts) bool {
 	if r == nil || !r.running.CompareAndSwap(false, true) {
 		return false
 	}
+	includeOut := opts.IncludeExcluded
 	ctx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	r.cancel, r.phase, r.scope, r.includeOut = cancel, "preview", scope, includeOut
+	r.includeDupes = opts.IncludeUncataloguedDupes
 	r.total, r.done, r.archived, r.skipped, r.errCount = 0, 0, 0, 0, 0
 	r.lastErr, r.rows, r.counts, r.uncatalogued = "", nil, map[string]int{}, 0
 	r.startedAt, r.finishedAt = time.Now(), time.Time{}
@@ -208,7 +267,7 @@ func (r *Runner) TriggerPreview(scope string, includeOut bool) bool {
 	go func() {
 		defer r.running.Store(false)
 		defer cancel()
-		r.runPreview(ctx, scope, includeOut)
+		r.runPreview(ctx, scope, opts)
 		r.mu.Lock()
 		r.finishedAt = time.Now()
 		r.mu.Unlock()
@@ -268,7 +327,8 @@ func (r *Runner) Stop() {
 	}
 }
 
-func (r *Runner) runPreview(ctx context.Context, scope string, includeOut bool) {
+func (r *Runner) runPreview(ctx context.Context, scope string, opts Opts) {
+	includeOut := opts.IncludeExcluded
 	platforms := []string{scope}
 	if scope == "all" {
 		platforms = nil
@@ -303,20 +363,35 @@ func (r *Runner) runPreview(ctx context.Context, scope string, includeOut bool) 
 				rows = append(rows, row)
 			}
 		}
-		// The catalog's silence, counted separately and never acted on.
+		// The catalog's silence. Never acted on by default — but a file whose
+		// TITLE is a game the set covers, and whose catalogued dump we already
+		// hold, is a different thing from a homebrew game that exists nowhere
+		// else. Both are uncatalogued; only one is clutter.
+		covered := ownedTitles(res.Entries)
 		claimed := collection.ClaimedLibraryIDs(res.Entries)
 		for _, item := range r.store.ListLibraryItemsForRename(slug) {
 			if claimed[item.ID] {
 				continue
 			}
-			uncatalogued++
-			counts[VerdictUncatalogued]++
-			rows = append(rows, PreviewRow{
+			name := filepath.Base(item.FilePath)
+			row := PreviewRow{
 				LibraryID: item.ID, PlatformSlug: slug, Path: item.FilePath,
-				Name: filepath.Base(item.FilePath), Size: item.FileSize,
+				Name: name, Size: item.FileSize,
 				Verdict: VerdictUncatalogued, Status: StatusReported,
 				Reason: "no catalogued dump matches this file — the catalog's silence is not evidence of redundancy",
-			})
+			}
+			if keeper, title, ok := covered.lookup(name); ok {
+				row.Verdict = VerdictUncataloguedDupe
+				row.Title, row.Keeper = title, keeper
+				row.Reason = "not in the catalog, and the catalogued " + keeper + " is already on disk"
+				if opts.IncludeUncataloguedDupes {
+					row.Status = StatusPlanned
+				}
+			} else {
+				uncatalogued++
+			}
+			counts[row.Verdict]++
+			rows = append(rows, row)
 		}
 	}
 
@@ -325,6 +400,9 @@ func (r *Runner) runPreview(ctx context.Context, scope string, includeOut bool) 
 	r.total = counts[VerdictArchive]
 	if includeOut {
 		r.total += counts[VerdictExcludedGroup]
+	}
+	if opts.IncludeUncataloguedDupes {
+		r.total += counts[VerdictUncataloguedDupe]
 	}
 	r.phase = "preview"
 	r.mu.Unlock()
@@ -441,7 +519,11 @@ func (r *Runner) runApply(ctx context.Context, excl map[int64]struct{}) {
 	// RomM last, once per platform: it re-reads a tree that has changed.
 	if r.importNotify != nil {
 		for slug := range touched {
-			r.importNotify(slug)
+			// 🔴 RomM speaks its own folder vocabulary: our "genesis" is its
+			// "genesis-slash-megadrive". Notifying with our slug names a folder
+			// it does not have, and the rescan quietly covers nothing — the
+			// bulk renamer converts here for the same reason.
+			r.importNotify(platform.ToRommFSSlug(slug))
 		}
 	}
 	slog.Info("prune: apply complete", "archived", archived, "skipped", r.skipped)

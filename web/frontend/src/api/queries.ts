@@ -810,10 +810,11 @@ export function usePruneResults(page: number, enabled: boolean) {
 export function usePrunePreview() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (v: { platformSlug: string; includeExcluded: boolean }) =>
+    mutationFn: (v: { platformSlug: string; includeExcluded: boolean; includeDupes: boolean }) =>
       api.post<{ success: boolean; error?: string }>('/api/library/prune/preview', {
         platform_slug: v.platformSlug,
         include_excluded: v.includeExcluded,
+        include_uncatalogued_duplicates: v.includeDupes,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.pruneStatus }),
   })

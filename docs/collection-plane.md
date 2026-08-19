@@ -181,6 +181,7 @@ the diff first.
 | `archive` | a catalogued dump the set does not keep, identified by hash or canonical name, in a group whose keeper is on disk | yes |
 | `review` | matched only by a parsed title, **or** the keeper is still missing | never |
 | `excluded-group` | an owned dump in a group policy leaves out of the set (hacks, prototypes, unlicensed) | opt-in per run |
+| `uncatalogued-duplicate` | no catalogued dump matches it, but its TITLE is a game the set covers and whose catalogued dump is already on disk | opt-in per run |
 | `uncatalogued` | no catalogued dump matches this file at all | never |
 
 Three rules it will not bend:
@@ -191,10 +192,14 @@ Three rules it will not bend:
 - 🔴 **Never prune the only copy.** A dump is surplus only when the dump the set
   actually keeps is already on disk. If the keeper is a gap, the copy you have
   *is* the collection, whatever its region.
-- 🔴 **Never act on the catalog's silence.** A file no catalog has heard of is
-  counted and listed, never archived. On one live platform that is 1,946 of
-  2,691 files — the hack, homebrew and overdump pile — and "not in the DAT" is
-  not evidence of redundancy.
+- 🔴 **Never act on the catalog's silence alone.** A file no catalog has heard
+  of is counted and listed, never archived by default. On one live platform that
+  is 1,945 of 2,691 files, and "not in the DAT" is not evidence of redundancy.
+  The one exception is explicit: a file whose *title* is a game the set covers
+  **and whose catalogued dump is already on disk** is a spare copy of something
+  owned — the hack and alt-dump pile that makes a shop list eighteen Asteroids.
+  That is its own verdict with its own opt-in, and it never touches the
+  standalone homebrew (1,716 of those 1,945) that exists nowhere else.
 
 The archive lives at `<roms>/.archive/<platform>/` by default
 (`prune_archive_path` overrides it). Inside the ROM root and dot-prefixed on
@@ -216,7 +221,9 @@ POST /api/collection/sync        (admin) ?platform= for one, omitted for every m
 PUT  /api/platforms/{slug}       {"collection_mode": true|false}
 
 GET  /api/library/prune/status
-POST /api/library/prune/preview          {"platform_slug": "atari2600", "include_excluded": false}
+POST /api/library/prune/preview          {"platform_slug": "atari2600",
+                                          "include_excluded": false,
+                                          "include_uncatalogued_duplicates": false}
 GET  /api/library/prune/preview/results  ?page= &page_size=
 POST /api/library/prune/apply            {"exclude_ids": [...]}
 POST /api/library/prune/stop
