@@ -21,6 +21,7 @@ session-scoped app fixture.
 import io
 import json
 import time
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -226,3 +227,20 @@ def test_dat_catalog_journey(app, stub_server):
     assert back["source"] == "catalog", back
     assert back["snapshot_version"] == "2026.08.17-rederive", back
     assert back["min_size"] > 0 and back["max_size"] > 0, back
+
+    # The catalog is readable, not just countable: browse returns the dumps
+    # themselves, scoped to the ACTIVE snapshot, and a dump's files are their
+    # own call. This is what Add New's completionist door reads.
+    listing = _req(base, "/api/dat/games?platform=gb&page_size=5")
+    assert listing["total"] == 11, listing
+    games = listing["games"]
+    assert len(games) == 5, "page_size must bound the page, not the total"
+    assert all(g.get("id") for g in games), "browse rows must carry their ids"
+
+    term = urllib.parse.quote(games[0]["name"].split(" (")[0])
+    filtered = _req(base, f"/api/dat/games?platform=gb&q={term}")
+    assert filtered["total"] >= 1, filtered
+
+    roms = _req(base, f"/api/dat/games/{games[0]['id']}/roms")
+    assert roms["roms"], f"a catalogued dump with no files: {games[0]}"
+    assert roms["roms"][0].get("name"), roms

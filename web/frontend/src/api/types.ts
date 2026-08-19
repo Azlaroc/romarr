@@ -612,3 +612,16 @@ export interface MetadataGame {
   platforms?: string[]
   unmapped_platforms?: string[]
 }
+
+/** One catalogued dump from GET /api/dat/games. */
+export interface DatGame {
+  id: number
+  name: string
+  bare_title?: string
+  region?: string
+  languages?: string
+  revision?: number
+  clone_of?: string
+  flags?: string
+  total_size: number
+}

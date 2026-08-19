@@ -37,6 +37,8 @@ import type {
   ReleaseProfile,
   BlocklistItem,
   MetadataProvider,
+  MetadataGame,
+  DatGame,
   CalendarEntry,
   PlayHistoryEntry,
   PlayHistoryStats,
@@ -379,6 +381,28 @@ export function useClearBlocklist() {
 /** The metadata authority roster. Credentials live in the environment (a
  *  deploy contract), so this reports whether they are present — it never
  *  holds them. */
+/** The art-forward door: a title in, games with covers out. A mutation, not
+ *  a query — it fires when someone searches, not when a component mounts. */
+export function useMetadataSearch() {
+  return useMutation({
+    mutationFn: ({ q, limit }: { q: string; limit?: number }) =>
+      api.get<{ provider: string; games: MetadataGame[] }>(`/api/metadata/search${qs({ q, limit })}`),
+  })
+}
+
+/** The completionist door: every dump the catalog knows for one platform. */
+export function useDatGames(platform: string, q: string, page = 1, enabled = true) {
+  return useQuery({
+    queryKey: ['dat', 'games', platform, q, page],
+    queryFn: () =>
+      api.get<{ games: DatGame[]; total: number; page: number; page_size: number }>(
+        `/api/dat/games${qs({ platform, q, page })}`,
+      ),
+    enabled: enabled && !!platform,
+    placeholderData: keepPreviousData,
+  })
+}
+
 export function useMetadataProviders() {
   return useQuery({
     queryKey: ['metadata', 'providers'],
