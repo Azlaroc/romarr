@@ -345,3 +345,31 @@ func TestApplySkipsAFileThatVanished(t *testing.T) {
 		t.Errorf("row = %+v, want a skip that says the file vanished", row)
 	}
 }
+
+// An excluded dump inside an owned group is still surplus — but the row has to
+// say WHY it was never a candidate, not just what replaced it. "Surplus: the
+// set keeps Alien (USA)" hides that this file is an unlicensed Brazilian dump.
+func TestExcludedDumpInAnOwnedGroupSaysWhy(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{
+		catGame("Alien (USA)", "usa", "aaa", ""),
+		catGame("Alien (Brazil) (En)", "brazil", "bbb", "unl"),
+	})
+	e.own(t, "atari7800", "Alien", "Alien (USA).a78", "aaa")
+	e.own(t, "atari7800", "Alien", "Alien (Brazil) (En).a78", "bbb")
+
+	rows := e.preview(t, "atari7800", false)
+	row, ok := rowFor(rows, "Alien (Brazil) (En).a78")
+	if !ok {
+		t.Fatalf("row missing: %+v", rows)
+	}
+	if row.Verdict != VerdictArchive {
+		t.Errorf("verdict = %q, want archive — the keeper is on disk", row.Verdict)
+	}
+	if !strings.Contains(row.Reason, "unlicensed") {
+		t.Errorf("reason = %q, want it to name the exclusion as well as the keeper", row.Reason)
+	}
+	if !strings.Contains(row.Reason, "Alien (USA)") {
+		t.Errorf("reason = %q, want it to name what the set keeps", row.Reason)
+	}
+}

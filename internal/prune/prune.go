@@ -358,6 +358,13 @@ func classify(e collection.Entry, c collection.Candidate, slug string, includeOu
 			row.Verdict = VerdictArchive
 			row.Status = StatusPlanned
 			row.Reason = "surplus: the set keeps " + keeper.Name
+			// A dump policy excludes — a hack, a prototype, an unlicensed
+			// release — that sits in a group whose keeper IS owned is still
+			// surplus, but saying only "the set keeps X" hides WHY this one was
+			// never a candidate. Both facts, in the order that matters.
+			if c.Excluded && c.Reason != "" {
+				row.Reason = c.Reason + "; the set keeps " + keeper.Name
+			}
 		}
 		return row
 	}

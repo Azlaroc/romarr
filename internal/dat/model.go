@@ -59,6 +59,20 @@ func (g Game) TotalSize() int64 {
 	return n
 }
 
+// ParserVersion is the version of THIS package's derivation, not of any DAT.
+//
+// The stored catalog is bytes plus everything this parser derives from them —
+// regions, flags, bare titles. When that derivation changes, rows imported by
+// an older parser are stale even though the source bytes are identical, and a
+// digest-only "unchanged" check would keep them forever. Bump this whenever
+// annotate's output can change, and every catalog re-imports on its next
+// refresh.
+//
+//	1: initial.
+//	2: region is the union of the DAT's declared region and the name's,
+//	   rather than the declared one alone.
+const ParserVersion = 2
+
 // Header carries the DAT's self-declared identity. Version is the snapshot
 // stamp we pin on: Redump emits "2026-08-16 18-16-58", libretro "2026.08.01".
 type Header struct {

@@ -254,7 +254,13 @@ func (s *Service) importCatalog(auth db.DatAuthorityRow, slug string, transport 
 	digest := hex.EncodeToString(sum[:])
 	// The raw copy has to be there too: a snapshot whose on-disk catalog was
 	// lost must be able to re-materialize it rather than short-circuit forever.
-	if active, ok := s.store.ActiveDatSnapshot(slug); ok && active.SourceSHA256 == digest && rawExists(active.RawPath) {
+	//
+	// And the PARSER version has to match: identical bytes imported by an older
+	// derivation are stale rows, not current ones. Without this an improvement
+	// to what the parser derives — regions, flags, titles — would never reach a
+	// catalog whose source has not changed, which is most of them.
+	if active, ok := s.store.ActiveDatSnapshot(slug); ok && active.SourceSHA256 == digest &&
+		active.ParserVersion == dat.ParserVersion && rawExists(active.RawPath) {
 		return PlatformResult{
 			Platform: slug, Status: StatusUnchanged, Version: active.Version,
 			Games: active.GameCount, Roms: active.RomCount,
@@ -293,11 +299,12 @@ func (s *Service) importCatalog(auth db.DatAuthorityRow, slug string, transport 
 	}
 
 	meta := db.DatSnapshotMeta{
-		Authority:    auth.Name,
-		PlatformSlug: slug,
-		Version:      file.Header.Version,
-		SourceSHA256: digest,
-		RawPath:      rawPath,
+		Authority:     auth.Name,
+		PlatformSlug:  slug,
+		Version:       file.Header.Version,
+		SourceSHA256:  digest,
+		RawPath:       rawPath,
+		ParserVersion: dat.ParserVersion,
 	}
 	if stats, ok := file.SizeStats(); ok {
 		meta.SizeMin, meta.SizeMax = stats.Min, stats.Max
