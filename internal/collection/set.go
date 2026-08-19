@@ -35,24 +35,24 @@ import (
 // "1942 (World) (Aftermarket) (Unl).a78"), which is why classification reads
 // both.
 type Rom struct {
-	Name string
-	Size int64
-	CRC  string
-	MD5  string
-	SHA1 string
+	Name string `json:"name"`
+	Size int64  `json:"size,omitempty"`
+	CRC  string `json:"crc,omitempty"`
+	MD5  string `json:"md5,omitempty"`
+	SHA1 string `json:"sha1,omitempty"`
 }
 
 // Member is one catalogued dump considered for a platform's set.
 type Member struct {
-	GameID    int64
-	Name      string
-	BareTitle string
-	Region    string // comma-joined, lowered, as the catalog stores it
-	Languages string // comma-joined, e.g. "En,Fr,De"
-	Revision  int
-	Flags     string // comma-joined: bios, proto, demo, unl, bad, verified
-	TotalSize int64
-	Roms      []Rom
+	GameID    int64  `json:"game_id"`
+	Name      string `json:"name"`
+	BareTitle string `json:"bare_title,omitempty"`
+	Region    string `json:"region,omitempty"`    // comma-joined, lowered, as the catalog stores it
+	Languages string `json:"languages,omitempty"` // comma-joined, e.g. "En,Fr,De"
+	Revision  int    `json:"revision,omitempty"`
+	Flags     string `json:"flags,omitempty"` // comma-joined: bios, proto, demo, unl, bad, verified
+	TotalSize int64  `json:"total_size,omitempty"`
+	Roms      []Rom  `json:"roms,omitempty"`
 }
 
 // Policy is what the operator wants the set to contain. Everything here comes
@@ -89,11 +89,11 @@ const (
 type Candidate struct {
 	Member
 	// Excluded is true when policy leaves this dump out of the set entirely.
-	Excluded bool
+	Excluded bool `json:"excluded,omitempty"`
 	// Reason explains the verdict: why it was excluded, or why it won.
-	Reason string
+	Reason string `json:"reason,omitempty"`
 	// Keeper is true for the single dump the set wants.
-	Keeper bool
+	Keeper bool `json:"keeper,omitempty"`
 	// Owned is the library file satisfying this dump, when reconciliation ran
 	// and found one. Nil means "not on disk" only after Reconcile; before it,
 	// it means "not asked".
@@ -110,19 +110,19 @@ const (
 type Group struct {
 	// Key is the grouping key, stable across refreshes: the clone-list group
 	// name when one claimed the members, else the parsed bare title.
-	Key string
+	Key string `json:"key"`
 	// Title is what to show a human.
-	Title string
+	Title string `json:"title"`
 	// Source is SourceTitle or SourceCloneList.
-	Source string
+	Source string `json:"source"`
 	// Categories are the clone list's categories for this group, if any.
-	Categories []string
-	Members    []Candidate
+	Categories []string    `json:"categories,omitempty"`
+	Members    []Candidate `json:"members"`
 	// KeeperIndex indexes Members, or -1 when policy excluded every dump —
 	// a group of nothing but prototypes is not a game you are missing.
-	KeeperIndex int
+	KeeperIndex int `json:"keeper_index"`
 	// Reason explains a keeperless group.
-	Reason string
+	Reason string `json:"reason,omitempty"`
 }
 
 // Keeper returns the dump the set wants, and false when the group has none.

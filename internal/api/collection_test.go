@@ -56,16 +56,41 @@ func TestPlatformSetReportsGapsAndPolicy(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("entries = %d, want 2", len(entries))
 	}
+	// 🔴 Field PRESENCE, not emptiness. A missing key decodes to a nil
+	// interface, which compares unequal to "" — so an emptiness check passes
+	// happily against a payload that carries no such field at all. This
+	// assertion exists because exactly that hid Go field names (Title,
+	// Members) leaking into the JSON.
 	for _, e := range entries {
 		m, _ := e.(map[string]interface{})
+		for _, key := range []string{"key", "title", "source", "members", "status"} {
+			if _, ok := m[key]; !ok {
+				t.Fatalf("entry is missing %q — got keys %v", key, mapKeys(m))
+			}
+		}
 		members, _ := m["members"].([]interface{})
+		if len(members) == 0 {
+			t.Fatalf("%v has no members", m["title"])
+		}
 		for _, mem := range members {
 			mm, _ := mem.(map[string]interface{})
-			if mm["reason"] == "" {
-				t.Errorf("%v: a member with no reason — every verdict must be readable", m["title"])
+			if _, ok := mm["name"]; !ok {
+				t.Fatalf("member is missing %q — got keys %v", "name", mapKeys(mm))
+			}
+			reason, ok := mm["reason"].(string)
+			if !ok || reason == "" {
+				t.Errorf("%v/%v: a member with no reason — every verdict must be readable", m["title"], mm["name"])
 			}
 		}
 	}
+}
+
+func mapKeys(m map[string]interface{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // Counts describe the whole set, never the filtered page: "1 gap" has to mean
