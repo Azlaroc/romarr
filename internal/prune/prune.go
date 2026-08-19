@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,39 +38,48 @@ import (
 	"gamarr/internal/selection"
 )
 
-// coveredTitles indexes the games a platform's set covers AND holds: the
-// keeper is on disk, so another file claiming the same title is a spare copy
-// of something already owned rather than the only way to play it.
-type coveredTitles map[string]struct{ keeper, title string }
+// setTitle is what the set knows about one game, indexed by every parsed form
+// of its title. Owned matters as much as the title does: an off-catalog file
+// claiming a game whose catalogued dump is ON DISK is a spare copy, while one
+// claiming a game the set is still MISSING may be the only copy there is.
+type setTitle struct {
+	keeper string
+	title  string
+	owned  bool
+}
 
-func ownedTitles(entries []collection.Entry) coveredTitles {
-	out := coveredTitles{}
+type setTitles map[string]setTitle
+
+func indexSetTitles(entries []collection.Entry) setTitles {
+	out := setTitles{}
 	for _, e := range entries {
-		if e.Status != collection.StatusOwned {
-			continue
-		}
 		keeper, ok := e.Keeper()
 		if !ok {
 			continue
 		}
+		hit := setTitle{keeper: keeper.Name, title: e.Title, owned: e.Status == collection.StatusOwned}
 		for _, key := range selection.OwnershipKeys(e.Title) {
-			if _, dup := out[key]; !dup {
-				out[key] = struct{ keeper, title string }{keeper.Name, e.Title}
+			// An owned answer beats a missing one for the same key: two groups
+			// can normalise to the same title, and the safe reading is the one
+			// that says a copy exists.
+			if prev, dup := out[key]; dup && (prev.owned || !hit.owned) {
+				continue
 			}
+			out[key] = hit
 		}
 	}
 	return out
 }
 
-// lookup matches a library file name against the covered titles, using the
-// same parsed-title vocabulary ownership already speaks.
-func (c coveredTitles) lookup(name string) (keeper, title string, ok bool) {
+// lookup matches a library file name against the set's titles, using the same
+// parsed-title vocabulary ownership already speaks.
+func (c setTitles) lookup(name string) (setTitle, bool) {
 	for _, key := range selection.OwnershipKeys(name) {
 		if hit, found := c[key]; found {
-			return hit.keeper, hit.title, true
+			return hit, true
 		}
 	}
-	return "", "", false
+	return setTitle{}, false
 }
 
 // Verdicts. Stable strings: displayed, logged, and asserted on.
@@ -84,6 +94,13 @@ const (
 	// set entirely (prototypes, unlicensed, hacks). Archiving it removes the
 	// game rather than a duplicate of it, so it needs its own opt-in.
 	VerdictExcludedGroup = "excluded-group"
+	// VerdictUncataloguedHack: the catalog has never heard of this file AND
+	// its name declares what it is — a hack, an alternate or bad dump, a
+	// trained or pirate release, a fan translation. No-Intro is the authority
+	// for cart platforms, so a file carrying a GoodTools-era junk marker and
+	// absent from the catalog is non-canonical by the library's own standard.
+	// This is what makes a shop list six tiles all called "Asteroids".
+	VerdictUncataloguedHack = "uncatalogued-hack"
 	// VerdictUncatalogued: the catalog has never heard of this file. Counted
 	// and listed, never actioned.
 	VerdictUncatalogued = "uncatalogued"
@@ -142,6 +159,7 @@ type Runner struct {
 	scope        string
 	includeOut   bool
 	includeDupes bool
+	includeHacks bool
 	total        int
 	done         int
 	archived     int
@@ -188,6 +206,7 @@ func (r *Runner) Status() map[string]interface{} {
 		"scope":         r.scope,
 		"include_out":   r.includeOut,
 		"include_dupes": r.includeDupes,
+		"include_hacks": r.includeHacks,
 		"total":         r.total,
 		"done":          r.done,
 		"archived":      r.archived,
@@ -247,6 +266,24 @@ type Opts struct {
 	// IncludeUncataloguedDupes adds uncatalogued files whose title is a game
 	// the set covers and whose catalogued dump we already hold.
 	IncludeUncataloguedDupes bool
+	// IncludeUncataloguedHacks adds uncatalogued files whose NAME declares
+	// them a hack, alternate dump, bad dump, overdump, pirate release or fan
+	// translation.
+	IncludeUncataloguedHacks bool
+}
+
+// hackMarkerRe matches the GoodTools-era markers a file uses to declare what it
+// is: [a1] alternate, [h2] hack, [t1] trained, [b] bad dump, [o1] overdump,
+// [p1] pirate, [f1] fixed, [T-Eng]/[T+Ger] translation — plus the explicit
+// "(Something Hack)" tag that modern homebrew sets use.
+//
+// Deliberately tight. [!] alone means VERIFIED GOOD and must never match, and a
+// bracket carrying anything else ("[USA]", "[Rev 1]") is not a marker either.
+var hackMarkerRe = regexp.MustCompile(`(?i)\[(?:[ahtbopf]\d*|T[-+][^\]]*)\]|\([^)]*\bhack\b[^)]*\)`)
+
+// hackMarker returns the marker a name declares, or "".
+func hackMarker(name string) string {
+	return hackMarkerRe.FindString(name)
 }
 
 // TriggerPreview starts a classification pass over one platform (or "all").
@@ -259,6 +296,7 @@ func (r *Runner) TriggerPreview(scope string, opts Opts) bool {
 	r.mu.Lock()
 	r.cancel, r.phase, r.scope, r.includeOut = cancel, "preview", scope, includeOut
 	r.includeDupes = opts.IncludeUncataloguedDupes
+	r.includeHacks = opts.IncludeUncataloguedHacks
 	r.total, r.done, r.archived, r.skipped, r.errCount = 0, 0, 0, 0, 0
 	r.lastErr, r.rows, r.counts, r.uncatalogued = "", nil, map[string]int{}, 0
 	r.startedAt, r.finishedAt = time.Now(), time.Time{}
@@ -367,7 +405,7 @@ func (r *Runner) runPreview(ctx context.Context, scope string, opts Opts) {
 		// TITLE is a game the set covers, and whose catalogued dump we already
 		// hold, is a different thing from a homebrew game that exists nowhere
 		// else. Both are uncatalogued; only one is clutter.
-		covered := ownedTitles(res.Entries)
+		known := indexSetTitles(res.Entries)
 		claimed := collection.ClaimedLibraryIDs(res.Entries)
 		for _, item := range r.store.ListLibraryItemsForRename(slug) {
 			if claimed[item.ID] {
@@ -380,14 +418,35 @@ func (r *Runner) runPreview(ctx context.Context, scope string, opts Opts) {
 				Verdict: VerdictUncatalogued, Status: StatusReported,
 				Reason: "no catalogued dump matches this file — the catalog's silence is not evidence of redundancy",
 			}
-			if keeper, title, ok := covered.lookup(name); ok {
+			hit, inSet := known.lookup(name)
+			switch {
+			case inSet && hit.owned:
 				row.Verdict = VerdictUncataloguedDupe
-				row.Title, row.Keeper = title, keeper
-				row.Reason = "not in the catalog, and the catalogued " + keeper + " is already on disk"
+				row.Title, row.Keeper = hit.title, hit.keeper
+				row.Reason = "not in the catalog, and the catalogued " + hit.keeper + " is already on disk"
 				if opts.IncludeUncataloguedDupes {
 					row.Status = StatusPlanned
 				}
-			} else {
+			case inSet:
+				// 🔴 The set wants this game and does not have it. Whatever
+				// markers the file carries, archiving it takes away the only
+				// copy of a game — the same rule that protects a lone European
+				// dump, one tier out.
+				row.Verdict = VerdictReview
+				row.Title, row.Keeper = hit.title, hit.keeper
+				row.Reason = "not in the catalog, and the catalogued " + hit.keeper +
+					" is NOT on disk — this may be the only copy of this game"
+			case hackMarker(name) != "":
+				// The file says what it is. A hack named for itself
+				// ("Asteroids SS (Asteroids Hack)") never collides with the
+				// title it hacks, so the duplicate rule cannot see it — this is
+				// the rule that can.
+				row.Verdict = VerdictUncataloguedHack
+				row.Reason = "not in the catalog, and its name declares it non-canonical: " + hackMarker(name)
+				if opts.IncludeUncataloguedHacks {
+					row.Status = StatusPlanned
+				}
+			default:
 				uncatalogued++
 			}
 			counts[row.Verdict]++
@@ -403,6 +462,9 @@ func (r *Runner) runPreview(ctx context.Context, scope string, opts Opts) {
 	}
 	if opts.IncludeUncataloguedDupes {
 		r.total += counts[VerdictUncataloguedDupe]
+	}
+	if opts.IncludeUncataloguedHacks {
+		r.total += counts[VerdictUncataloguedHack]
 	}
 	r.phase = "preview"
 	r.mu.Unlock()

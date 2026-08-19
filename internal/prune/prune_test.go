@@ -443,7 +443,132 @@ func TestUncataloguedIsNotADupeWhenTheKeeperIsMissing(t *testing.T) {
 	if !ok {
 		t.Fatalf("row missing: %+v", rows)
 	}
-	if row.Verdict != VerdictUncatalogued || row.Status == StatusPlanned {
-		t.Errorf("verdict/status = %q/%q, want plain uncatalogued and never planned", row.Verdict, row.Status)
+	// 🔴 It carries a hack marker AND the set wants the game — but the
+	// catalogued dump is not on disk, so this file is the only Asteroids there
+	// is. Review, never planned, whatever opt-ins are set.
+	if row.Verdict != VerdictReview || row.Status == StatusPlanned {
+		t.Errorf("verdict/status = %q/%q, want review and never planned", row.Verdict, row.Status)
+	}
+	if !strings.Contains(row.Reason, "only copy") {
+		t.Errorf("reason = %q, want it to say this may be the only copy", row.Reason)
+	}
+}
+
+// The same protection with every opt-in switched on: a marker cannot override
+// "you do not have this game any other way".
+func TestOptInsNeverReachTheOnlyCopyOfAMissingGame(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{catGame("Asteroids (USA)", "usa", "aaa", "")})
+	e.own(t, "atari7800", "Asteroids alt", "Asteroids (1979) (Atari) [a1].a78", "hhh")
+
+	if !e.runner.TriggerPreview("atari7800", Opts{
+		IncludeExcluded: true, IncludeUncataloguedDupes: true, IncludeUncataloguedHacks: true,
+	}) {
+		t.Fatal("preview did not start")
+	}
+	e.wait(t, "preview")
+	rows, _ := e.runner.PreviewPage(1, 500)
+	row, _ := rowFor(rows, "Asteroids (1979) (Atari) [a1].a78")
+	if row.Status == StatusPlanned {
+		t.Errorf("row = %+v, want it held back with every opt-in on", row)
+	}
+	if got := e.runner.Status()["total"]; got != 0 {
+		t.Errorf("planned = %v, want nothing actionable", got)
+	}
+}
+
+// The markers are the evidence, so the regex is the rule. Every name here is
+// real, from a live Atari 2600 library — including the ones that must NOT
+// match: [!] means verified good, and a homebrew with no marker is a game.
+func TestHackMarkerMatchesWhatItShould(t *testing.T) {
+	for _, name := range []string{
+		"Asteroids SS (Asteroids Hack).a26",
+		"Asteroids DC+ by Thomas Jentzsch (Asteroids Hack).a26",
+		"Borgwars Asteroids (2003) (Jack Kortkamp) (Asteroids Hack).a26",
+		"Aster-Hawk (2002) (Charles Morgan) (Asteroids Hack).a26",
+		"Asteroids (1979) (Atari) [a1][!].a26",
+		"Adventure (1978) (Atari) [t1].bin",
+		"Adventure (Color Scrolling) [h1].bin",
+		"3-D Tic-Tac-Toe (1978) (Atari) (PAL) [p1][o1].a26",
+		"Some Game (1982) (Someone) [b].a26",
+		"Zelda (Japan) [T-Eng1.0].nes",
+	} {
+		if hackMarker(name) == "" {
+			t.Errorf("hackMarker(%q) = \"\", want it to match", name)
+		}
+	}
+	for _, name := range []string{
+		"Asteroids (1979) (Atari) [!].a26",     // verified good, not junk
+		"Asteroids (USA).a26",                  // canonical
+		"Totally Original Homebrew (2003).a26", // a game, not a hack of one
+		"Boulder Dash (USA) (Rev 1).a26",       // a revision is not a marker
+		"Adventure II (USA).a26",               // a sequel is not an [a2]
+		"Fun Pak [USA].a26",                    // a bracketed region is not a marker
+	} {
+		if m := hackMarker(name); m != "" {
+			t.Errorf("hackMarker(%q) = %q, want no match", name, m)
+		}
+	}
+}
+
+// The rule the duplicate check cannot reach: a hack named for itself never
+// collides with the title it hacks.
+func TestHackMarkedFilesNeedTheirOwnOptIn(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{catGame("Asteroids (USA)", "usa", "aaa", "")})
+	e.own(t, "atari7800", "Asteroids", "Asteroids (USA).a78", "aaa")
+	e.own(t, "atari7800", "Asteroids SS", "Asteroids SS (Asteroids Hack).a78", "hhh")
+	e.own(t, "atari7800", "Homebrew", "Totally Original Homebrew (2003).a78", "zzz")
+
+	rows := e.preview(t, "atari7800", false)
+	hack, ok := rowFor(rows, "Asteroids SS (Asteroids Hack).a78")
+	if !ok {
+		t.Fatalf("hack row missing: %+v", rows)
+	}
+	if hack.Verdict != VerdictUncataloguedHack {
+		t.Errorf("verdict = %q, want %q", hack.Verdict, VerdictUncataloguedHack)
+	}
+	if hack.Status == StatusPlanned {
+		t.Error("a hack was planned without the opt-in")
+	}
+	if !strings.Contains(hack.Reason, "Hack") {
+		t.Errorf("reason = %q, want it to quote the marker it found", hack.Reason)
+	}
+
+	// With the opt-in it becomes actionable; the unmarked homebrew never does.
+	if !e.runner.TriggerPreview("atari7800", Opts{IncludeUncataloguedHacks: true}) {
+		t.Fatal("preview did not start")
+	}
+	e.wait(t, "preview")
+	rows, _ = e.runner.PreviewPage(1, 500)
+	hack, _ = rowFor(rows, "Asteroids SS (Asteroids Hack).a78")
+	home, _ := rowFor(rows, "Totally Original Homebrew (2003).a78")
+	if hack.Status != StatusPlanned {
+		t.Errorf("hack status = %q, want planned under the opt-in", hack.Status)
+	}
+	if home.Verdict != VerdictUncatalogued || home.Status == StatusPlanned {
+		t.Errorf("homebrew = %q/%q, want untouched", home.Verdict, home.Status)
+	}
+	if got := e.runner.Status()["total"]; got != 1 {
+		t.Errorf("planned = %v, want just the hack", got)
+	}
+}
+
+// A hack whose base game IS owned catalogued stays a duplicate: that verdict is
+// stronger evidence (it names the keeper), and the two opt-ins must not fight
+// over the same row.
+func TestDuplicateVerdictWinsOverHackMarker(t *testing.T) {
+	e := newEnv(t)
+	e.catalog(t, "atari7800", []db.DatGameRow{catGame("Asteroids (USA)", "usa", "aaa", "")})
+	e.own(t, "atari7800", "Asteroids", "Asteroids (USA).a78", "aaa")
+	e.own(t, "atari7800", "Asteroids alt", "Asteroids (1979) (Atari) [a1].a78", "hhh")
+
+	rows := e.preview(t, "atari7800", false)
+	row, _ := rowFor(rows, "Asteroids (1979) (Atari) [a1].a78")
+	if row.Verdict != VerdictUncataloguedDupe {
+		t.Errorf("verdict = %q, want the duplicate verdict that names the keeper", row.Verdict)
+	}
+	if row.Keeper == "" {
+		t.Error("the duplicate verdict must name what the set keeps")
 	}
 }

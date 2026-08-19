@@ -28,6 +28,7 @@ const VERDICT: Record<string, { color: BadgeColor; label: string }> = {
   review: { color: 'yellow', label: 'review' },
   'excluded-group': { color: 'orange', label: 'off-catalog group' },
   'uncatalogued-duplicate': { color: 'yellow', label: 'off-catalog spare' },
+  'uncatalogued-hack': { color: 'orange', label: 'hack / alt dump' },
   uncatalogued: { color: 'blue', label: 'not in any catalog' },
 }
 
@@ -39,6 +40,7 @@ export function LibraryDeclutter() {
   const [scope, setScope] = useState('all')
   const [includeExcluded, setIncludeExcluded] = useState(false)
   const [includeDupes, setIncludeDupes] = useState(false)
+  const [includeHacks, setIncludeHacks] = useState(false)
   const [page, setPage] = useState(1)
   const [excluded, setExcluded] = useState<Set<number>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -66,7 +68,12 @@ export function LibraryDeclutter() {
     setExcluded(new Set())
     setPage(1)
     try {
-      const res = await preview.mutateAsync({ platformSlug: scope, includeExcluded, includeDupes })
+      const res = await preview.mutateAsync({
+        platformSlug: scope,
+        includeExcluded,
+        includeDupes,
+        includeHacks,
+      })
       if (res.success) toast('Preview started — nothing moves until you apply.', 'success')
       else toast(res.error || 'Failed to start', 'error')
     } catch {
@@ -144,8 +151,15 @@ export function LibraryDeclutter() {
           checked={includeDupes}
           onChange={setIncludeDupes}
           label="Include off-catalog spares"
-          hint="Files no catalog knows whose title is a game you already own the catalogued dump of — the hack and alt-dump pile"
+          hint="Files no catalog knows whose title is a game you already own the catalogued dump of"
           data-testid="prune-include-dupes"
+        />
+        <Toggle
+          checked={includeHacks}
+          onChange={setIncludeHacks}
+          label="Include hacks and alt dumps"
+          hint="Files no catalog knows that declare it in their name — (… Hack), [a1], [h1], [t1], [b], [o1], [p1], [T-Eng]"
+          data-testid="prune-include-hacks"
         />
       </div>
 
@@ -161,6 +175,9 @@ export function LibraryDeclutter() {
             </span>
             <span className={counts['uncatalogued-duplicate'] ? 'text-yellow-400' : ''}>
               {counts['uncatalogued-duplicate'] ?? 0} off-catalog spares
+            </span>
+            <span className={counts['uncatalogued-hack'] ? 'text-orange-400' : ''}>
+              {counts['uncatalogued-hack'] ?? 0} hacks / alt dumps
             </span>
             <span>{status.data?.uncatalogued ?? 0} not in any catalog</span>
             <span className={status.data?.errors ? 'text-red-400' : ''}>{status.data?.errors ?? 0} errors</span>
