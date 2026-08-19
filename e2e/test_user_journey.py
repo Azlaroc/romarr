@@ -71,7 +71,12 @@ def _search_from_wishlist(page, title: str, platform_slug: str):
 
 
 def _close_search_and_delete(page, row, title: str):
-    """Leave the wishlist as it was found (browser journeys run first)."""
+    """Leave the wishlist as it was found (browser journeys run first).
+
+    Called from a finally block on purpose: a later journey asserts the whole
+    wishlist is empty, so a row left behind by a FAILED assertion here shows up
+    there as a selector bug.
+    """
     page.get_by_test_id("interactive-search-close").click()
     if row.count():
         row.locator('[data-testid="wish-delete"]').click()
@@ -81,28 +86,36 @@ def _close_search_and_delete(page, row, title: str):
 def test_ddl_search_renders_results(ui):
     page = ui["page"]
     row = _search_from_wishlist(page, "Tetris", "gb")
-    results = page.get_by_test_id("results")
-    expect(results).to_contain_text("Tetris (World) (Rev 1)", timeout=SLOW_MS)
-    expect(results).to_contain_text("Tetris Attack", timeout=SLOW_MS)
-    _close_search_and_delete(page, row, "Tetris")
+    try:
+        results = page.get_by_test_id("results")
+        expect(results).to_contain_text("Tetris (World) (Rev 1)", timeout=SLOW_MS)
+        expect(results).to_contain_text("Tetris Attack", timeout=SLOW_MS)
+    finally:
+        _close_search_and_delete(page, row, "Tetris")
 
 
 def test_torrent_search_renders_results(ui):
     page = ui["page"]
-    row = _search_from_wishlist(page, "Stardew Harvest", "pc")
-    results = page.get_by_test_id("results")
-    expect(results).to_contain_text("Stardew Harvest Deluxe Edition", timeout=SLOW_MS)
-    expect(results).to_contain_text("StubIndexer", timeout=SLOW_MS)
-    _close_search_and_delete(page, row, "Stardew Harvest")
+    # The Prowlarr fixtures carry category 4050, which the platform registry
+    # maps to Switch — a platform-scoped search only sees them under that slug.
+    row = _search_from_wishlist(page, "Stardew Harvest", "switch")
+    try:
+        results = page.get_by_test_id("results")
+        expect(results).to_contain_text("Stardew Harvest Deluxe Edition", timeout=SLOW_MS)
+        expect(results).to_contain_text("StubIndexer", timeout=SLOW_MS)
+    finally:
+        _close_search_and_delete(page, row, "Stardew Harvest")
 
 
 def test_search_no_results_is_clean(ui):
     page = ui["page"]
     row = _search_from_wishlist(page, "zzzznotagame", "gb")
-    # Whatever empty-state copy is used, no result rows and no JS errors.
-    page.wait_for_timeout(1500)
-    assert page.locator('[data-testid^="dl-btn-"]').count() == 0
-    _close_search_and_delete(page, row, "zzzznotagame")
+    try:
+        # Whatever empty-state copy is used, no result rows and no JS errors.
+        page.wait_for_timeout(1500)
+        assert page.locator('[data-testid^="dl-btn-"]').count() == 0
+    finally:
+        _close_search_and_delete(page, row, "zzzznotagame")
 
 
 # ── the flagship journey: DDL download -> organize -> library ─────────────────
