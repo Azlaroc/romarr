@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import App from './App'
 import { Library } from './routes/Library'
+import { LibraryDeclutter } from './routes/library/Declutter'
 import { LibraryRename } from './routes/library/Rename'
 import { AddNew } from './routes/AddNew'
 import { Platforms } from './routes/Platforms'
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Library /> },
       { path: 'library/rename', element: <LibraryRename /> },
+      { path: 'library/declutter', element: <LibraryDeclutter /> },
       { path: 'add', element: <AddNew /> },
       { path: 'calendar', element: <Calendar /> },
       { path: 'platforms', element: <Platforms /> },

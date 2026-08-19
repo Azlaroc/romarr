@@ -204,3 +204,23 @@ func Summarise(entries []Entry) Counts {
 	}
 	return c
 }
+
+// ClaimedLibraryIDs returns every library row a reconciliation matched to a
+// catalogued dump.
+//
+// Its complement is the interesting set: files the catalog has never heard of.
+// On one live platform that is 1,946 of 2,691 files — the hack, homebrew and
+// overdump pile — and it is a different verdict from "surplus", which is a
+// catalogued dump the set simply does not keep. Conflating the two would let a
+// declutter archive a file on the strength of the catalog's SILENCE.
+func ClaimedLibraryIDs(entries []Entry) map[int64]bool {
+	claimed := map[int64]bool{}
+	for _, e := range entries {
+		for _, c := range e.Members {
+			if c.Owned != nil {
+				claimed[c.Owned.LibraryID] = true
+			}
+		}
+	}
+	return claimed
+}

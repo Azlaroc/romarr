@@ -658,3 +658,38 @@ export interface CollectionSyncResult {
   removed: number
   counts: { groups: number; owned: number; gaps: number; out: number; surplus: number }
 }
+
+export interface PruneStatus {
+  configured: boolean
+  running?: boolean
+  phase?: string
+  scope?: string
+  include_out?: boolean
+  total?: number
+  done?: number
+  archived?: number
+  skipped?: number
+  errors?: number
+  last_error?: string
+  counts?: Record<string, number>
+  uncatalogued?: number
+  archive_root?: string
+  started_at?: string
+  finished_at?: string
+  [k: string]: unknown
+}
+
+export interface PrunePreviewRow {
+  library_id: number
+  platform_slug: string
+  path: string
+  name: string
+  size?: number
+  title?: string
+  keeper?: string
+  matched_by?: string
+  verdict: string // archive | review | excluded-group | uncatalogued
+  status: string // planned | archived | skip | reported
+  reason?: string
+  archived_to?: string
+}
