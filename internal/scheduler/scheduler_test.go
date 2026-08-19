@@ -613,7 +613,7 @@ func TestEnforceActiveGrabSkipsWhileSetInFlight(t *testing.T) {
 
 func TestOwnershipKeys(t *testing.T) {
 	t.Parallel()
-	keys := ownershipKeys("Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)")
+	keys := selection.OwnershipKeys("Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)")
 	found := false
 	for _, k := range keys {
 		if k == "kirby's dream land 2" {
@@ -624,7 +624,7 @@ func TestOwnershipKeys(t *testing.T) {
 		t.Errorf("ownershipKeys missing bare key, got %v", keys)
 	}
 	// Vimm titles carry a trailing "(SystemName)" parenthetical.
-	keys = ownershipKeys("Kirby's Dream Land 2 (GB)")
+	keys = selection.OwnershipKeys("Kirby's Dream Land 2 (GB)")
 	found = false
 	for _, k := range keys {
 		if k == "kirby's dream land 2" {
@@ -634,7 +634,7 @@ func TestOwnershipKeys(t *testing.T) {
 	if !found {
 		t.Errorf("ownershipKeys missing bare key for Vimm system tag, got %v", keys)
 	}
-	if got := ownershipKeys("(Weird) [Tags]"); len(got) == 0 {
+	if got := selection.OwnershipKeys("(Weird) [Tags]"); len(got) == 0 {
 		t.Errorf("all-tag title produced no keys at all: %v", got)
 	}
 }

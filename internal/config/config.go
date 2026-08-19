@@ -509,6 +509,22 @@ func (c *Config) DatRefreshIntervalDays() int {
 	return n
 }
 
+// DefaultCloneListBase is where clone lists are fetched from: Retool's own
+// BSD-3 metadata repo, raw. It is a settings key rather than a constant for
+// the same reason the DAT fetch bases are — repointing at a mirror, a fork or
+// a test stub must be an edit, not a deploy.
+const DefaultCloneListBase = "https://raw.githubusercontent.com/unexpectedpanda/retool-clonelists-metadata/main/clonelists/"
+
+// CloneListFetchBase returns the base URL clone lists are fetched from.
+func (c *Config) CloneListFetchBase() string {
+	if v, ok := c.settingStr("clonelist_fetch_base"); ok {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return DefaultCloneListBase
+}
+
 // SelectorModeEffective returns the selector mode normalized to off | shadow
 // | enforce; unset or unknown behaves as shadow (the Load default), so
 // hand-built test configs match a deployed default.

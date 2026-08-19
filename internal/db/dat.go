@@ -59,6 +59,10 @@ type DatPlatformRow struct {
 	Authority    string `json:"authority"`
 	DatCode      string `json:"dat_code"`
 	Enabled      bool   `json:"enabled"`
+	// CloneListName is the platform's clone-list locator, a SEPARATE upstream
+	// vocabulary from DatCode (see cloneListSeed for the five that disagree).
+	// Empty means the set groups by parsed title alone.
+	CloneListName string `json:"clonelist_name,omitempty"`
 }
 
 // DatRomRow is one file of a dumped game.
@@ -250,38 +254,45 @@ var datAuthoritySeed = []DatAuthorityRow{
 // platforms carry the Redump system code. Platforms with no DAT lane are
 // absent by design: switch is shop-native, pc has no authority.
 var datPlatformSeed = []DatPlatformRow{
+	// Fields: slug, authority, dat_code, enabled, clonelist_name.
+	// 🔴 dat_code and clonelist_name are DIFFERENT upstream vocabularies and
+	// five pairs disagree — verified against both listings on 2026-08-19, not
+	// remembered. Two are exact reversals of each other:
+	//   "NEC - PC Engine - TurboGrafx 16" / "...TurboGrafx-16"      (hyphen)
+	//   "SNK - Neo Geo Pocket Color"     / "SNK - NeoGeo Pocket Color" (spacing)
+	// TestDatPlatformSeedVocabularies pins all five.
 	// No-Intro — cartridges and handhelds.
-	{"nes", "no-intro", "Nintendo - Nintendo Entertainment System", true},
-	{"snes", "no-intro", "Nintendo - Super Nintendo Entertainment System", true},
-	{"gb", "no-intro", "Nintendo - Game Boy", true},
-	{"gbc", "no-intro", "Nintendo - Game Boy Color", true},
-	{"gba", "no-intro", "Nintendo - Game Boy Advance", true},
-	{"n64", "no-intro", "Nintendo - Nintendo 64", true},
-	{"nds", "no-intro", "Nintendo - Nintendo DS", true},
-	{"3ds", "no-intro", "Nintendo - Nintendo 3DS", true},
-	{"genesis", "no-intro", "Sega - Mega Drive - Genesis", true},
-	{"atari2600", "no-intro", "Atari - 2600", true},
-	{"atari7800", "no-intro", "Atari - 7800", true},
-	{"sms", "no-intro", "Sega - Master System - Mark III", true},
-	{"gamegear", "no-intro", "Sega - Game Gear", true},
-	{"sega32", "no-intro", "Sega - 32X", true},
-	{"tg16", "no-intro", "NEC - PC Engine - TurboGrafx 16", true},
-	{"lynx", "no-intro", "Atari - Lynx", true},
-	{"virtualboy", "no-intro", "Nintendo - Virtual Boy", true},
-	{"wonderswan-color", "no-intro", "Bandai - WonderSwan Color", true},
-	{"neo-geo-pocket-color", "no-intro", "SNK - Neo Geo Pocket Color", true},
-	{"colecovision", "no-intro", "Coleco - ColecoVision", true},
+	{"nes", "no-intro", "Nintendo - Nintendo Entertainment System", true, "Nintendo - Nintendo Entertainment System (No-Intro)"},
+	{"snes", "no-intro", "Nintendo - Super Nintendo Entertainment System", true, "Nintendo - Super Nintendo Entertainment System (No-Intro)"},
+	{"gb", "no-intro", "Nintendo - Game Boy", true, "Nintendo - Game Boy (No-Intro)"},
+	{"gbc", "no-intro", "Nintendo - Game Boy Color", true, "Nintendo - Game Boy Color (No-Intro)"},
+	{"gba", "no-intro", "Nintendo - Game Boy Advance", true, "Nintendo - Game Boy Advance (No-Intro)"},
+	{"n64", "no-intro", "Nintendo - Nintendo 64", true, "Nintendo - Nintendo 64 (No-Intro)"},
+	{"nds", "no-intro", "Nintendo - Nintendo DS", true, "Nintendo - Nintendo DS (No-Intro)"},
+	{"3ds", "no-intro", "Nintendo - Nintendo 3DS", true, "Nintendo - Nintendo 3DS (No-Intro)"},
+	{"genesis", "no-intro", "Sega - Mega Drive - Genesis", true, "Sega - Mega Drive - Genesis (No-Intro)"},
+	{"atari2600", "no-intro", "Atari - 2600", true, "Atari - Atari 2600 (No-Intro)"},
+	{"atari7800", "no-intro", "Atari - 7800", true, "Atari - Atari 7800 (No-Intro)"},
+	{"sms", "no-intro", "Sega - Master System - Mark III", true, "Sega - Master System - Mark III (No-Intro)"},
+	{"gamegear", "no-intro", "Sega - Game Gear", true, "Sega - Game Gear (No-Intro)"},
+	{"sega32", "no-intro", "Sega - 32X", true, "Sega - 32X (No-Intro)"},
+	{"tg16", "no-intro", "NEC - PC Engine - TurboGrafx 16", true, "NEC - PC Engine - TurboGrafx-16 (No-Intro)"},
+	{"lynx", "no-intro", "Atari - Lynx", true, "Atari - Atari Lynx (No-Intro)"},
+	{"virtualboy", "no-intro", "Nintendo - Virtual Boy", true, "Nintendo - Virtual Boy (No-Intro)"},
+	{"wonderswan-color", "no-intro", "Bandai - WonderSwan Color", true, "Bandai - WonderSwan Color (No-Intro)"},
+	{"neo-geo-pocket-color", "no-intro", "SNK - Neo Geo Pocket Color", true, "SNK - NeoGeo Pocket Color (No-Intro)"},
+	{"colecovision", "no-intro", "Coleco - ColecoVision", true, "Coleco - ColecoVision (No-Intro)"},
 	// Redump — optical media.
-	{"psx", "redump", "psx", true},
-	{"ps2", "redump", "ps2", true},
-	{"ps3", "redump", "ps3", true},
-	{"psp", "redump", "psp", true},
-	{"dc", "redump", "dc", true},
-	{"saturn", "redump", "ss", true},
-	{"ngc", "redump", "gc", true},
-	{"wii", "redump", "wii", true},
-	{"xbox", "redump", "xbox", true},
-	{"xbox360", "redump", "xbox360", true},
+	{"psx", "redump", "psx", true, "Sony - PlayStation (Redump)"},
+	{"ps2", "redump", "ps2", true, "Sony - PlayStation 2 (Redump)"},
+	{"ps3", "redump", "ps3", true, "Sony - PlayStation 3 (Redump)"},
+	{"psp", "redump", "psp", true, "Sony - PlayStation Portable (Redump)"},
+	{"dc", "redump", "dc", true, "Sega - Dreamcast (Redump)"},
+	{"saturn", "redump", "ss", true, "Sega - Saturn (Redump)"},
+	{"ngc", "redump", "gc", true, "Nintendo - GameCube (Redump)"},
+	{"wii", "redump", "wii", true, "Nintendo - Wii (Redump)"},
+	{"xbox", "redump", "xbox", true, "Microsoft - Xbox (Redump)"},
+	{"xbox360", "redump", "xbox360", true, "Microsoft - Xbox 360 (Redump)"},
 }
 
 // seedDatDefaults populates the shipped data pack exactly once, on a table
@@ -404,7 +415,7 @@ func (s *JobStore) SetDatRefreshResult(name, status, errMsg string, at time.Time
 
 // ListDatPlatforms returns every platform assignment, stably ordered.
 func (s *JobStore) ListDatPlatforms() []DatPlatformRow {
-	rows, err := s.db.Query(`SELECT platform_slug, authority, dat_code, enabled
+	rows, err := s.db.Query(`SELECT platform_slug, authority, dat_code, enabled, clonelist_name
 		FROM dat_platforms ORDER BY platform_slug`)
 	if err != nil {
 		slog.Warn("list dat platforms", "error", err)
@@ -415,7 +426,7 @@ func (s *JobStore) ListDatPlatforms() []DatPlatformRow {
 	for rows.Next() {
 		var p DatPlatformRow
 		var en int
-		if err := rows.Scan(&p.PlatformSlug, &p.Authority, &p.DatCode, &en); err != nil {
+		if err := rows.Scan(&p.PlatformSlug, &p.Authority, &p.DatCode, &en, &p.CloneListName); err != nil {
 			continue
 		}
 		p.Enabled = en != 0
@@ -434,12 +445,23 @@ func (s *JobStore) SetDatPlatform(p DatPlatformRow) error {
 	if _, err := s.GetDatAuthority(p.Authority); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO dat_platforms (platform_slug, authority, dat_code, enabled, updated_at)
+	if _, err := s.db.Exec(`INSERT INTO dat_platforms (platform_slug, authority, dat_code, enabled, updated_at)
 		VALUES (?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(platform_slug) DO UPDATE SET authority = excluded.authority,
 			dat_code = excluded.dat_code, enabled = excluded.enabled, updated_at = excluded.updated_at`,
-		p.PlatformSlug, p.Authority, p.DatCode, boolInt(p.Enabled))
-	return err
+		p.PlatformSlug, p.Authority, p.DatCode, boolInt(p.Enabled)); err != nil {
+		return err
+	}
+	// The clone-list locator is deliberately NOT in the upsert's column list,
+	// so editing an assignment never clears it. An explicit value is applied;
+	// otherwise the shipped locator fills an empty one — which is what makes a
+	// lane lit up at runtime (nine of them were, on 2026-08-17, with no code
+	// change) arrive with its clone list rather than silently without.
+	if name := strings.TrimSpace(p.CloneListName); name != "" {
+		return s.SetCloneListName(p.PlatformSlug, name)
+	}
+	s.seedCloneListName(p.PlatformSlug)
+	return nil
 }
 
 // InsertDatSnapshot stores a freshly parsed catalog, makes it the active

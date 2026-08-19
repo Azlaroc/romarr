@@ -39,6 +39,7 @@ var settingSpecs = []settingSpec{
 	{Key: "romm_exclude_platforms", Kind: "string"},
 	{Key: "dat_auto_refresh_enabled", Kind: "bool"},
 	{Key: "dat_refresh_interval_days", Kind: "int", Min: 1},
+	{Key: "clonelist_fetch_base", Kind: "string"},
 }
 
 // handleGetSettings returns the merged runtime settings document: stored
@@ -66,6 +67,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"romm_exclude_platforms":      strings.Join(s.cfg.RomMExcludeList(), ","),
 		"dat_auto_refresh_enabled":    s.cfg.DatAutoRefreshOn(),
 		"dat_refresh_interval_days":   s.cfg.DatRefreshIntervalDays(),
+		"clonelist_fetch_base":        s.cfg.CloneListFetchBase(),
 	})
 }
 
