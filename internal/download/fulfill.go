@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"gamarr/internal/db"
 	"gamarr/internal/normalize"
 	"gamarr/internal/platform"
 )
@@ -114,6 +115,30 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 		}
 	}
 
+	// The trust gate (see catalog.go). It runs here because this is the first
+	// moment the actual ROM exists on disk: after extraction, before anything
+	// downstream treats the import as real. A disagreement is the release's
+	// fault, so the content comes back out of the library and the release is
+	// blocklisted — the selector moves to the next candidate rather than
+	// re-picking the same bad dump forever.
+	catalogStatus := db.CatalogUnknown
+	if !meta.DiscSet.valid() {
+		v := m.catalogVerdict(finalPath, meta.PlatformSlug)
+		catalogStatus = v.Status
+		if v.Status == db.CatalogMismatch {
+			reason := fmt.Sprintf("Catalog mismatch: %s expected %s, got %s",
+				v.RomName, v.Expected, v.Got)
+			if err := os.RemoveAll(finalPath); err != nil {
+				slog.Warn("catalog gate: cannot remove rejected import",
+					"path", sanitizeLog(finalPath), "error", err)
+			}
+			m.failJob(meta.JobID, reason, FailRelease)
+			slog.Warn("catalog gate rejected an import", "title", sanitizeLog(meta.Title),
+				"platform", meta.PlatformSlug, "expected", v.Expected, "got", v.Got)
+			return finalPath, fmt.Errorf("%s", reason)
+		}
+	}
+
 	// Disc-set member: STOP here. The tail (normalize/convert/m3u/sidecar/
 	// library row) runs once over the whole set dir when the last member
 	// lands — running it per member would DAT-rename and convert siblings
@@ -160,6 +185,9 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	}
 	m.TrackInLibrary(meta.Title, meta.Platform, meta.PlatformSlug, false, finalPath,
 		contentSize(finalPath), meta.Source, meta.SourceClient, sourceID, meta.JobID, meta.MD5, meta.SHA1)
+	// Verified or unknown — either way the library remembers which, so
+	// "is this the real dump?" is answerable later without re-hashing.
+	m.jobs.SetLibraryCatalogStatus(sourceID, catalogStatus)
 	if meta.JobID != "" {
 		m.jobs.LogActivity("download_completed", meta.Title, activityMessage(meta.Source, meta.Platform), meta.JobID, nil)
 	}

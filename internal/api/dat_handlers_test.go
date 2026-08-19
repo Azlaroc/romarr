@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"gamarr/internal/db"
 )
 
 // datUpload builds a multipart body carrying one DAT file part.
@@ -259,4 +261,69 @@ func TestDatCadenceKnobsAreVisibleAndValidated(t *testing.T) {
 	if days, _ := updated["dat_refresh_interval_days"].(float64); days != 7 {
 		t.Fatalf("interval = %v, want 7", updated["dat_refresh_interval_days"])
 	}
+}
+
+// The browse door: "what exists for this platform that I don't have?"
+// answered from the pinned snapshot, with no live third-party call.
+func TestDatGamesBrowse(t *testing.T) {
+	env := newTestEnv(t, nil)
+	if _, err := env.jobs.InsertDatSnapshot(
+		db.DatSnapshotMeta{Authority: "no-intro", PlatformSlug: "gb", Version: "2026.08.01"},
+		[]db.DatGameRow{
+			{Name: "Tetris (World)", BareTitle: "Tetris", TotalSize: 1024,
+				Roms: []db.DatRomRow{{Name: "Tetris (World).gb", Size: 1024, CRC: "aabbccdd"}}},
+			{Name: "Wario Land (World)", BareTitle: "Wario Land", TotalSize: 2048,
+				Roms: []db.DatRomRow{{Name: "Wario Land (World).gb", Size: 2048, CRC: "11223344"}}},
+		}); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	t.Run("lists a platform's catalogue", func(t *testing.T) {
+		rr := env.do("GET", "/api/dat/games?platform=gb", "")
+		wantStatus(t, rr, http.StatusOK)
+		m := decodeMap(t, rr)
+		if m["total"] != float64(2) {
+			t.Errorf("total = %v, want 2", m["total"])
+		}
+		games, _ := m["games"].([]interface{})
+		if len(games) != 2 {
+			t.Fatalf("games = %v", games)
+		}
+		first, _ := games[0].(map[string]interface{})
+		if first["name"] != "Tetris (World)" || first["id"] == nil {
+			t.Errorf("first game = %v, want a named row carrying its id", first)
+		}
+	})
+
+	t.Run("search narrows it", func(t *testing.T) {
+		rr := env.do("GET", "/api/dat/games?platform=gb&q=wario", "")
+		wantStatus(t, rr, http.StatusOK)
+		if m := decodeMap(t, rr); m["total"] != float64(1) {
+			t.Errorf("total = %v, want 1", m["total"])
+		}
+	})
+
+	t.Run("platform is required", func(t *testing.T) {
+		rr := env.do("GET", "/api/dat/games", "")
+		wantStatus(t, rr, http.StatusBadRequest)
+	})
+
+	t.Run("a dump's files are their own call", func(t *testing.T) {
+		rr := env.do("GET", "/api/dat/games?platform=gb&q=tetris", "")
+		games, _ := decodeMap(t, rr)["games"].([]interface{})
+		first, _ := games[0].(map[string]interface{})
+		id := int64(first["id"].(float64))
+
+		rr = env.do("GET", "/api/dat/games/"+itoa(id)+"/roms", "")
+		wantStatus(t, rr, http.StatusOK)
+		roms, _ := decodeMap(t, rr)["roms"].([]interface{})
+		if len(roms) != 1 {
+			t.Fatalf("roms = %v", roms)
+		}
+	})
+
+	t.Run("junk id is rejected", func(t *testing.T) {
+		rr := env.do("GET", "/api/dat/games/nope/roms", "")
+		wantStatus(t, rr, http.StatusBadRequest)
+	})
 }

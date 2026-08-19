@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -289,4 +290,71 @@ func (s *Server) handleDatCoverage(w http.ResponseWriter, r *http.Request) {
 		"coverage": out,
 		"note":     "Owned and known are independent counts. Coverage does not match owned files to catalog entries.",
 	})
+}
+
+// handleDatGames browses a platform's catalogue — "what exists that I don't
+// have?", answered from the pinned snapshot rather than a live third-party
+// call. Read-only, like status and coverage.
+func (s *Server) handleDatGames(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimSpace(r.URL.Query().Get("platform"))
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "platform is required")
+		return
+	}
+	pageSize := clampInt(intParam(r, "page_size", 50), 1, 200)
+	page := intParam(r, "page", 1)
+	if page < 1 {
+		page = 1
+	}
+	games, total := s.mgr.Jobs().BrowseDatGames(db.DatGameQuery{
+		PlatformSlug: slug,
+		Text:         r.URL.Query().Get("q"),
+		Limit:        pageSize,
+		Offset:       (page - 1) * pageSize,
+	})
+	if games == nil {
+		games = []db.DatGameRow{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"platform_slug": slug,
+		"games":         games,
+		"total":         total,
+		"page":          page,
+		"page_size":     pageSize,
+	})
+}
+
+// handleDatGameRoms returns one dump's files. A disc is a cue plus every
+// track, so the file list is its own call rather than a column on the game.
+func (s *Server) handleDatGameRoms(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "Invalid game id")
+		return
+	}
+	roms := s.mgr.Jobs().DatGameRoms(id)
+	if roms == nil {
+		roms = []db.DatRomRow{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"roms": roms})
+}
+
+// intParam reads a positive integer query param, falling back to def.
+func intParam(r *http.Request, name string, def int) int {
+	if v := r.URL.Query().Get(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }

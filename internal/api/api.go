@@ -164,6 +164,8 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Put("/api/dat/platforms/{slug}", requireAdmin(s.handleUpdateDatPlatform))
 	r.Get("/api/dat/status", s.handleDatStatus)
 	r.Get("/api/dat/coverage", s.handleDatCoverage)
+	r.Get("/api/dat/games", s.handleDatGames)
+	r.Get("/api/dat/games/{id}/roms", s.handleDatGameRoms)
 
 	// The platform registry. Reads are open — every picker in the app needs
 	// the vocabulary — while edits are configuration, so admin-only.

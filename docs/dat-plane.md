@@ -99,6 +99,63 @@ files are owned, and how many dumps the active catalog knows about. Owned files
 are not matched against catalog entries, so the numbers are presented as
 `N owned · M known` and never as a completion percentage.
 
+## Reading the catalog
+
+Two questions the catalog exists to answer, both against the platform's
+**active** snapshot:
+
+```
+GET /api/dat/games?platform=gb&q=tetris&page=1&page_size=50
+GET /api/dat/games/{id}/roms
+```
+
+The first is the browse door — *what exists for this platform?* — paginated,
+with `total` reporting the match count rather than the page length. The second
+returns one dump's files, which for a disc is the cue plus every track; that is
+why it is a separate call and not a column on the game.
+
+Only the active snapshot is visible. A refresh that replaces a catalog makes the
+old one invisible to both calls immediately, so a browse never mixes two
+generations of the same platform.
+
+## The trust gate
+
+The catalog is the only place RomArr can answer *"is this the real dump?"*, and
+the import pipeline asks it exactly once: **after extraction**, before anything
+downstream treats the import as real.
+
+🔴 **The gate hashes the extracted ROM, never the downloaded file.**
+archive.org's md5 is the hash of the `.7z` it stores; No-Intro's crc32 is the
+hash of the `.gb` inside it, and recompressing the identical ROM changes the
+first without touching the second. A gate built on the source hash passes every
+file — including a corrupt one — and looks healthy while doing it. The
+source-hash check that already runs before a destructive convert answers a
+different question ("did the bytes arrive intact?") and stays.
+
+Three verdicts, recorded on the library row under `$.gamarr.catalog`:
+
+| verdict | what it means | what happens |
+|---|---|---|
+| `verified` | a catalogued dump has this file's hash | import proceeds |
+| `unknown` | nothing matches by hash **or** by name | import proceeds, recorded |
+| `mismatch` | the catalog knows a file by this name for this platform and its hash is **not** this one | content comes back out of the library, job fails, release is blocklisted, selector moves to the next candidate |
+
+A rejection needs the catalog to **disagree**, not merely to be silent. Hacks,
+homebrew, translations and dumps newer than the snapshot are all `unknown`, and
+on some platforms they outnumber the catalogued ones several times over —
+atari2600 carries 2,691 owned files against 905 catalogued. Rejecting silence
+would make most of a platform unacquirable.
+
+Hash order matters: a hash hit is checked first, so a correctly dumped ROM that
+someone renamed is verified rather than accused. Only when no hash matches does
+the name lookup decide between disagreement and silence. A file that cannot be
+hashed at all is `unknown` — an unreadable file is not evidence of a bad
+release.
+
+Disc sets are not gated in this pass: their members converge at a set barrier
+that already has its own verification step, and a per-member verdict there would
+condemn a set for one late track.
+
 ## Adding a platform
 
 No code change:
