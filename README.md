@@ -221,6 +221,10 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 | `GAMES_ROMS_PATH` | `/data/roms` | ROM storage directory |
 | `RENAME_ENABLED` | `false` | Rename files on import |
 | `RENAME_PATTERN` | `{title} ({platform}).{ext}` | Rename pattern |
+| `IGDB_CLIENT_ID` | | Twitch application client id — IGDB is Twitch-owned, and this is what makes game search and cover art work |
+| `IGDB_CLIENT_SECRET` | | Twitch application client secret |
+| `IGDB_API_BASE` | `https://api.igdb.com/v4` | Override the IGDB API host (a mirror, or a stub in tests) |
+| `IGDB_AUTH_BASE` | `https://id.twitch.tv` | Override the token host |
 | `ROMM_URL` | | RomM server URL (also the API base for the RomM integration) |
 | `ROMM_API_USER` | | RomM API username (read access; enables the RomM integration) |
 | `ROMM_API_PASS` | | RomM API password |
