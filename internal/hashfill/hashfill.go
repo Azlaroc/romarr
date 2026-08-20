@@ -226,7 +226,7 @@ func (r *Runner) Status() map[string]interface{} {
 		// integer for minutes, and this is the only sign the run is alive.
 		"bytes_hashed": r.bytesHashed,
 		"last_error":   r.lastErr,
-		"counts":       r.counts,
+		"counts":       copyCounts(r.counts),
 		"pending":      pending,
 		"pending_all":  outstanding,
 		"started_at":   timeOrEmpty(r.startedAt),
@@ -455,4 +455,18 @@ func freeBytes(path string) uint64 {
 		}
 	}
 	return 0
+}
+
+// copyCounts returns a snapshot of the verdict tally.
+//
+// 🔴 Status() must not hand out the live map. The caller holds it after the
+// mutex is released — writeJSON encodes it outside the lock — while the run
+// goroutine is still incrementing, which is a data race the -race build
+// catches and an ordinary run corrupts silently.
+func copyCounts(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
