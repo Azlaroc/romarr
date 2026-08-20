@@ -22,6 +22,7 @@ import (
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
 	"gamarr/internal/download"
+	"gamarr/internal/hashfill"
 	"gamarr/internal/metadata"
 	"gamarr/internal/models"
 	"gamarr/internal/platform"
@@ -49,7 +50,10 @@ type Server struct {
 	renamer   *renamer.Runner
 	// prune is the declutter half of the collection plane.
 	prune *prune.Runner
-	dat   *datsvc.Service
+	// hashfill gives hashless library rows a hash, so ownership can be
+	// decided by proof rather than by a guess at the title.
+	hashfill *hashfill.Runner
+	dat      *datsvc.Service
 	// coll answers set questions. Built here rather than threaded through
 	// NewRouter for the same reason meta is: it needs only the config and the
 	// store, and it holds no state a caller has to own.
@@ -74,6 +78,9 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// The same import notifier the renamer gets: a declutter changes the same
 	// tree a rename does, so it owes RomM the same rescan.
 	s.prune = prune.New(cfg, mgr.Jobs(), s.coll, mgr.NotifyImport)
+	// No import notifier: the backfill writes DB metadata and never touches
+	// the tree, so RomM has nothing to rescan.
+	s.hashfill = hashfill.New(cfg, mgr.Jobs())
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -167,6 +174,13 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Post("/api/library/prune/preview", requireAdmin(s.handlePrunePreview))
 	r.Post("/api/library/prune/apply", requireAdmin(s.handlePruneApply))
 	r.Post("/api/library/prune/stop", requireAdmin(s.handlePruneStop))
+
+	// The hash backfill. No preview/apply split — it writes metadata, not
+	// files — so `run` takes a dry_run flag instead. See hash_handlers.go.
+	r.Get("/api/library/hash/status", s.handleHashStatus)
+	r.Get("/api/library/hash/results", requireAdmin(s.handleHashResults))
+	r.Post("/api/library/hash/run", requireAdmin(s.handleHashRun))
+	r.Post("/api/library/hash/stop", requireAdmin(s.handleHashStop))
 
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)

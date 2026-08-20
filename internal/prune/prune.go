@@ -213,7 +213,7 @@ func (r *Runner) Status() map[string]interface{} {
 		"skipped":       r.skipped,
 		"errors":        r.errCount,
 		"last_error":    r.lastErr,
-		"counts":        r.counts,
+		"counts":        copyCounts(r.counts),
 		"uncatalogued":  r.uncatalogued,
 		"archive_root":  r.ArchiveRoot(),
 		"started_at":    timeOrEmpty(r.startedAt),
@@ -688,4 +688,18 @@ func (r *Runner) noteErr(msg string) {
 	r.errCount++
 	r.lastErr = msg
 	r.mu.Unlock()
+}
+
+// copyCounts returns a snapshot of the verdict tally.
+//
+// 🔴 Status() must not hand out the live map. The caller holds it after the
+// mutex is released — writeJSON encodes it outside the lock — while the run
+// goroutine is still incrementing, which is a data race the -race build
+// catches and an ordinary run corrupts silently.
+func copyCounts(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

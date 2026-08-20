@@ -335,26 +335,51 @@ func TestAbortsAfterConsecutiveErrors(t *testing.T) {
 	}
 }
 
-func TestSingleFlightAndStop(t *testing.T) {
+func TestSingleFlightRefusesAConcurrentRun(t *testing.T) {
+	// Forced rather than raced: a run over a small fixture finishes in
+	// microseconds, so triggering twice and hoping to land inside the window
+	// tests the scheduler's timing, not the guard.
 	e := newEnv(t)
-	if !e.runner.Trigger("all", Opts{}) {
-		t.Fatal("first Trigger refused")
+	e.runner.running.Store(true)
+	if e.runner.Trigger("all", Opts{}) {
+		t.Error("Trigger started a run while one was marked in flight")
 	}
-	// The second may legitimately be accepted if the first already finished
-	// (the fixture is empty), so only assert the guard when it is in flight.
-	if running, _ := e.runner.Status()["running"].(bool); running {
-		if e.runner.Trigger("all", Opts{}) {
-			t.Error("a second run started while one was in flight")
-		}
+	e.runner.running.Store(false)
+	if !e.runner.Trigger("all", Opts{}) {
+		t.Error("Trigger refused once the runner was free again")
 	}
 	e.runner.Stop()
-	deadline := time.Now().Add(5 * time.Second)
+	waitStopped(t, e.runner)
+}
+
+func TestStopEndsARunInFlight(t *testing.T) {
+	e := newEnv(t)
+	// Enough rows that a stop lands mid-sweep on most runs; the assertion
+	// holds either way, because a stopped run and a completed one both end.
+	for i := 0; i < 200; i++ {
+		name := "g" + string(rune('a'+i%26)) + string(rune('a'+i/26)) + ".gb"
+		e.row(t, "gb", name, e.rom(t, "gb", name, []byte("bytes")), "{}")
+	}
+	if !e.runner.Trigger("gb", Opts{}) {
+		t.Fatal("Trigger refused")
+	}
+	e.runner.Stop()
+	waitStopped(t, e.runner)
+	st := e.runner.Status()
+	if done, total := st["done"].(int), st["total"].(int); done > total {
+		t.Errorf("done %d > total %d", done, total)
+	}
+}
+
+func waitStopped(t *testing.T, r *Runner) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if running, _ := e.runner.Status()["running"].(bool); !running {
-			break
+		if running, _ := r.Status()["running"].(bool); !running {
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("Stop did not end the run")
+			t.Fatal("run did not stop")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

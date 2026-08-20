@@ -1422,6 +1422,37 @@
         "responses": { "200": { "description": "Stopping" } }
       }
     },
+    "/api/library/hash/status": {
+      "get": {
+        "summary": "Hash backfill status",
+        "description": "Phase and counters for the current or last run, plus how many rows per platform still carry no hash (`pending`) \u2014 the size of the job before anything starts. `bytes_hashed` earns its place on platforms whose work is a handful of very large files, where the row counter sits still for minutes and is the only thing that looks stuck.",
+        "responses": { "200": { "description": "Status of the current or last hash backfill" } }
+      }
+    },
+    "/api/library/hash/results": {
+      "get": {
+        "summary": "The held hash-backfill rows (admin)",
+        "description": "One row per visited entry: the hash written, the header-stripped hash when a container header was recognised, or the reason it was skipped. After a dry run these are the hashes that WOULD have been written \u2014 which is how a derivation is checked against real files before thousands of rows are committed to it.",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of visited rows plus the total" } }
+      }
+    },
+    "/api/library/hash/run": {
+      "post": {
+        "summary": "Hash the rows that carry no hash (admin)",
+        "description": "Sweeps one platform (`platform_slug`, or \"all\") and stores the hashes of each row's ROM bytes \u2014 an archive's inner file, or the file itself when raw \u2014 so ownership can be decided by proof rather than by a guess at the title. Idempotent by enumeration: rows already carrying a hash are never visited, so a re-run costs only the work still outstanding. No preview/apply split, because nothing moves: `dry_run` performs the identical pass and writes nothing. `force` re-visits rows that already carry a hash or a permanent skip marker, for re-hashing after a derivation change.",
+        "responses": { "200": { "description": "Run started, or a reason it did not" } }
+      }
+    },
+    "/api/library/hash/stop": {
+      "post": {
+        "summary": "Stop the running hash backfill (admin)",
+        "responses": { "200": { "description": "Stopping" } }
+      }
+    },
     "/api/collection/targets": {
       "get": {
         "summary": "The gap list collection mode is working through",
