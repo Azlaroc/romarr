@@ -169,25 +169,13 @@ func TestHashRunRejectsBadRequests(t *testing.T) {
 	wantStatus(t, rr, 415)
 }
 
-func TestHashRunRefusesASecondRun(t *testing.T) {
-	env, _ := hashEnv(t)
-	rr := env.do("POST", "/api/library/hash/run", `{"platform_slug":"all"}`)
-	wantStatus(t, rr, 200)
-
-	// A refusal is 200 with success:false, matching the sibling planes — a
-	// 409 would make an ordinary "already busy" look like a client error.
-	rr = env.do("POST", "/api/library/hash/run", `{"platform_slug":"all"}`)
-	wantStatus(t, rr, 200)
-	if body := decodeMap(t, rr); body["success"] == true {
-		// Legitimate if the first run already finished; only a hard failure
-		// when it is still in flight.
-		if st := decodeMap(t, env.do("GET", hashStatusPath, "")); st["running"] == true {
-			t.Errorf("a second run started while one was in flight: %+v", body)
-		}
-	}
-	env.do("POST", "/api/library/hash/stop", "")
-	waitIdle(t, env, hashStatusPath)
-}
+// The single-flight guard is asserted in internal/hashfill, not here.
+// Proving it over HTTP means winning a race against a run that finishes in
+// microseconds on a three-row fixture: the second POST legitimately succeeds
+// when the first has already ended, and nothing observable afterwards
+// distinguishes that from the guard failing. A test that cannot tell its
+// pass from its failure is worse than no test. The runner can force the
+// state and does.
 
 func TestHashStopIsSafeWhenIdle(t *testing.T) {
 	env, _ := hashEnv(t)
