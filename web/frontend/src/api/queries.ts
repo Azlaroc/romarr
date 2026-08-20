@@ -62,6 +62,8 @@ import type {
   SizeDefinition,
   PruneStatus,
   PrunePreviewRow,
+  HashfillStatus,
+  HashfillRow,
   CollectionTargetsResponse,
   CollectionSyncResult,
   SizeDefinitionsResponse,
@@ -100,6 +102,8 @@ export const keys = {
   normalizeResults: (page: number) => ['normalize-results', page] as const,
   pruneStatus: ['prune-status'] as const,
   pruneResults: (page: number) => ['prune-results', page] as const,
+  hashStatus: ['hash-status'] as const,
+  hashResults: (page: number) => ['hash-results', page] as const,
   syncStatus: ['sync-status'] as const,
   users: ['users'] as const,
   invites: ['invites'] as const,
@@ -832,6 +836,46 @@ export function usePruneApply() {
     mutationFn: (excludeIds: number[]) =>
       api.post<{ success: boolean; error?: string }>('/api/library/prune/apply', { exclude_ids: excludeIds }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.pruneStatus }),
+  })
+}
+
+export function useHashStatus() {
+  return useQuery({
+    queryKey: keys.hashStatus,
+    queryFn: () => api.get<HashfillStatus>('/api/library/hash/status'),
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
+  })
+}
+
+export function useHashResults(page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.hashResults(page),
+    queryFn: () =>
+      api.get<{ success: boolean; items: HashfillRow[]; total: number }>(
+        `/api/library/hash/results?page=${page}&page_size=100`,
+      ),
+    enabled,
+  })
+}
+
+export function useHashRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { platformSlug: string; dryRun: boolean; force: boolean }) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/hash/run', {
+        platform_slug: v.platformSlug,
+        dry_run: v.dryRun,
+        force: v.force,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.hashStatus }),
+  })
+}
+
+export function useHashStop() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean }>('/api/library/hash/stop'),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.hashStatus }), 500),
   })
 }
 

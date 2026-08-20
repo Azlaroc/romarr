@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Gamepad2, Search, ExternalLink, Trash2, Wand2, Archive } from 'lucide-react'
+import { Gamepad2, Search, ExternalLink, Trash2, Wand2, Archive, Fingerprint } from 'lucide-react'
 import { useConfig, useLibrary, useDeleteLibraryItem } from '../api/queries'
 import type { LibraryItem } from '../api/types'
 import { PageHeader } from '../components/layout/PageHeader'
@@ -82,6 +82,13 @@ export function Library() {
               data-testid="library-declutter-link"
             >
               Declutter <Archive className="h-3.5 w-3.5" />
+            </Link>
+            <Link
+              to="/library/hashes"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-purple-600/30 bg-purple-600/15 px-3 py-2 text-sm font-medium text-purple-400 hover:bg-purple-600/25"
+              data-testid="library-hash-link"
+            >
+              Hashes <Fingerprint className="h-3.5 w-3.5" />
             </Link>
             {config?.romm_url && (
               <a href={config.romm_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600/30 bg-emerald-600/15 px-3 py-2 text-sm font-medium text-emerald-400 hover:bg-emerald-600/25">
