@@ -1,18 +1,13 @@
 package download
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
-	"encoding/hex"
-	"hash"
-	"hash/crc32"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gamarr/internal/db"
+	"gamarr/internal/romfile"
 )
 
 // The trust gate.
@@ -60,12 +55,12 @@ func (m *Manager) catalogVerdict(path, platformSlug string) db.DatVerdict {
 	}
 	best := db.DatVerdict{Status: db.CatalogUnknown}
 	for _, f := range files {
-		crc, md5sum, sha1sum, err := hashFile(f)
+		h, err := romfile.Hash(f)
 		if err != nil {
 			slog.Warn("catalog gate: cannot hash file", "file", sanitizeLog(filepath.Base(f)), "error", err)
 			continue
 		}
-		v := m.jobs.MatchDatRom(platformSlug, filepath.Base(f), crc, md5sum, sha1sum)
+		v := m.jobs.MatchDatRom(platformSlug, filepath.Base(f), h.CRC, h.MD5, h.SHA1)
 		switch v.Status {
 		case db.CatalogMismatch:
 			return v
@@ -116,23 +111,3 @@ func catalogCandidate(path string, fi os.FileInfo) bool {
 	}
 	return !nonROMExtensions[strings.ToLower(filepath.Ext(base))]
 }
-
-// hashFile computes crc32, md5 and sha1 in one pass — the three hash families
-// the DAT authorities publish between them (No-Intro leads with crc32, Redump
-// carries all three).
-func hashFile(path string) (crc, md5sum, sha1sum string, err error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer f.Close()
-	c := crc32.NewIEEE()
-	m := md5.New()
-	s := sha1.New()
-	if _, err := io.Copy(io.MultiWriter(c, m, s), f); err != nil {
-		return "", "", "", err
-	}
-	return hex.EncodeToString(c.Sum(nil)), hexSum(m), hexSum(s), nil
-}
-
-func hexSum(h hash.Hash) string { return hex.EncodeToString(h.Sum(nil)) }

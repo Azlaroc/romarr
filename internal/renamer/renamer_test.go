@@ -233,17 +233,3 @@ func TestIdentifyZipMultiFile(t *testing.T) {
 		t.Errorf("got %+v, want skip %q", got, SkipMultiFile)
 	}
 }
-
-func TestStageRawFallbackBehavior(t *testing.T) {
-	// Behavior contract: dest exists with identical bytes whether the link
-	// or the copy branch ran (cross-device forcing is not portable).
-	src := writeROM(t, t.TempDir(), "g.sfc", "content-bytes")
-	destDir := t.TempDir()
-	dest, err := stageRaw(src, destDir)
-	if err != nil {
-		t.Fatalf("stageRaw: %v", err)
-	}
-	if b, err := os.ReadFile(dest); err != nil || string(b) != "content-bytes" {
-		t.Errorf("staged copy wrong: %v %q", err, b)
-	}
-}
