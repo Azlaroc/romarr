@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import {
+  Archive,
   Ban,
   CalendarClock,
   CheckCircle2,
   DatabaseZap,
   Download,
+  Fingerprint,
   FlaskConical,
   FolderInput,
   Heart,
@@ -49,6 +51,8 @@ const EVENT_META: Record<string, { icon: LucideIcon; color: BadgeColor; label: s
   wishlist_fulfilled: { icon: Heart, color: 'emerald', label: 'Fulfilled' },
   torrent_harvested: { icon: Magnet, color: 'blue', label: 'Harvested' },
   library_renamed: { icon: Pencil, color: 'blue', label: 'Renamed' },
+  library_pruned: { icon: Archive, color: 'orange', label: 'Decluttered' },
+  library_hashed: { icon: Fingerprint, color: 'blue', label: 'Hashed' },
   dat_refreshed: { icon: DatabaseZap, color: 'purple', label: 'DAT refreshed' },
   size_definition_updated: { icon: Ruler, color: 'purple', label: 'Size definition' },
   repair_exhausted: { icon: XCircle, color: 'orange', label: 'Repair exhausted' },

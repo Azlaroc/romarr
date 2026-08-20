@@ -679,6 +679,44 @@ export interface PruneStatus {
   [k: string]: unknown
 }
 
+export interface HashfillStatus {
+  configured: boolean
+  running?: boolean
+  phase?: string
+  scope?: string
+  dry_run?: boolean
+  force?: boolean
+  total?: number
+  done?: number
+  hashed?: number
+  stripped?: number
+  skipped?: number
+  errors?: number
+  bytes_hashed?: number
+  last_error?: string
+  counts?: Record<string, number>
+  /** Rows still missing a hash, per platform — the size of the job. */
+  pending?: Record<string, number>
+  pending_all?: number
+  started_at?: string
+  finished_at?: string
+  [k: string]: unknown
+}
+
+export interface HashfillRow {
+  library_id: number
+  platform_slug: string
+  path: string
+  name: string
+  size?: number
+  status: string // hashed | skip | error
+  reason?: string
+  md5?: string
+  /** The header-stripped hash, present only when a container header was found. */
+  unh_md5?: string
+  header?: string
+}
+
 export interface PrunePreviewRow {
   library_id: number
   platform_slug: string
