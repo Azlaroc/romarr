@@ -355,15 +355,27 @@ func TestTrackInLibraryPersistsReleaseHashes(t *testing.T) {
 	if item == nil {
 		t.Fatal("item not found")
 	}
-	var meta map[string]map[string]string
+	// The source's published hash is the OUTER file's, so it lands at
+	// $.gamarr.release — $.gamarr.{md5,sha1} means the ROM's own bytes,
+	// which an import has not measured at this point.
+	var meta struct {
+		Gamarr struct {
+			MD5     string            `json:"md5"`
+			SHA1    string            `json:"sha1"`
+			Release map[string]string `json:"release"`
+		} `json:"gamarr"`
+	}
 	if err := json.Unmarshal([]byte(item.Metadata), &meta); err != nil {
 		t.Fatalf("metadata not JSON: %v", err)
 	}
-	if meta["gamarr"]["md5"] != "d3bff827b6be076d969fc1dc01602082" {
-		t.Errorf("$.gamarr.md5 = %q, want lowercased hash", meta["gamarr"]["md5"])
+	if meta.Gamarr.Release["md5"] != "d3bff827b6be076d969fc1dc01602082" {
+		t.Errorf("$.gamarr.release.md5 = %q, want lowercased hash", meta.Gamarr.Release["md5"])
 	}
-	if _, ok := meta["gamarr"]["sha1"]; ok {
+	if _, ok := meta.Gamarr.Release["sha1"]; ok {
 		t.Errorf("empty sha1 must be omitted: %s", item.Metadata)
+	}
+	if meta.Gamarr.MD5 != "" || meta.Gamarr.SHA1 != "" {
+		t.Errorf("a release hash leaked into the content-hash keys: %s", item.Metadata)
 	}
 
 	m.TrackInLibrary("Hashless Game", "SNES", "snes", false, "/roms/snes/n.sfc", 1,
@@ -377,9 +389,9 @@ func TestImportMetadata(t *testing.T) {
 	cases := []struct{ md5, sha1, want string }{
 		{"", "", "{}"},
 		{"  ", "", "{}"},
-		{"AA", "", `{"gamarr":{"md5":"aa"}}`},
-		{"", "BB", `{"gamarr":{"sha1":"bb"}}`},
-		{"AA", "bb", `{"gamarr":{"md5":"aa","sha1":"bb"}}`},
+		{"AA", "", `{"gamarr":{"release":{"md5":"aa"}}}`},
+		{"", "BB", `{"gamarr":{"release":{"sha1":"bb"}}}`},
+		{"AA", "bb", `{"gamarr":{"release":{"md5":"aa","sha1":"bb"}}}`},
 	}
 	for _, c := range cases {
 		if got := importMetadata(c.md5, c.sha1); got != c.want {

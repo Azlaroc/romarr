@@ -204,12 +204,14 @@ func containsGameFiles(dir string) bool {
 }
 
 // importMetadata builds the metadata blob for a download-import library row.
-// md5/sha1 are the source release's file hashes (archive.org exposes them),
-// stashed under $.gamarr so ownership checks can recognize a re-encounter of
-// the same release byte-for-byte. Distinct from $.romm's DAT-style content
-// hashes: an archived release's file hash and its inner-rom hash never agree,
-// so both families are kept and matched independently. "{}" when the source
-// exposed no hash.
+//
+// md5/sha1 are the source's PUBLISHED hashes of the file it served
+// (archive.org exposes them), which for an archive are the outer bytes — a
+// different object from the ROM inside it. They go to $.gamarr.release so
+// ownership checks can recognise a re-encounter of the same release
+// byte-for-byte, while $.gamarr.{md5,sha1} stays reserved for the ROM's own
+// content hashes. See docs/library-identity.md. "{}" when the source exposed
+// no hash.
 func importMetadata(md5, sha1 string) string {
 	hashes := map[string]string{}
 	if v := strings.ToLower(strings.TrimSpace(md5)); v != "" {
@@ -221,7 +223,9 @@ func importMetadata(md5, sha1 string) string {
 	if len(hashes) == 0 {
 		return "{}"
 	}
-	out, err := json.Marshal(map[string]map[string]string{"gamarr": hashes})
+	out, err := json.Marshal(map[string]map[string]map[string]string{
+		"gamarr": {"release": hashes},
+	})
 	if err != nil {
 		return "{}"
 	}

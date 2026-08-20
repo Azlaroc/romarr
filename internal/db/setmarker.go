@@ -35,7 +35,8 @@ func ParseSetMarker(metadata string) (SetMarker, bool) {
 }
 
 // SaveSetMarker merges mk into the row's metadata at $.gamarr.set, preserving
-// every other key (RomM identity under $.romm, release hashes under $.gamarr).
+// every other key (RomM identity under $.romm, our hashes under $.gamarr — see
+// docs/library-identity.md).
 // The row's metadata is re-read here rather than taken from the caller's
 // snapshot so a concurrent merge (e.g. the RomM sync) isn't clobbered.
 func (s *JobStore) SaveSetMarker(libraryID int64, mk SetMarker) error {

@@ -123,6 +123,10 @@ func (s *JobStore) migrateExtra() {
 		}
 	}
 
+	// Runs after library_items exists: it rewrites metadata on rows the
+	// release-hash split left ambiguous. Once-only by its own guard.
+	s.migrateLibraryReleaseHashes()
+
 	// CREATE TABLE IF NOT EXISTS is a no-op on an existing install, so a new
 	// column on an old table needs its own ALTER. wishlist.profile_id is the
 	// per-title profile override.
@@ -567,10 +571,14 @@ func (s *JobStore) findLibraryBySearchKey(key, platformSlug string) *LibraryItem
 }
 
 // FindLibraryByHash finds a library row whose stored hash identity matches
-// either given hash (hex, any case). Two hash families are checked: $.romm
-// (RomM's DAT-style content hashes) and $.gamarr (the source release's file
-// hashes persisted at import) — an archived release's file hash and its inner
-// rom's content hash never agree, so all four paths are matched independently.
+// either given hash (hex, any case). Every hash family a row can carry is
+// checked independently, because they answer different questions about
+// different bytes and none of them ever agree with another (see
+// docs/library-identity.md): $.romm and $.gamarr are the ROM's own content,
+// $.gamarr.unh that content minus a container header, $.gamarr.release the
+// outer file a source published. A caller holding one kind of hash should
+// still find the row.
+//
 // Global across platforms: byte identity is platform-independent. Returns nil
 // when both inputs are empty; an empty input never matches a row whose stored
 // hash is absent. Metadata is json_valid-guarded: one malformed blob would
@@ -584,7 +592,7 @@ func (s *JobStore) FindLibraryByHash(md5, sha1 string) *LibraryItem {
 		if h.val == "" {
 			continue
 		}
-		for _, fam := range []string{"romm", "gamarr"} {
+		for _, fam := range hashFamilies {
 			conds = append(conds,
 				"LOWER(json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END, '$."+fam+"."+h.name+"')) = ?")
 			args = append(args, h.val)
@@ -714,35 +722,31 @@ func (s *JobStore) ListLibraryItemsForRename(platformSlug string) []LibraryItem 
 		return nil
 	}
 	defer rows.Close()
-	var out []LibraryItem
-	for rows.Next() {
-		var item LibraryItem
-		var isPC int
-		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
-			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
-			continue
-		}
-		item.IsPC = isPC != 0
-		out = append(out, item)
-	}
-	return out
+	return scanLibraryItems(rows)
 }
 
 // LibraryHashIndex returns every stored library hash keyed "md5:<hex>" /
 // "sha1:<hex>" (lowercased), mapped to its row. Both hash families are
 // indexed independently — $.romm (DAT-style content hashes) and $.gamarr
-// (release-file hashes persisted at import) — since an archived release's
-// file hash and its inner rom's content hash never agree. One full-table
-// query, json_valid-guarded like FindLibraryByHash; callers snapshot it once
-// per scheduler cycle.
+// (see docs/library-identity.md) — the families never agree with each other,
+// so each is its own key. One full-table query, json_valid-guarded like
+// FindLibraryByHash; callers snapshot it once per scheduler cycle.
+//
+// Ordered by id: two rows can legitimately share a key (the same dump held
+// twice, or one row's headerless hash equalling another's whole-file hash on
+// an unheadered platform), and first-wins over an unordered scan would make
+// which one owns the key vary between runs.
 func (s *JobStore) LibraryHashIndex() map[string]*LibraryItem {
-	const m = "CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END"
+	const m = jsonMeta
+	var cols []string
+	for _, name := range []string{"md5", "sha1"} {
+		for _, fam := range hashFamilies {
+			cols = append(cols, "LOWER(json_extract("+m+", '$."+fam+"."+name+"'))")
+		}
+	}
 	rows, err := s.db.Query(
 		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, " +
-			"LOWER(json_extract(" + m + ", '$.romm.md5')), LOWER(json_extract(" + m + ", '$.gamarr.md5')), " +
-			"LOWER(json_extract(" + m + ", '$.romm.sha1')), LOWER(json_extract(" + m + ", '$.gamarr.sha1')) " +
-			"FROM library_items",
+			strings.Join(cols, ", ") + " FROM library_items ORDER BY id",
 	)
 	if err != nil {
 		return nil
@@ -752,21 +756,28 @@ func (s *JobStore) LibraryHashIndex() map[string]*LibraryItem {
 	for rows.Next() {
 		var item LibraryItem
 		var isPC int
-		var rm, gm, rs, gs sql.NullString
-		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		hashes := make([]sql.NullString, 2*len(hashFamilies))
+		dest := []interface{}{&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt, &rm, &gm, &rs, &gs); err != nil {
+			&item.SourceID, &item.Metadata, &item.AddedAt}
+		for i := range hashes {
+			dest = append(dest, &hashes[i])
+		}
+		if err := rows.Scan(dest...); err != nil {
 			continue
 		}
 		item.IsPC = isPC != 0
-		for _, h := range []struct {
-			prefix string
-			v      sql.NullString
-		}{{"md5:", rm}, {"md5:", gm}, {"sha1:", rs}, {"sha1:", gs}} {
-			if h.v.Valid && h.v.String != "" {
-				if _, dup := idx[h.prefix+h.v.String]; !dup {
-					idx[h.prefix+h.v.String] = &item
-				}
+		for i, h := range hashes {
+			// Column order is name-major: the md5 family block, then sha1.
+			prefix := "md5:"
+			if i >= len(hashFamilies) {
+				prefix = "sha1:"
+			}
+			if !h.Valid || h.String == "" {
+				continue
+			}
+			if _, dup := idx[prefix+h.String]; !dup {
+				idx[prefix+h.String] = &item
 			}
 		}
 	}

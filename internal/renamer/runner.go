@@ -495,7 +495,11 @@ func (r *Runner) collisionWith(target, itemMD5 string) *Collision {
 	}
 }
 
-// storedMD5s extracts $.romm.md5 and $.gamarr.md5 from a metadata blob.
+// storedMD5s extracts the CONTENT md5s from a metadata blob: $.romm.md5 and
+// $.gamarr.md5, both of which mean the ROM's own bytes — the same object the
+// staged copy is hashed as. Deliberately not $.gamarr.unh (a header-stripped
+// payload is a different object) nor $.gamarr.release (an archive's outer
+// bytes). See docs/library-identity.md.
 func storedMD5s(metadata string) []string {
 	var meta map[string]struct {
 		MD5 string `json:"md5"`
