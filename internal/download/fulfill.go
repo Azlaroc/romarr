@@ -122,9 +122,10 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	// blocklisted — the selector moves to the next candidate rather than
 	// re-picking the same bad dump forever.
 	catalogStatus := db.CatalogUnknown
+	var contentHashes *db.LibraryHashes
 	if !meta.DiscSet.valid() {
-		v := m.catalogVerdict(finalPath, meta.PlatformSlug)
-		catalogStatus = v.Status
+		v, h := m.catalogVerdict(finalPath, meta.PlatformSlug)
+		catalogStatus, contentHashes = v.Status, h
 		if v.Status == db.CatalogMismatch {
 			reason := fmt.Sprintf("Catalog mismatch: %s expected %s, got %s",
 				v.RomName, v.Expected, v.Got)
@@ -188,6 +189,15 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	// Verified or unknown — either way the library remembers which, so
 	// "is this the real dump?" is answerable later without re-hashing.
 	m.jobs.SetLibraryCatalogStatus(sourceID, catalogStatus)
+	// And the hashes the gate already computed, so the row is born with the
+	// identity a backfill sweep would otherwise have to read the file again
+	// to give it. Measured pre-convert, which is correct: what is stored is
+	// the ROM's bytes, not the container we later chose for them.
+	if contentHashes != nil {
+		if err := m.jobs.SaveLibraryHashesBySourceID(sourceID, *contentHashes); err != nil {
+			slog.Warn("persist import hashes", "source_id", sanitizeLog(sourceID), "error", err)
+		}
+	}
 	if meta.JobID != "" {
 		m.jobs.LogActivity("download_completed", meta.Title, activityMessage(meta.Source, meta.Platform), meta.JobID, nil)
 	}

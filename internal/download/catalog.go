@@ -45,30 +45,63 @@ var nonROMExtensions = map[string]bool{
 // catalogVerdict measures imported content against the platform's active DAT
 // snapshot. A directory is judged by its files: one disagreement condemns the
 // import, otherwise one verified file vouches for it.
-func (m *Manager) catalogVerdict(path, platformSlug string) db.DatVerdict {
+//
+// It also returns the hashes it computed, when the import is exactly one ROM.
+// The gate was already measuring the bytes at the only moment they are
+// guaranteed to exist unarchived, and throwing the answer away meant the same
+// file had to be read again later by a backfill sweep. A multi-file import has
+// no single ROM identity, so it returns none — $.gamarr.md5 could not mean
+// anything for it.
+func (m *Manager) catalogVerdict(path, platformSlug string) (db.DatVerdict, *db.LibraryHashes) {
 	if platformSlug == "" {
-		return db.DatVerdict{Status: db.CatalogUnknown}
+		return db.DatVerdict{Status: db.CatalogUnknown}, nil
 	}
 	files := romFilesUnder(path)
 	if len(files) == 0 {
-		return db.DatVerdict{Status: db.CatalogUnknown}
+		return db.DatVerdict{Status: db.CatalogUnknown}, nil
 	}
+	var hashes *db.LibraryHashes
 	best := db.DatVerdict{Status: db.CatalogUnknown}
 	for _, f := range files {
-		h, err := romfile.Hash(f)
+		res, err := romfile.HashPayload(f)
 		if err != nil {
 			slog.Warn("catalog gate: cannot hash file", "file", sanitizeLog(filepath.Base(f)), "error", err)
 			continue
 		}
-		v := m.jobs.MatchDatRom(platformSlug, filepath.Base(f), h.CRC, h.MD5, h.SHA1)
+		if len(files) == 1 {
+			hashes = libraryHashes(res)
+		}
+		v := m.jobs.MatchDatRom(platformSlug, filepath.Base(f), res.CRC, res.MD5, res.SHA1)
+		// A headered platform's catalog publishes the PAYLOAD's hashes, so a
+		// whole-file miss there is not a miss. Asking again with the stripped
+		// hashes can only turn unknown into verified: MatchDatRom reaches its
+		// mismatch verdict solely through the NAME lookup, which runs only
+		// when no hash matched at all.
+		if v.Status != db.CatalogVerified && res.Stripped {
+			if pv := m.jobs.MatchDatRom(platformSlug, filepath.Base(f), res.Payload.CRC, res.Payload.MD5, res.Payload.SHA1); pv.Status == db.CatalogVerified {
+				v = pv
+			}
+		}
 		switch v.Status {
 		case db.CatalogMismatch:
-			return v
+			return v, hashes
 		case db.CatalogVerified:
 			best = v
 		}
 	}
-	return best
+	return best, hashes
+}
+
+// libraryHashes maps a measurement onto the row shape the store persists.
+func libraryHashes(res romfile.Result) *db.LibraryHashes {
+	h := &db.LibraryHashes{CRC: res.CRC, MD5: res.MD5, SHA1: res.SHA1}
+	if res.Stripped {
+		h.Unh = &db.UnheaderedHashes{
+			CRC: res.Payload.CRC, MD5: res.Payload.MD5, SHA1: res.Payload.SHA1,
+			Header: res.HeaderKind,
+		}
+	}
+	return h
 }
 
 // romFilesUnder lists the candidate ROM files at path: the file itself, or
