@@ -150,6 +150,7 @@ func (s *Service) overlayFor(slug string) *collection.Overlay {
 }
 
 func mapMembers(rows []db.DatSetMember) []collection.Member {
+	rows = collapseHeaderTwins(rows)
 	out := make([]collection.Member, 0, len(rows))
 	for _, r := range rows {
 		m := collection.Member{
