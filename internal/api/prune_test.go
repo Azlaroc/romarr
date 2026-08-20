@@ -47,11 +47,14 @@ func pruneEnv(t *testing.T) (*testEnv, string) {
 	return env, roms
 }
 
-func waitIdle(t *testing.T, env *testEnv) map[string]interface{} {
+// waitIdle polls a runner's status endpoint until it reports not-running.
+// Throttled deliberately: an unthrottled poll storm trips the router's own
+// per-IP rate limit before a background run finishes.
+func waitIdle(t *testing.T, env *testEnv, statusPath string) map[string]interface{} {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		rr := env.do("GET", "/api/library/prune/status", "")
+		rr := env.do("GET", statusPath, "")
 		wantStatus(t, rr, 200)
 		body := decodeMap(t, rr)
 		if body["running"] == false {
@@ -59,7 +62,7 @@ func waitIdle(t *testing.T, env *testEnv) map[string]interface{} {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("prune run did not finish")
+	t.Fatalf("run polled at %s did not finish", statusPath)
 	return nil
 }
 
@@ -71,7 +74,7 @@ func TestPrunePreviewApplyArchives(t *testing.T) {
 	if decodeMap(t, rr)["success"] != true {
 		t.Fatalf("preview did not start: %v", decodeMap(t, rr))
 	}
-	status := waitIdle(t, env)
+	status := waitIdle(t, env, "/api/library/prune/status")
 	if status["total"] != float64(1) {
 		t.Fatalf("planned = %v, want the single surplus dump", status["total"])
 	}
@@ -98,7 +101,7 @@ func TestPrunePreviewApplyArchives(t *testing.T) {
 
 	rr = env.do("POST", "/api/library/prune/apply", `{"exclude_ids":[]}`)
 	wantStatus(t, rr, 200)
-	status = waitIdle(t, env)
+	status = waitIdle(t, env, "/api/library/prune/status")
 	if status["archived"] != float64(1) {
 		t.Fatalf("archived = %v, want 1", status["archived"])
 	}
