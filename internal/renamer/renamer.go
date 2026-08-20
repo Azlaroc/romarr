@@ -8,26 +8,27 @@
 // entry, and the canonical name is read back by diffing the scratch dir —
 // no CLI output parsing. The library copy is never touched.
 //
+// Staging and extraction live in internal/romfile, shared with the import
+// gate and the hash backfill so "the bytes of this ROM" has one definition.
+//
 // Hardlink safety: `dat rename` renames directory entries and never rewrites
 // file bytes, so a renamed hardlink cannot alter the shared inode. If that
-// contract ever changes upstream, stageRaw's copy fallback is the escape
+// contract ever changes upstream, romfile.Link's copy fallback is the escape
 // hatch.
 package renamer
 
 import (
 	"context"
-	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"gamarr/internal/converto"
+	"gamarr/internal/romfile"
 )
 
 // Skip reasons surfaced in preview rows. Exposed as constants so tests and
@@ -103,12 +104,12 @@ func (id *Identifier) Identify(ctx context.Context, filePath string) (Identity, 
 	var staged string
 	if ext == ".zip" || ext == ".7z" {
 		archiveExt = ext
-		staged, err = extractSingle(ctx, filePath, itemDir)
+		staged, err = romfile.ExtractSingle(ctx, filePath, itemDir)
 	} else {
-		staged, err = stageRaw(filePath, itemDir)
+		staged, err = romfile.Link(filePath, itemDir)
 	}
 	if err != nil {
-		var multi *multiFileError
+		var multi *romfile.MultiFileError
 		if errors.As(err, &multi) {
 			return Identity{SkipReason: SkipMultiFile}, nil
 		}
@@ -125,10 +126,11 @@ func (id *Identifier) Identify(ctx context.Context, filePath string) (Identity, 
 	}
 	staged = sentinel
 
-	sum, err := md5File(staged)
+	h, err := romfile.Hash(staged)
 	if err != nil {
 		return Identity{}, fmt.Errorf("hash staged copy: %w", err)
 	}
+	sum := h.MD5
 
 	before, err := dirEntries(itemDir)
 	if err != nil {
@@ -156,98 +158,11 @@ func (id *Identifier) Identify(ctx context.Context, filePath string) (Identity, 
 	}, nil
 }
 
-// multiFileError marks an archive with != 1 inner file.
-type multiFileError struct{ n int }
-
-func (e *multiFileError) Error() string { return fmt.Sprintf("archive holds %d files", e.n) }
-
 // stageName mints a random sentinel filename preserving the ROM extension.
 func stageName(ext string) string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return "stage-" + hex.EncodeToString(b) + ext
-}
-
-// exec7z builds the extraction command; a var so tests could stub, matching
-// the bare-"7z" convention used by the import pipeline (p7zip in the image).
-func exec7z(ctx context.Context, archive, destDir string) *exec.Cmd {
-	return exec.CommandContext(ctx, "7z", "x", "-o"+destDir, "-y", archive)
-}
-
-// stageRaw links src into destDir, falling back to a copy when the
-// filesystem refuses hardlinks (cross-device workRoot).
-func stageRaw(src, destDir string) (string, error) {
-	dest := filepath.Join(destDir, filepath.Base(src))
-	if err := os.Link(src, dest); err == nil {
-		return dest, nil
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return "", err
-	}
-	defer in.Close()
-	out, err := os.Create(dest)
-	if err != nil {
-		return "", err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(dest)
-		return "", err
-	}
-	if err := out.Close(); err != nil {
-		return "", err
-	}
-	return dest, nil
-}
-
-// extractSingle extracts archive into destDir and returns the path of the
-// single extracted file. Archives holding anything other than exactly one
-// file yield a *multiFileError.
-func extractSingle(ctx context.Context, archive, destDir string) (string, error) {
-	cmd := exec7z(ctx, archive, destDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("7z extract failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	var files []string
-	err := filepath.Walk(destDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			files = append(files, p)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(files) != 1 {
-		return "", &multiFileError{n: len(files)}
-	}
-	// Flatten: the DAT pass and dir-diff expect the file at destDir's top
-	// level (archives may carry an inner folder).
-	if filepath.Dir(files[0]) != destDir {
-		flat := filepath.Join(destDir, filepath.Base(files[0]))
-		if err := os.Rename(files[0], flat); err != nil {
-			return "", err
-		}
-		return flat, nil
-	}
-	return files[0], nil
-}
-
-func md5File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // dirEntries snapshots the names in dir (the normalize package's dir-diff
