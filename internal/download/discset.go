@@ -137,15 +137,17 @@ func (m *Manager) maybeFinalizeDiscSet(discSetID string) {
 // convert, sidecar, one library row — over the set directory, then marks every
 // member finalized. degraded=true finalizes an incomplete set (sweep path):
 // same tail over whatever landed, flagged in detail and activity.
-func (m *Manager) finalizeDiscSet(discSetID string, members []discSetMember, degraded bool) {
+func (m *Manager) finalizeDiscSet(discSetID string, _ []discSetMember, degraded bool) {
 	if _, busy := m.importing.LoadOrStore("set:"+discSetID, struct{}{}); busy {
 		return
 	}
 	defer m.importing.Delete("set:" + discSetID)
 
-	// Re-read membership under the flight: a concurrent finalize may have
-	// completed between the caller's scan and the lock.
-	members = m.discSetMembers(discSetID)
+	// The caller's member view is advisory only — membership is re-read under
+	// the flight: a concurrent finalize may have completed between the
+	// caller's scan and the lock. (Hence the blank parameter: staticcheck
+	// SA4009 rightly notes the argument is never read.)
+	members := m.discSetMembers(discSetID)
 	if len(members) == 0 {
 		return
 	}
