@@ -8,10 +8,19 @@
 // the duplicate gate and the declutter's verdict ladder, and the declutter
 // rightly refuses to archive anything matched by a guess.
 //
-// Rows arrive hashless because RomM only ever gets a `quick` scan from us and
-// a quick scan does not hash. Every hashless row in the live library is
-// RomM-sourced, and a newly added RomM platform can produce more, so this is a
-// re-runnable sweep rather than a one-time migration.
+// Rows arrive hashless when they were synced from a RomM row that carries no
+// rom-level hashes. On current RomM (verified 4.9.2 and 5.1.0) that is NOT a
+// scan-type property: newly-added rows build files and hashes on any scan
+// type, quick included, unless SKIP_HASH_CALCULATION is set or the platform
+// is in RomM's NON_HASHABLE_PLATFORMS set (switch, wiiu, PC, PS3+, ...).
+// The hashless population in the live library dates to a July-2025 bulk
+// import that predates RomM 4.0.0 ("Hashed Edition", 2025-07-20) — hashing
+// did not exist yet, and upgrades never backfill. New hashless rows can still
+// appear via non-hashable platforms or a future SKIP_HASH_CALCULATION, so
+// this stays a re-runnable sweep rather than a one-time migration.
+// (Corrected 2026-08-28: an earlier version of this comment claimed "a quick
+// scan does not hash" — wrong for newly-added rows, and exactly the class of
+// confidently-recorded rule this codebase has been burned by.)
 //
 // Shape: ONE phase, not the renamer's preview-then-apply. Nothing here moves
 // or deletes anything — it writes a JSON field on rows that have none — so
