@@ -44,7 +44,7 @@ func TestMaybeNormalizeDisabledIsPassthrough(t *testing.T) {
 	m := New(cfg, jobs, nil) // NormalizeROMs defaults false
 
 	const p = "/roms/psx/Some Game (USA).chd"
-	if got := m.MaybeNormalize("", p, "psx"); got != p {
+	if got := m.MaybeNormalize("", p, "psx", nil); got != p {
 		t.Fatalf("MaybeNormalize(disabled) = %q, want passthrough %q", got, p)
 	}
 }

@@ -18,7 +18,7 @@ func absentNormalizer(t *testing.T) *Normalizer {
 		ConvertoBin:        "rom-converto-absent-" + t.Name(),
 		ConvertoTimeoutSec: 5,
 		DataDir:            t.TempDir(),
-	})
+	}, nil)
 }
 
 func TestNormalizeNoBinaryIsNoop(t *testing.T) {
@@ -28,7 +28,7 @@ func TestNormalizeNoBinaryIsNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, res, err := absentNormalizer(t).Normalize(context.Background(), file, "gba", Policy{})
+	got, res, err := absentNormalizer(t).Normalize(context.Background(), file, "gba", nil, Policy{})
 	if err != nil {
 		t.Fatalf("Normalize returned error: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestNormalizeNoBinaryIsNoop(t *testing.T) {
 
 func TestNormalizeMissingPathIsNoop(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "ghost.gba")
-	got, res, err := absentNormalizer(t).Normalize(context.Background(), missing, "gba", Policy{})
+	got, res, err := absentNormalizer(t).Normalize(context.Background(), missing, "gba", nil, Policy{})
 	if err != nil || got != missing || res.Renamed || res.Playlist {
 		t.Fatalf("Normalize(missing) = (%q,%+v,%v), want (%q, zero, nil)", got, res, err, missing)
 	}
@@ -54,7 +54,7 @@ func TestNormalizeMissingPathIsNoop(t *testing.T) {
 func TestNilNormalizerIsNoop(t *testing.T) {
 	var n *Normalizer
 	const p = "/roms/psx/game.chd"
-	got, _, err := n.Normalize(context.Background(), p, "psx", Policy{})
+	got, _, err := n.Normalize(context.Background(), p, "psx", nil, Policy{})
 	if err != nil || got != p {
 		t.Fatalf("nil Normalize = (%q,%v), want passthrough of %q", got, err, p)
 	}
@@ -106,8 +106,8 @@ func TestNormalizeE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n := New(&config.Config{ConvertoBin: "rom-converto", ConvertoTimeoutSec: 120, DataDir: t.TempDir()})
-	got, _, err := n.Normalize(context.Background(), gameDir, "psx", Policy{})
+	n := New(&config.Config{ConvertoBin: "rom-converto", ConvertoTimeoutSec: 120, DataDir: t.TempDir()}, nil)
+	got, _, err := n.Normalize(context.Background(), gameDir, "psx", nil, Policy{})
 	if err != nil {
 		t.Fatalf("Normalize e2e: %v", err)
 	}

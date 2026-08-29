@@ -216,7 +216,7 @@ func (m *Manager) finalizeDiscSet(discSetID string, _ []discSetMember, degraded 
 	// (normalize is directory-aware), CHD convert per disc + m3u regen,
 	// sidecar, ONE library row keyed on the set — idempotent via the
 	// source_id dedupe in TrackInLibrary.
-	finalPath := m.MaybeNormalize(lead.jobID, setPath, platSlug)
+	finalPath := m.MaybeNormalize(lead.jobID, setPath, platSlug, nil)
 	finalPath = m.MaybeConvert(lead.jobID, finalPath, platSlug, hashStatus)
 	if !degraded {
 		ensureSetPlaylist(finalPath)

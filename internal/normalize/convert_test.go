@@ -59,7 +59,7 @@ func TestConvertToCHD(t *testing.T) {
 	requireBinary(t)
 
 	newN := func(t *testing.T) *Normalizer {
-		return New(&config.Config{ConvertoBin: "rom-converto", ConvertoTimeoutSec: 120, DataDir: t.TempDir()})
+		return New(&config.Config{ConvertoBin: "rom-converto", ConvertoTimeoutSec: 120, DataDir: t.TempDir()}, nil)
 	}
 
 	t.Run("disc converts to a verified CHD; source removed", func(t *testing.T) {

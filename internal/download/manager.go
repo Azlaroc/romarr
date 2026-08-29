@@ -60,7 +60,7 @@ type Manager struct {
 
 // New creates a new download Manager.
 func New(cfg *config.Config, jobs *db.JobStore, qb *qbit.Client) *Manager {
-	mgr := &Manager{cfg: cfg, jobs: jobs, qb: qb, norm: normalize.New(cfg)}
+	mgr := &Manager{cfg: cfg, jobs: jobs, qb: qb, norm: normalize.New(cfg, jobs)}
 
 	if cfg.HasSABnzbd() {
 		// The download path receives its SABnzbd client per call; this one
@@ -929,11 +929,11 @@ func (m *Manager) RecoverOrphanedTorrents() {
 // import. jobID may be empty (manual import), in which case job detail is not
 // touched. Callers must pass the specific artifact path (file or per-game dir),
 // never a shared platform root.
-func (m *Manager) MaybeNormalize(jobID, path, platSlug string) string {
+func (m *Manager) MaybeNormalize(jobID, path, platSlug string, pre *db.LibraryHashes) string {
 	if !m.LoadSettings().NormalizeROMs {
 		return path
 	}
-	finalPath, res, _ := m.norm.Normalize(context.Background(), path, platSlug, normalize.Policy{})
+	finalPath, res, _ := m.norm.Normalize(context.Background(), path, platSlug, pre, normalize.Policy{})
 	if jobID != "" && (res.Renamed || res.Playlist) {
 		if job, ok := m.jobs.Get(jobID); ok {
 			detail, _ := job["detail"].(string)

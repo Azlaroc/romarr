@@ -155,7 +155,7 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 		// canonical name — rename preserves size, so FileSize stays the source
 		// stat until the convert stage (#261) can change it.
 		if !f.IsPC && f.PlatformSlug != "" {
-			destPath = s.mgr.MaybeNormalize("", destPath, f.PlatformSlug)
+			destPath = s.mgr.MaybeNormalize("", destPath, f.PlatformSlug, nil)
 		}
 
 		// Track through the same choke point as the download paths (#280

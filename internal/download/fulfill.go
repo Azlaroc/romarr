@@ -176,7 +176,9 @@ func (m *Manager) fulfillLocalROM(stagingPath string, meta fulfillMeta) (string,
 	// F5 normalize (DAT 1G1R rename + multi-disc .m3u) on the clean, extracted
 	// path, then convert (disc systems → CHD, verify before replacing the
 	// source). No-ops unless enabled; never block import.
-	finalPath = m.MaybeNormalize(meta.JobID, finalPath, meta.PlatformSlug)
+	// The gate's hashes ride into normalize: the name and the verdict come
+	// from the same measurement of the same bytes.
+	finalPath = m.MaybeNormalize(meta.JobID, finalPath, meta.PlatformSlug, contentHashes)
 	finalPath = m.MaybeConvert(meta.JobID, finalPath, meta.PlatformSlug, convertHashStatus)
 
 	writeMetadataSidecar(finalPath, meta.Title, meta.Platform, meta.PlatformSlug, false, meta.Source)
