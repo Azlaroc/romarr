@@ -525,3 +525,25 @@ func TestPreviewFallbackEnabledReviewOnlyAndOutageSafe(t *testing.T) {
 		t.Errorf("fallback-unavailable skips = %d, want %d", unavailable, maxConsecutiveErrors+5)
 	}
 }
+
+func TestPreviewRefusesFrozenPlatforms(t *testing.T) {
+	r, store, root := newTestRunner(t)
+	// No registry attached in this package → the shipped frozen set decides
+	// (freezing degrades to shipped values, never to "unfrozen").
+	seedROM(t, store, root, "switch", "Some Game [0100AAAA00000000].nsp", "nsp bytes")
+
+	r.TriggerPreview("switch")
+	waitDone(t, r)
+	by := rowsByStatus(r)
+	if len(by["skip"]) != 1 || by["skip"][0].Reason != FrozenReason {
+		t.Fatalf("frozen rows = %+v", by)
+	}
+	if len(by["rename"])+len(by["review"])+len(by["noop"]) != 0 {
+		t.Errorf("frozen platform must yield zero proposals: %+v", by)
+	}
+	// And nothing was staged or hashed for it.
+	item, _ := store.GetLibraryItem(by["skip"][0].LibraryID)
+	if _, ok := db.ParseGamarrHashes(item.Metadata); ok {
+		t.Error("frozen row must not be hashed")
+	}
+}

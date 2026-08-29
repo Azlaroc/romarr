@@ -284,3 +284,23 @@ func TestBackfillRepairsUnknownPlatformNames(t *testing.T) {
 		t.Errorf("second backfill touched %d rows, want 0", n)
 	}
 }
+
+// The rename_frozen identity flag: seeded for RomM's non-hashable lanes plus
+// arcade on a fresh install (and backfilled at column birth on existing ones).
+func TestRenameFrozenSeed(t *testing.T) {
+	store := registryStore(t)
+	frozen := map[string]bool{}
+	for _, row := range store.PlatformRows() {
+		frozen[row.Slug] = row.RenameFrozen
+	}
+	for _, slug := range []string{"switch", "wiiu", "pc", "ps3", "ps4", "xbox360", "arcade"} {
+		if !frozen[slug] {
+			t.Errorf("%s should seed rename-frozen", slug)
+		}
+	}
+	for _, slug := range []string{"gb", "nes", "psx", "wii", "xbox"} {
+		if frozen[slug] {
+			t.Errorf("%s must NOT be rename-frozen (hashable lane)", slug)
+		}
+	}
+}

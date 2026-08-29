@@ -149,7 +149,10 @@ export function Platforms() {
       sortValue: (r) => r.media_class,
       render: (r) =>
         r.media_class ? (
-          <Badge color={CLASS_COLOR[r.media_class] ?? 'slate'}>{r.media_class}</Badge>
+          <span className="inline-flex items-center gap-1.5">
+            <Badge color={CLASS_COLOR[r.media_class] ?? 'slate'}>{r.media_class}</Badge>
+            {r.rename_frozen && <Badge color="blue">rename-frozen</Badge>}
+          </span>
         ) : (
           <span className="text-xs text-slate-600">—</span>
         ),

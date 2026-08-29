@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"gamarr/internal/platform"
+	"gamarr/internal/renamer"
 	"net/http"
 	"strconv"
 )
@@ -29,6 +31,13 @@ func (s *Server) handleNormalizePreview(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PlatformSlug == "" {
 		writeError(w, http.StatusBadRequest, "platform_slug required (a slug or \"all\")")
+		return
+	}
+	if req.PlatformSlug != "all" && platform.RenameFrozen(req.PlatformSlug) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"error":   renamer.FrozenReason,
+		})
 		return
 	}
 	if !s.renamer.TriggerPreview(req.PlatformSlug) {
