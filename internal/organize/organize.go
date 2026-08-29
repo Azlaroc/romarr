@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -228,48 +227,6 @@ func cleanBaseName(base string) string {
 	return base
 }
 
-// ExtractArchives extracts .zip, .7z, and .rar files in a directory.
-// Returns the list of extracted archive paths.
-func ExtractArchives(directory string) []string {
-	var extracted []string
-	patterns := []string{"*.rar", "*.RAR", "*.zip", "*.ZIP", "*.7z"}
-
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(filepath.Join(directory, pattern))
-		for _, archive := range matches {
-			extractDir := archive + ".extracted"
-			if pathExists(extractDir) {
-				continue
-			}
-			os.MkdirAll(extractDir, 0755)
-			ext := strings.ToLower(filepath.Ext(archive))
-
-			var cmd *exec.Cmd
-			if ext == ".rar" {
-				cmd = exec.Command("unrar", "x", "-o+", "-y", archive, extractDir+"/")
-			} else {
-				cmd = exec.Command("7z", "x", fmt.Sprintf("-o%s", extractDir), "-y", archive)
-			}
-			if err := cmd.Run(); err != nil {
-				slog.Warn("extraction failed", "archive", filepath.Base(archive), "error", err)
-				os.RemoveAll(extractDir)
-				continue
-			}
-			extracted = append(extracted, archive)
-			slog.Info("extracted archive", "name", filepath.Base(archive))
-		}
-	}
-
-	// Recurse into subdirectories.
-	entries, _ := os.ReadDir(directory)
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasSuffix(e.Name(), ".extracted") {
-			extracted = append(extracted, ExtractArchives(filepath.Join(directory, e.Name()))...)
-		}
-	}
-	return extracted
-}
-
 // DuplicateCheck checks if a file or directory already exists at the destination.
 func DuplicateCheck(destPath string) (bool, error) {
 	_, err := os.Stat(destPath)
@@ -341,9 +298,4 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
-}
-
-func pathExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }

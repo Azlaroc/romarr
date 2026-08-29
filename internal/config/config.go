@@ -188,10 +188,6 @@ type Config struct {
 	// Prowlarr game indexer IDs
 	ProwlarrGameIndexers []int
 
-	// Rename on import
-	RenameEnabled bool
-	RenamePattern string
-
 	// Auto-upgrade
 	AutoUpgradeEnabled bool
 }
@@ -294,9 +290,6 @@ func Load() *Config {
 		// Empty (the default) means unscoped Prowlarr search across all
 		// configured indexers; set IDs only to restrict the search.
 		ProwlarrGameIndexers: envIntSlice("PROWLARR_GAME_INDEXERS", nil),
-
-		RenameEnabled: envBool("RENAME_ENABLED", false),
-		RenamePattern: envStr("RENAME_PATTERN", "{title} ({platform}).{ext}"),
 
 		AutoUpgradeEnabled: envBool("AUTO_UPGRADE_ENABLED", false),
 	}

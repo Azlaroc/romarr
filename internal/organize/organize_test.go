@@ -1,9 +1,7 @@
 package organize
 
 import (
-	"archive/zip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,28 +25,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func writeZip(t *testing.T, path string, files map[string]string) {
-	t.Helper()
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("create zip %s: %v", path, err)
-	}
-	defer f.Close()
-	zw := zip.NewWriter(f)
-	for name, content := range files {
-		w, err := zw.Create(name)
-		if err != nil {
-			t.Fatalf("zip create entry: %v", err)
-		}
-		if _, err := w.Write([]byte(content)); err != nil {
-			t.Fatalf("zip write entry: %v", err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatalf("zip close: %v", err)
 	}
 }
 
@@ -344,79 +320,4 @@ func TestDuplicateCheck(t *testing.T) {
 			t.Error("exists = false for existing directory")
 		}
 	})
-}
-
-// ── ExtractArchives ──────────────────────────────────────────────────────────
-
-func TestExtractArchivesSkipsAlreadyExtracted(t *testing.T) {
-	dir := t.TempDir()
-	writeZip(t, filepath.Join(dir, "game.zip"), map[string]string{"rom.nes": "data"})
-	// Pre-existing .extracted dir means the archive is skipped without running 7z.
-	if err := os.MkdirAll(filepath.Join(dir, "game.zip.extracted"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	extracted := ExtractArchives(dir)
-	if len(extracted) != 0 {
-		t.Errorf("extracted = %v, want none (already extracted)", extracted)
-	}
-}
-
-func TestExtractArchivesEmptyDir(t *testing.T) {
-	if got := ExtractArchives(t.TempDir()); len(got) != 0 {
-		t.Errorf("extracted = %v, want none for empty dir", got)
-	}
-}
-
-func TestExtractArchivesZip(t *testing.T) {
-	dir := t.TempDir()
-	top := filepath.Join(dir, "game.zip")
-	writeZip(t, top, map[string]string{"rom.nes": "topdata"})
-
-	// A zip in a subdirectory exercises the recursion path.
-	sub := filepath.Join(dir, "nested")
-	if err := os.MkdirAll(sub, 0755); err != nil {
-		t.Fatal(err)
-	}
-	inner := filepath.Join(sub, "inner.zip")
-	writeZip(t, inner, map[string]string{"rom2.gba": "innerdata"})
-
-	extracted := ExtractArchives(dir)
-
-	if _, err := exec.LookPath("7z"); err != nil {
-		// Without 7z the extraction fails: nothing reported and the temp
-		// .extracted dirs must be cleaned up.
-		if len(extracted) != 0 {
-			t.Errorf("extracted = %v, want none without 7z", extracted)
-		}
-		for _, p := range []string{top + ".extracted", inner + ".extracted"} {
-			if _, err := os.Stat(p); !os.IsNotExist(err) {
-				t.Errorf("%s should be removed after failed extraction", p)
-			}
-		}
-		return
-	}
-
-	// With 7z available both archives extract.
-	if len(extracted) != 2 {
-		t.Fatalf("extracted = %v, want 2 archives", extracted)
-	}
-	for path, want := range map[string]string{
-		filepath.Join(top+".extracted", "rom.nes"):    "topdata",
-		filepath.Join(inner+".extracted", "rom2.gba"): "innerdata",
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("missing extracted file: %v", err)
-			continue
-		}
-		if string(data) != want {
-			t.Errorf("%s content = %q, want %q", path, data, want)
-		}
-	}
-
-	// A second pass skips everything already extracted.
-	if again := ExtractArchives(dir); len(again) != 0 {
-		t.Errorf("second pass extracted = %v, want none", again)
-	}
 }
