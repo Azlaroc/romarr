@@ -72,6 +72,10 @@ func (s *JobStore) migrateExtra() {
 	s.migrateDat()
 	// After migrateDat: the locator column hangs off dat_platforms.
 	s.migrateCloneLists()
+	// The per-platform size-definition plane is retired — its readers went
+	// first (selection judges nothing on size), the table goes here. The
+	// SizeStats percentiles on dat_snapshots stay: measurement, not knobs.
+	s.db.Exec(`DROP TABLE IF EXISTS platform_size_definitions`)
 	s.migratePlatforms()
 	s.migrateCollectionTargets()
 	// Runs after both tables exist: templates are profile rows, and the
