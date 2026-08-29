@@ -72,7 +72,6 @@ func (s *JobStore) migrateExtra() {
 	s.migrateDat()
 	// After migrateDat: the locator column hangs off dat_platforms.
 	s.migrateCloneLists()
-	s.migratePlatformSizes()
 	s.migratePlatforms()
 	s.migrateCollectionTargets()
 	// Runs after both tables exist: templates are profile rows, and the

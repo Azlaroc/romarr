@@ -91,12 +91,6 @@ type Service struct {
 	store *db.JobStore
 	http  *http.Client
 
-	// onSnapshot fires after a platform's catalog is replaced, so consumers
-	// holding a cached view of the derived bands can drop it. A callback
-	// rather than a direct call outward: the catalog plane should not need to
-	// know who is reading its output.
-	onSnapshot func(platformSlug string)
-
 	// running is the single-flight gate shared by refreshes and uploads.
 	running atomic.Bool
 
@@ -121,14 +115,6 @@ type Option func(*Service)
 
 // WithHTTPClient swaps the fetch client (tests point it at a stub).
 func WithHTTPClient(c *http.Client) Option { return func(s *Service) { s.http = c } }
-
-// WithOnSnapshot registers a callback fired once per platform whose catalog
-// was actually replaced. It does not fire when a fetch turns out to be
-// unchanged or is held back by a pin, because in both cases the stored bands
-// are still current.
-func WithOnSnapshot(fn func(platformSlug string)) Option {
-	return func(s *Service) { s.onSnapshot = fn }
-}
 
 // New builds a Service. It starts no goroutine: the cadence loop arms only
 // through EnsureRunning, which the supervisor calls when the toggle is on.
@@ -317,13 +303,6 @@ func (s *Service) importCatalog(auth db.DatAuthorityRow, slug string, transport 
 	row, err := s.store.InsertDatSnapshot(meta, mapGames(file.Games))
 	if err != nil {
 		return PlatformResult{}, err
-	}
-	// The catalog moved, so the platform's enforced band moves with it and
-	// anyone caching that band is told to drop it. Both happen here, on the
-	// single import path shared by fetches and hand-uploaded files.
-	s.applySizeDefinition(row)
-	if s.onSnapshot != nil {
-		s.onSnapshot(slug)
 	}
 	return PlatformResult{
 		Platform: slug, Status: StatusImported, Version: row.Version,

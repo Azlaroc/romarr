@@ -425,52 +425,21 @@ def test_settings_metadata_dat_authorities(ui):
     page.get_by_test_id("save-bar-cancel").click()
     expect(page.get_by_test_id("save-bar")).to_have_count(0, timeout=SLOW_MS)
 
-
-def test_settings_quality_definitions(ui):
-    """Per-platform size limits: arr's Quality Definitions, keyed by platform.
-
-    Also the home of the unsaved-changes guard's full round trip. The component
-    tests cover the predicate and the prompt appearing; completing a blocked
-    navigation needs a real browser, so it is asserted here.
-
-    Nothing is saved: a manual row would be skipped by the later catalog
-    import, which is exactly what the API journey checks.
-    """
-    page = ui["page"]
-    _open_settings_child(page, "quality-definitions", "qd-definitions")
-    expect(page.get_by_test_id("qd-table")).to_be_visible(timeout=SLOW_MS)
-
-    # Seeded lanes are present before any catalog has been imported, and an
-    # unset bound reads as Unlimited rather than as a literal zero.
-    expect(page.get_by_test_id("row-atari2600")).to_be_visible()
-    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("Unlimited")
-    # No catalog yet, so reset offers to clear rather than to restore.
-    expect(page.get_by_test_id("qd-reset-atari2600")).to_have_text(
-        re.compile("clear", re.I))
-
-    # Editing a bound raises the save bar and names what is pending.
-    expect(page.get_by_test_id("save-bar")).to_have_count(0)
-    page.get_by_test_id("qd-min-atari2600").fill("4096")
+    # The unsaved-changes guard's full round trip lives here (it moved from
+    # the retired Quality Definitions screen, blaster#349). The component
+    # tests cover the predicate and the prompt appearing; completing a
+    # blocked navigation needs a real browser, so it is asserted here.
+    page.get_by_test_id("md-auto-refresh").click()
     expect(page.get_by_test_id("save-bar")).to_be_visible(timeout=SLOW_MS)
-    expect(page.get_by_test_id("save-bar-summary")).to_contain_text("1 platform")
-    # The number typed is the number shown — nothing is adjusted behind it.
-    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("4.0 KB")
-
-    # An inverted band is refused before it can be sent.
-    page.get_by_test_id("qd-max-atari2600").fill("1024")
-    expect(page.get_by_test_id("qd-error-atari2600")).to_be_visible(timeout=SLOW_MS)
-
-    # Leaving with edits pending prompts instead of silently discarding, and
-    # confirming actually completes the navigation.
     page.get_by_test_id("nav-settings-profiles").click()
     expect(page.get_by_test_id("confirm-ok")).to_be_visible(timeout=SLOW_MS)
-    expect(page.get_by_test_id("qd-table")).to_be_visible()
+    expect(page.get_by_test_id("md-authorities")).to_be_visible()
     page.get_by_test_id("confirm-ok").click()
-    expect(page.get_by_test_id("qd-table")).to_have_count(0, timeout=SLOW_MS)
+    expect(page.get_by_test_id("md-authorities")).to_have_count(0, timeout=SLOW_MS)
 
-    # Nothing was written: the row is back to its stored value.
-    _open_settings_child(page, "quality-definitions", "qd-definitions")
-    expect(page.get_by_test_id("qd-min-render-atari2600")).to_have_text("Unlimited")
+    # Nothing was written: the toggle is back at its stored value.
+    _open_settings_child(page, "metadata", "md-authorities")
+    expect(page.get_by_test_id("md-auto-refresh")).not_to_be_checked()
     expect(page.get_by_test_id("save-bar")).to_have_count(0)
 
 

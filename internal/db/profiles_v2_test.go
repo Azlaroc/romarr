@@ -14,7 +14,7 @@ import (
 // resolved before, for every platform, with nothing silently re-pointed.
 var prodProfileFixture = []QualityProfile{
 	{Name: "PC Default", PlatformSlug: "pc", SourceRanking: []string{"FitGirl", "DODI", "PLAZA", "Vimm"},
-		PreferredSizeMin: 52428800, PreferredSizeMax: 107374182400, UpgradeAllowed: true, CutoffSource: "FitGirl"},
+		UpgradeAllowed: true, CutoffSource: "FitGirl"},
 	{Name: "ROM Default", IsDefault: true, SourceRanking: []string{"Vimm"},
 		RegionPriority: []string{"usa", "world", "uk", "canada", "australia", "europe", "japan"}},
 	{Name: "PSX Default", PlatformSlug: "psx", SourceRanking: []string{"Vimm"}},

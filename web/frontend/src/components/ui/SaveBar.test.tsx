@@ -54,11 +54,11 @@ describe('shouldBlockNavigation', () => {
   // is that it does NOT over-block: a guard that prompts on every click gets
   // muscle-memory-dismissed and stops protecting anything.
   it('blocks only a departure with pending edits', () => {
-    expect(shouldBlockNavigation(true, '/settings/quality-definitions', '/library')).toBe(true)
+    expect(shouldBlockNavigation(true, '/settings/metadata', '/library')).toBe(true)
   })
 
   it('lets a clean page navigate freely', () => {
-    expect(shouldBlockNavigation(false, '/settings/quality-definitions', '/library')).toBe(false)
+    expect(shouldBlockNavigation(false, '/settings/metadata', '/library')).toBe(false)
   })
 
   it('ignores same-path navigation, which is a filter or hash change', () => {

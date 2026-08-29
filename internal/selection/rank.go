@@ -1,13 +1,11 @@
 package selection
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
 	"gamarr/internal/db"
 	"gamarr/internal/models"
-	"gamarr/internal/search"
 )
 
 // Rejection records why a candidate was filtered out of selection — carried
@@ -46,33 +44,11 @@ func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
 	if len(prof.RegionPriority) > 0 && len(a.Regions) > 0 && regionRank(a.Regions, prof.RegionPriority) == len(prof.RegionPriority) {
 		return "region not in profile priority (" + strings.Join(a.Regions, ",") + ")"
 	}
-	// Size sanity: reject implausibly small (placeholder) and implausibly
-	// large payloads. Profile bounds win when set; 0 on either end means that
-	// end is unbounded, so a platform with no definition is not filtered on
-	// size at all. Size 0 (unreported) passes the filter and loses the
-	// hash/verifiability tier instead.
-	//
-	// Both bounds are applied exactly as stored. The compression allowance a
-	// catalog-derived floor needs is folded in when the definition is written,
-	// so that the number enforcing here is the same number a screen displays —
-	// and so an operator-typed bound means precisely what it says.
-	if r.Size > 0 {
-		minSize, maxSize := search.PlatformSizeRange(r.PlatformSlug)
-		if prof.PreferredSizeMin > 0 {
-			minSize = prof.PreferredSizeMin
-		}
-		if prof.PreferredSizeMax > 0 {
-			maxSize = prof.PreferredSizeMax
-		}
-		// The bound travels in the reason: a rejection that names only the
-		// candidate leaves the operator guessing which number did it.
-		if minSize > 0 && r.Size < minSize {
-			return fmt.Sprintf("implausibly small (%d bytes, floor %d)", r.Size, minSize)
-		}
-		if maxSize > 0 && r.Size > maxSize {
-			return fmt.Sprintf("implausibly large (%d bytes, ceiling %d)", r.Size, maxSize)
-		}
-	}
+	// Size is deliberately NOT a filter (blaster#349): the DAT knows every
+	// dump's exact bytes before search and the trust gate checks the actual
+	// bytes after download, so a size bound could only reject on a proxy for
+	// information we measure directly. An absurd candidate costs one wasted
+	// download before the gate blocklists it — bandwidth, not correctness.
 	return ""
 }
 

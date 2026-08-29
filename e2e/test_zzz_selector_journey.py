@@ -61,15 +61,6 @@ def _wait(cond, timeout=SLOW_S, step=0.5, msg="condition"):
 def test_selector_enforce_grabs_1g1r_and_disc_sets(app, stub_server):
     base = app["base"]
 
-    # The stub ROM zips are ~1KB — far below the real per-platform size bands —
-    # so loosen the global profile's size-sanity bounds through the PR-2 CRUD
-    # API (which doubles as live validation of that surface).
-    profiles = _req(base, "/api/quality-profiles").get("profiles", [])
-    default = next(p for p in profiles if p.get("is_default"))
-    default["preferred_size_min"] = 1
-    default["preferred_size_max"] = 10_000_000_000
-    _req(base, f"/api/quality-profiles/{default['id']}", "PUT", default)
-
     assert _req(base, "/api/wishlist", "POST", {
         "title": "Chrono Cross", "platform": "PlayStation", "platform_slug": "psx",
     }).get("success", True)

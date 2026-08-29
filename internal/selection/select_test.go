@@ -105,24 +105,18 @@ func TestClassFilters(t *testing.T) {
 	}
 }
 
-func TestSizeSanity(t *testing.T) {
-	// Armed explicitly rather than leaning on an ambient table: the band is a
-	// definition an operator can change, so a test that asserts against
-	// whatever happens to be configured is asserting nothing.
-	armBands(t, bandTable{"psx": {1_000_000, 1_000_000_000}})
-
-	// A 100KB "release" is a placeholder; the profile override tightens further.
-	small := mk("Game (USA).zip", 80, withHash, func(r *models.SearchResult) { r.Size = 100e3 })
-	dec := Select([]*models.SearchResult{small}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile()})
-	if dec.Action != ActionSkip {
-		t.Fatalf("implausibly small release passed the filter")
-	}
-	prof := romProfile()
-	prof.PreferredSizeMin = 300e6
-	mid := mk("Game (USA).zip", 80, withHash, func(r *models.SearchResult) { r.Size = 100e6 })
-	dec = Select([]*models.SearchResult{mid}, SelectOpts{Query: "Game", MinScore: 0, Profile: prof})
-	if dec.Action != ActionSkip {
-		t.Fatalf("profile size floor not honored")
+// TestSizeNeverFilters pins blaster#349: size is not a selection input. The
+// DAT knows every dump's bytes before search and the trust gate measures the
+// actual bytes after download, so a size bound could only reject on a proxy —
+// which is how legit tiny carts got refused as "implausibly small" (#309).
+// Any size, however absurd, must reach the grab; the gate owns rejection.
+func TestSizeNeverFilters(t *testing.T) {
+	for _, size := range []int64{1, 100e3, 500e9} {
+		r := mk("Game (USA).zip", 80, withHash, func(r *models.SearchResult) { r.Size = size })
+		dec := Select([]*models.SearchResult{r}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile()})
+		if dec.Action != ActionGrab {
+			t.Errorf("size %d was filtered: got %v (%s), want grab", size, dec.Action, dec.Reason)
+		}
 	}
 }
 

@@ -21,7 +21,6 @@ import { Connect } from './routes/settings/Connect'
 import { Metadata } from './routes/settings/Metadata'
 import { Tags } from './routes/settings/Tags'
 import { Profiles } from './routes/settings/Profiles'
-import { QualityDefinitions } from './routes/settings/QualityDefinitions'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
 import { ReleaseProfileEditor } from './routes/settings/ReleaseProfileEditor'
 import { SystemStatus } from './routes/system/Status'
@@ -59,7 +58,6 @@ export const router = createBrowserRouter([
       { path: 'settings/tags', element: <Tags /> },
       { path: 'settings/general', element: <Settings /> },
       { path: 'settings/profiles', element: <Profiles /> },
-      { path: 'settings/quality-definitions', element: <QualityDefinitions /> },
       { path: 'settings/profiles/quality/new', element: <QualityProfileEditor /> },
       { path: 'settings/profiles/quality/:id', element: <QualityProfileEditor /> },
       { path: 'settings/profiles/release/new', element: <ReleaseProfileEditor /> },
