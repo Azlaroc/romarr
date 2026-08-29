@@ -219,8 +219,6 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 |----------|---------|-------------|
 | `GAMES_VAULT_PATH` | `/data/vault` | PC game storage directory |
 | `GAMES_ROMS_PATH` | `/data/roms` | ROM storage directory |
-| `RENAME_ENABLED` | `false` | Rename files on import |
-| `RENAME_PATTERN` | `{title} ({platform}).{ext}` | Rename pattern |
 | `IGDB_CLIENT_ID` | | Twitch application client id — IGDB is Twitch-owned, and this is what makes game search and cover art work |
 | `IGDB_CLIENT_SECRET` | | Twitch application client secret |
 | `IGDB_API_BASE` | `https://api.igdb.com/v4` | Override the IGDB API host (a mirror, or a stub in tests) |
