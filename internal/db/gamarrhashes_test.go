@@ -43,3 +43,19 @@ func TestParseGamarrHashesAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRommContentHashes(t *testing.T) {
+	crc, md5, sha1, ok := ParseRommContentHashes(`{"romm":{"crc":"AEB4B262","md5":"83BDdf31","sha1":""}}`)
+	if !ok || crc != "aeb4b262" || md5 != "83bddf31" || sha1 != "" {
+		t.Fatalf("got %q %q %q ok=%v", crc, md5, sha1, ok)
+	}
+	for name, meta := range map[string]string{
+		"no romm":    `{"gamarr":{"md5":"x"}}`,
+		"empty romm": `{"romm":{}}`,
+		"malformed":  `{oops`,
+	} {
+		if _, _, _, ok := ParseRommContentHashes(meta); ok {
+			t.Errorf("%s: ok = true, want false", name)
+		}
+	}
+}

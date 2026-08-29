@@ -106,17 +106,24 @@ func classify(store *db.JobStore, it *db.LibraryItem) (string, *sample) {
 	base := filepath.Base(it.FilePath)
 	ext := strings.ToLower(filepath.Ext(base))
 
-	gh, ok := db.ParseGamarrHashes(it.Metadata)
-	if !ok {
+	gh, haveGamarr := db.ParseGamarrHashes(it.Metadata)
+	rCRC, rMD5, rSHA1, haveRomm := db.ParseRommContentHashes(it.Metadata)
+	if !haveGamarr && !haveRomm {
 		if reason := hashSkipReason(it.Metadata); reason != "" {
 			return classSkip, &sample{Class: classSkip, Old: base, Detail: reason}
 		}
 		return classNoHash, nil
 	}
 
-	matches := store.LookupDatRomsByHash(it.PlatformSlug, gh.CRC, gh.MD5, gh.SHA1)
-	if len(matches) == 0 && gh.Unh != nil {
-		matches = store.LookupDatRomsByHash(it.PlatformSlug, gh.Unh.CRC, gh.Unh.MD5, gh.Unh.SHA1)
+	var matches []db.DatRomMatch
+	if haveGamarr {
+		matches = store.LookupDatRomsByHash(it.PlatformSlug, gh.CRC, gh.MD5, gh.SHA1)
+		if len(matches) == 0 && gh.Unh != nil {
+			matches = store.LookupDatRomsByHash(it.PlatformSlug, gh.Unh.CRC, gh.Unh.MD5, gh.Unh.SHA1)
+		}
+	}
+	if len(matches) == 0 && haveRomm {
+		matches = store.LookupDatRomsByHash(it.PlatformSlug, rCRC, rMD5, rSHA1)
 	}
 
 	cands := make([]datname.Candidate, 0, len(matches))

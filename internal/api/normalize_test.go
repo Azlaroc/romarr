@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,11 +62,21 @@ exit 0
 func TestNormalizeEndpoints(t *testing.T) {
 	env, romsRoot := newRenamerEnv(t)
 
-	// Seed one renameable rom.
+	// Seed one renameable rom, catalogued in the local DAT snapshot (the
+	// naming authority — the fake converto is only the disabled fallback).
 	dir := filepath.Join(romsRoot, "gb")
 	os.MkdirAll(dir, 0o755)
 	p := filepath.Join(dir, "Old (U).gb")
-	os.WriteFile(p, []byte("MATCH:New (USA).gb:x"), 0o644)
+	content := []byte("gb rom bytes")
+	os.WriteFile(p, content, 0o644)
+	sum := md5.Sum(content)
+	if _, err := env.jobs.InsertDatSnapshot(
+		db.DatSnapshotMeta{Authority: "no-intro", PlatformSlug: "gb", Version: "test"},
+		[]db.DatGameRow{{Name: "New (USA)", BareTitle: "New (USA)", TotalSize: int64(len(content)),
+			Roms: []db.DatRomRow{{Name: "New (USA).gb", Size: int64(len(content)), MD5: hex.EncodeToString(sum[:])}}}},
+	); err != nil {
+		t.Fatalf("InsertDatSnapshot: %v", err)
+	}
 	env.jobs.AddLibraryItem(&db.LibraryItem{
 		Title: "Old (U)", PlatformSlug: "gb", FilePath: p,
 		Source: "ddl", SourceType: "ddl", SourceID: "ddl:" + p, Metadata: "{}",

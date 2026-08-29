@@ -54,6 +54,7 @@ type PreviewRow struct {
 	OldPath      string     `json:"old_path"`
 	OldName      string     `json:"old_name"`
 	NewName      string     `json:"new_name,omitempty"`
+	NameSource   string     `json:"name_source,omitempty"` // "dat" | "playmatch" — which authority proposed NewName
 	Status       string     `json:"status"`
 	Reason       string     `json:"reason,omitempty"`
 	Collision    *Collision `json:"collision,omitempty"`
@@ -75,21 +76,24 @@ type Runner struct {
 
 	running atomic.Bool
 
-	mu         sync.Mutex
-	cancel     context.CancelFunc
-	phase      string // "idle" | "preview" | "apply"
-	scope      string
-	total      int
-	done       int
-	renamed    int
-	skipped    int
-	collisions int
-	reviews    int
-	errCount   int
-	lastErr    string
-	startedAt  time.Time
-	finishedAt time.Time
-	rows       []PreviewRow
+	mu              sync.Mutex
+	cancel          context.CancelFunc
+	phase           string // "idle" | "preview" | "apply"
+	scope           string
+	total           int
+	done            int
+	renamed         int
+	skipped         int
+	collisions      int
+	reviews         int
+	datMisses       int // loud misses: the local snapshot does not know the bytes
+	sourceDat       int // proposals named by the local snapshot
+	sourcePlaymatch int // proposals named by the online fallback
+	errCount        int
+	lastErr         string
+	startedAt       time.Time
+	finishedAt      time.Time
+	rows            []PreviewRow
 }
 
 // New builds a Runner. importNotify may be nil (RomM Connect disabled).
@@ -115,6 +119,7 @@ func (r *Runner) TriggerPreview(scope string) bool {
 	r.phase = "preview"
 	r.scope = scope
 	r.total, r.done, r.renamed, r.skipped, r.collisions, r.reviews, r.errCount = 0, 0, 0, 0, 0, 0, 0
+	r.datMisses, r.sourceDat, r.sourcePlaymatch = 0, 0, 0
 	r.lastErr = ""
 	r.startedAt = time.Now()
 	r.finishedAt = time.Time{}
@@ -216,22 +221,25 @@ func (r *Runner) Status() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"enabled":     true,
-		"planned":     planned,
-		"running":     r.running.Load(),
-		"phase":       r.phase,
-		"scope":       r.scope,
-		"total":       r.total,
-		"done":        r.done,
-		"renamed":     r.renamed,
-		"skipped":     r.skipped,
-		"collisions":  r.collisions,
-		"reviews":     r.reviews,
-		"errors":      r.errCount,
-		"last_error":  r.lastErr,
-		"started_at":  timeOrEmpty(r.startedAt),
-		"finished_at": timeOrEmpty(r.finishedAt),
-		"resume_note": "state is in-memory; to resume, re-run preview — applied and canonical entries become no-ops",
+		"enabled":          true,
+		"planned":          planned,
+		"running":          r.running.Load(),
+		"phase":            r.phase,
+		"scope":            r.scope,
+		"total":            r.total,
+		"done":             r.done,
+		"renamed":          r.renamed,
+		"skipped":          r.skipped,
+		"collisions":       r.collisions,
+		"reviews":          r.reviews,
+		"dat_misses":       r.datMisses,
+		"source_dat":       r.sourceDat,
+		"source_playmatch": r.sourcePlaymatch,
+		"errors":           r.errCount,
+		"last_error":       r.lastErr,
+		"started_at":       timeOrEmpty(r.startedAt),
+		"finished_at":      timeOrEmpty(r.finishedAt),
+		"resume_note":      "state is in-memory; to resume, re-run preview — applied and canonical entries become no-ops",
 	}
 }
 
@@ -282,7 +290,7 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 	workRoot := filepath.Join(r.cfg.GamesRomsPath, workDirName)
 	os.RemoveAll(workRoot) // reap leftovers from a crashed run
 	defer os.RemoveAll(workRoot)
-	ident := NewIdentifier(r.cv, workRoot)
+	ident := NewIdentifier(r.store, r.cv, workRoot, r.cfg.OnlineFallbackOn())
 
 	// Proposed targets from planned renames this run — a second entry
 	// proposing an already-claimed target is the classic dupe pair where
@@ -311,7 +319,7 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 			OldName:      filepath.Base(it.FilePath),
 		}
 
-		identity, err := ident.Identify(ctx, it.FilePath)
+		identity, err := ident.Identify(ctx, it)
 		switch {
 		case ctx.Err() != nil:
 			r.noteErr("stopped")
@@ -330,15 +338,28 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 		}
 		consecutive = 0
 		row.md5 = identity.MD5
+		row.NameSource = identity.NameSource
 
 		switch {
 		case identity.SkipReason != "":
 			row.Status = "skip"
 			row.Reason = identity.SkipReason
-			r.appendRow(row, func() { r.skipped++ })
+			if identity.SkipReason == SkipNoDatMatch || identity.SkipReason == SkipFallbackUnavailable {
+				// The loud miss (contract C6): counted and surfaced, never
+				// folded into generic skip noise.
+				r.appendRow(row, func() { r.skipped++; r.datMisses++ })
+			} else {
+				r.appendRow(row, func() { r.skipped++ })
+			}
+		case identity.Ambiguous:
+			row.Status = "review"
+			row.Reason = "ambiguous DAT candidates: " + strings.Join(identity.AmbiguousWith, " | ")
+			r.appendRow(row, func() { r.reviews++ })
 		case identity.ProposedName == row.OldName:
 			row.Status = "noop"
-			r.appendRow(row, func() {})
+			r.appendRow(row, r.countSource(identity.NameSource))
+			slog.Debug("normalize proposal", "library_id", it.ID, "platform", it.PlatformSlug,
+				"old", row.OldName, "proposed", identity.ProposedName, "status", "noop", "source", identity.NameSource)
 		default:
 			row.NewName = identity.ProposedName
 			target := filepath.Join(filepath.Dir(it.FilePath), identity.ProposedName)
@@ -356,18 +377,45 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 				row.Reason = "canonical name already exists in library"
 				row.Collision = r.collisionWith(target, row.md5)
 				r.appendRow(row, func() { r.skipped++; r.collisions++ })
+			} else if identity.NameSource == NameSourcePlaymatch {
+				// C6: an online lookup is never the decider — its proposal is
+				// visible but a human applies it.
+				row.Status = "review"
+				row.Reason = "name from online fallback (not in local DAT snapshot) — not applied automatically"
+				r.appendRow(row, func() { r.reviews++; r.sourcePlaymatch++ })
 			} else if datname.LooksLikeCompilationEntry(identity.ProposedName) && !datname.LooksLikeCompilationEntry(row.OldName) {
-				// The intra-run collision guard catches the 2nd..Nth file that
-				// hash-matches the same compilation entry; this flags the
-				// first claimant, the residual single-file risk.
+				// The tie-aware resolver prefers the original release on a
+				// compilation hash tie; this flags the residual case where
+				// the compilation entry is the ONLY candidate.
 				row.Status = "review"
 				row.Reason = "proposed name looks like a compilation/re-release DAT entry (hash-ambiguous) — not applied automatically"
-				r.appendRow(row, func() { r.reviews++ })
+				r.appendRow(row, r.countAlso(identity.NameSource, func() { r.reviews++ }))
 			} else {
 				row.Status = "rename"
 				targets[target] = targetClaim{id: row.LibraryID, oldName: row.OldName, md5: row.md5}
-				r.appendRow(row, func() {})
+				r.appendRow(row, r.countSource(identity.NameSource))
 			}
+			slog.Info("normalize proposal", "library_id", it.ID, "platform", it.PlatformSlug,
+				"old", row.OldName, "proposed", identity.ProposedName, "status", row.Status, "source", identity.NameSource)
+		}
+	}
+}
+
+// countSource bumps the per-authority proposal counter for a decided name.
+func (r *Runner) countSource(source string) func() {
+	return r.countAlso(source, func() {})
+}
+
+// countAlso combines a classification counter with the source counter.
+// Callers hold no lock; appendRow runs the returned func under r.mu.
+func (r *Runner) countAlso(source string, also func()) func() {
+	return func() {
+		also()
+		switch source {
+		case NameSourceDat:
+			r.sourceDat++
+		case NameSourcePlaymatch:
+			r.sourcePlaymatch++
 		}
 	}
 }

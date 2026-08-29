@@ -58,3 +58,28 @@ func ParseGamarrHashes(metadata string) (GamarrHashes, bool) {
 	}
 	return h, true
 }
+
+// ParseRommContentHashes reads $.romm.{crc,md5,sha1} — RomM's inner-content
+// hashes, the same domain a DAT lookup wants (proven on the Hagane pair; see
+// docs/library-identity.md). RomM rewrites them wholesale on every sync, so
+// they are current without a timestamp. They belong to the ROM's bytes only
+// for single-rom entries — a directory import's multi-file hash matches
+// nothing, which is harmless in a lookup.
+func ParseRommContentHashes(metadata string) (crc, md5, sha1 string, ok bool) {
+	var envelope struct {
+		Romm struct {
+			CRC  string `json:"crc"`
+			MD5  string `json:"md5"`
+			SHA1 string `json:"sha1"`
+		} `json:"romm"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &envelope); err != nil {
+		return "", "", "", false
+	}
+	lower := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	crc, md5, sha1 = lower(envelope.Romm.CRC), lower(envelope.Romm.MD5), lower(envelope.Romm.SHA1)
+	if crc == "" && md5 == "" && sha1 == "" {
+		return "", "", "", false
+	}
+	return crc, md5, sha1, true
+}

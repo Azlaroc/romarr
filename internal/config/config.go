@@ -402,6 +402,17 @@ func (c *Config) RemoveTorrentAfterImport() bool {
 	return c.RemoveAfterImport
 }
 
+// OnlineFallbackOn reports whether the rename plane may consult the online
+// Playmatch engine when the local DAT snapshot has no answer (settings row
+// normalize_online_fallback, default off). The snapshot is the naming
+// authority; a local miss otherwise fails loudly (contract C6).
+func (c *Config) OnlineFallbackOn() bool {
+	if v, ok := c.settingBool("normalize_online_fallback"); ok {
+		return v
+	}
+	return false
+}
+
 // SeedJanitor reports whether the watcher may delete share-limit-stopped
 // imported torrents (settings row over SEED_JANITOR_ENABLED).
 func (c *Config) SeedJanitor() bool {
