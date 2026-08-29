@@ -31,6 +31,11 @@ const (
 // through the whole batch.
 const maxConsecutiveErrors = 25
 
+// FrozenReason is the refusal recorded for rows on rename-frozen platforms
+// (registry flag; RomM's non-hashable lanes + arcade). Exported so the API
+// handler's loud refusal and the preview rows say the same sentence.
+const FrozenReason = "platform is rename-frozen: the on-disk name is load-bearing identity on this lane"
+
 // workDirName is the scratch workspace at the roms root — dot-prefixed so
 // library scans ignore it; reaped at every run start.
 const workDirName = ".gamarr-normalize-tmp"
@@ -319,6 +324,15 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 			OldName:      filepath.Base(it.FilePath),
 		}
 
+		if platform.RenameFrozen(it.PlatformSlug) {
+			// Refused, never silently thinned from scope: the operator sees
+			// WHY the platform yields no proposals.
+			row.Status = "skip"
+			row.Reason = FrozenReason
+			r.appendRow(row, func() { r.skipped++ })
+			continue
+		}
+
 		identity, err := ident.Identify(ctx, it)
 		switch {
 		case ctx.Err() != nil:
@@ -452,6 +466,16 @@ func (r *Runner) runApply(ctx context.Context, excl map[int64]struct{}) {
 			r.done++
 			count()
 			r.mu.Unlock()
+		}
+
+		// Defense in depth: a frozen platform's rows never classify as
+		// "rename", but a held preview could predate a freeze.
+		if platform.RenameFrozen(row.PlatformSlug) {
+			update(func(p *PreviewRow) {
+				p.Status = "skip"
+				p.Reason = FrozenReason
+			}, func() { r.skipped++ })
+			continue
 		}
 
 		// TOCTOU: the target may have appeared since preview (including via

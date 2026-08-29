@@ -41,6 +41,12 @@ type Row struct {
 	MediaClass    string `json:"media_class"`
 	ConvertsToCHD bool   `json:"converts_to_chd"`
 
+	// RenameFrozen refuses on-disk renames for the platform: RomM's
+	// non-hashable lanes, where fs_name IS the identity and a rename is
+	// destroying it by construction, plus arcade, where the MAME set name is
+	// the emulator's key. Identity, not preference — read-only in the UI.
+	RenameFrozen bool `json:"rename_frozen"`
+
 	// AcquisitionEnabled is the per-platform on/off switch for automatic
 	// acquisition. IsSystem marks a directory that is not a platform at all
 	// (forwarders, supporting files) — enumerable so the Library filter can
@@ -199,6 +205,27 @@ func TorznabCategory(slug string) string {
 		return r.TorznabCategory
 	}
 	return "1090"
+}
+
+// shippedRenameFrozen is the frozen set for installs with no registry
+// attached. Like the CHD policy, freezing changes what the app DOES with
+// real files, so absence degrades to the shipped values — never to
+// "unfrozen".
+var shippedRenameFrozen = map[string]bool{
+	"switch": true, "switch2": true, "wiiu": true, "pc": true,
+	"ps3": true, "ps4": true, "ps5": true,
+	"xbox360": true, "xboxone": true, "arcade": true,
+}
+
+// RenameFrozen reports whether on-disk renames are refused for the platform.
+func RenameFrozen(slug string) bool {
+	if r, ok := Lookup(slug); ok {
+		return r.RenameFrozen
+	}
+	if len(rows()) == 0 {
+		return shippedRenameFrozen[slug]
+	}
+	return false
 }
 
 // shippedCHDPlatforms is the disc set the app converted before the policy

@@ -88,6 +88,14 @@ func TestNormalizeEndpoints(t *testing.T) {
 		t.Errorf("status = %v", resp)
 	}
 
+	// A rename-frozen platform is refused loudly at the API door.
+	rr = env.do("POST", "/api/library/normalize/preview", `{"platform_slug":"switch"}`,
+		withHeader("Content-Type", "application/json"))
+	wantStatus(t, rr, http.StatusOK)
+	if resp := decodeMap(t, rr); resp["success"] != false || resp["error"] != renamer.FrozenReason {
+		t.Errorf("frozen preview = %v", resp)
+	}
+
 	// Content-type enforcement (env.do defaults to JSON, so force a bad one).
 	rr = env.do("POST", "/api/library/normalize/preview", `{"platform_slug":"gb"}`,
 		withHeader("Content-Type", "text/plain"))

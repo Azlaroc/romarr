@@ -21,6 +21,8 @@ export interface PlatformRow {
   torznab_category: string
   media_class: string // carts | discs | arcade | computer | pc
   converts_to_chd: boolean
+  /** On-disk renames refused: non-hashable lanes + arcade (identity, read-only). */
+  rename_frozen: boolean
   acquisition_enabled: boolean
   /** Monitors the platform's whole 1G1R set: its gaps become wanted work. */
   collection_mode: boolean

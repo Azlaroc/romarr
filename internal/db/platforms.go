@@ -56,6 +56,7 @@ func (s *JobStore) migratePlatforms() {
 			torznab_category TEXT NOT NULL DEFAULT '',
 			media_class TEXT NOT NULL DEFAULT '',
 			converts_to_chd INTEGER NOT NULL DEFAULT 0,
+			rename_frozen INTEGER NOT NULL DEFAULT 0,
 			acquisition_enabled INTEGER NOT NULL DEFAULT 1,
 			is_system INTEGER NOT NULL DEFAULT 0,
 			default_profile_id INTEGER NOT NULL DEFAULT 0,
@@ -75,6 +76,16 @@ func (s *JobStore) migratePlatforms() {
 	// CREATE TABLE IF NOT EXISTS is a no-op on an existing install, so a new
 	// column arrives by ALTER or not at all. Off by default: a platform
 	// nobody has opted in must not start acquiring a whole catalog.
+	if !s.columnExists("platforms", "rename_frozen") {
+		if _, err := s.db.Exec(`ALTER TABLE platforms ADD COLUMN rename_frozen INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate platforms rename_frozen", "error", err)
+		} else if _, err := s.db.Exec(`UPDATE platforms SET rename_frozen = 1 WHERE slug IN
+			('switch','switch2','wiiu','pc','ps3','ps4','ps5','xbox360','xboxone','arcade')`); err != nil {
+			// Seeded at column birth, once ever — a backfill, not a
+			// virgin-table guard, or every existing install stays unfrozen.
+			slog.Warn("seed rename_frozen", "error", err)
+		}
+	}
 	if !s.columnExists("platforms", "collection_mode") {
 		if _, err := s.db.Exec(`ALTER TABLE platforms ADD COLUMN collection_mode INTEGER NOT NULL DEFAULT 0`); err != nil {
 			slog.Warn("migrate platforms collection_mode", "error", err)
@@ -98,7 +109,7 @@ func (s *JobStore) migratePlatforms() {
 // every real platform ships acquirable, every system directory does not.
 var platformSeed = []platform.Row{
 	{Slug: "pc", DisplayName: "PC", IGDBSlug: "win", IGDBID: 6,
-		RommFSSlug: "pc", ProwlarrCategories: []int{4000, 100010}, TorznabCategory: "4070", MediaClass: "pc"},
+		RommFSSlug: "pc", ProwlarrCategories: []int{4000, 100010}, TorznabCategory: "4070", MediaClass: "pc", RenameFrozen: true},
 	{Slug: "ps2", DisplayName: "PS2", IGDBSlug: "ps2", IGDBID: 8,
 		RommFSSlug: "ps2", ProwlarrCategories: []int{100011}, TorznabCategory: "1090", MediaClass: "discs", ConvertsToCHD: true},
 	{Slug: "psp", DisplayName: "PSP", IGDBSlug: "psp", IGDBID: 38,
@@ -106,13 +117,13 @@ var platformSeed = []platform.Row{
 	{Slug: "xbox", DisplayName: "Xbox", IGDBSlug: "xbox", IGDBID: 11,
 		RommFSSlug: "xbox", ProwlarrCategories: []int{100013}, TorznabCategory: "1040", MediaClass: "discs"},
 	{Slug: "xbox360", DisplayName: "Xbox 360", IGDBSlug: "xbox360", IGDBID: 12,
-		RommFSSlug: "xbox360", ProwlarrCategories: []int{100014}, TorznabCategory: "1050", MediaClass: "discs"},
+		RommFSSlug: "xbox360", ProwlarrCategories: []int{100014}, TorznabCategory: "1050", MediaClass: "discs", RenameFrozen: true},
 	{Slug: "psx", DisplayName: "PS1", IGDBSlug: "ps", IGDBID: 7,
 		RommFSSlug: "psx", ProwlarrCategories: []int{100015}, TorznabCategory: "1090", MediaClass: "discs", ConvertsToCHD: true},
 	{Slug: "dc", DisplayName: "Dreamcast", IGDBSlug: "dc", IGDBID: 23,
 		RommFSSlug: "dc", ProwlarrCategories: []int{100016}, TorznabCategory: "1090", MediaClass: "discs", ConvertsToCHD: true},
 	{Slug: "ps3", DisplayName: "PS3", IGDBSlug: "ps3", IGDBID: 9,
-		RommFSSlug: "ps3", ProwlarrCategories: []int{100043}, TorznabCategory: "1080", MediaClass: "discs"},
+		RommFSSlug: "ps3", ProwlarrCategories: []int{100043}, TorznabCategory: "1080", MediaClass: "discs", RenameFrozen: true},
 	{Slug: "wii", DisplayName: "Wii", IGDBSlug: "wii", IGDBID: 5,
 		RommFSSlug: "wii", ProwlarrCategories: []int{100044}, TorznabCategory: "1030", MediaClass: "discs"},
 	{Slug: "nds", DisplayName: "DS", IGDBSlug: "nds", IGDBID: 20,
@@ -122,9 +133,9 @@ var platformSeed = []platform.Row{
 	{Slug: "3ds", DisplayName: "3DS", IGDBSlug: "3ds", IGDBID: 37,
 		RommFSSlug: "3ds", ProwlarrCategories: []int{100072}, TorznabCategory: "1010", MediaClass: "carts"},
 	{Slug: "ps4", DisplayName: "PS4", IGDBSlug: "ps4--1", IGDBID: 48,
-		RommFSSlug: "ps4", ProwlarrCategories: []int{100077}, TorznabCategory: "1090", MediaClass: "discs"},
+		RommFSSlug: "ps4", ProwlarrCategories: []int{100077}, TorznabCategory: "1090", MediaClass: "discs", RenameFrozen: true},
 	{Slug: "switch", DisplayName: "Switch", IGDBSlug: "switch", IGDBID: 130,
-		RommFSSlug: "switch", ProwlarrCategories: []int{4050, 100082}, TorznabCategory: "1090", MediaClass: "carts"},
+		RommFSSlug: "switch", ProwlarrCategories: []int{4050, 100082}, TorznabCategory: "1090", MediaClass: "carts", RenameFrozen: true},
 	{Slug: "n64", DisplayName: "Nintendo 64", IGDBSlug: "n64", IGDBID: 4,
 		RommFSSlug: "n64", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "carts"},
 	{Slug: "snes", DisplayName: "SNES", IGDBSlug: "snes", IGDBID: 19,
@@ -140,7 +151,7 @@ var platformSeed = []platform.Row{
 	{Slug: "saturn", DisplayName: "Sega Saturn", IGDBSlug: "saturn", IGDBID: 32,
 		RommFSSlug: "saturn", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "discs"},
 	{Slug: "wiiu", DisplayName: "Wii U", IGDBSlug: "wiiu", IGDBID: 41,
-		RommFSSlug: "wiiu", ProwlarrCategories: nil, TorznabCategory: "1030", MediaClass: "discs"},
+		RommFSSlug: "wiiu", ProwlarrCategories: nil, TorznabCategory: "1030", MediaClass: "discs", RenameFrozen: true},
 	{Slug: "psvita", DisplayName: "PS Vita", IGDBSlug: "psvita", IGDBID: 46,
 		RommFSSlug: "psvita", ProwlarrCategories: nil, TorznabCategory: "1020", MediaClass: "carts"},
 	{Slug: "gbc", DisplayName: "Game Boy Color", IGDBSlug: "gbc", IGDBID: 22,
@@ -170,7 +181,7 @@ var platformSeed = []platform.Row{
 	{Slug: "apple-iigs", DisplayName: "Apple IIGS", IGDBSlug: "apple-iigs", IGDBID: 115,
 		RommFSSlug: "apple-iigs", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "computer"},
 	{Slug: "arcade", DisplayName: "Arcade", IGDBSlug: "arcade", IGDBID: 52,
-		RommFSSlug: "arcade", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "arcade"},
+		RommFSSlug: "arcade", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "arcade", RenameFrozen: true},
 	{Slug: "forwarders", DisplayName: "Forwarders", IGDBSlug: "", IGDBID: 0,
 		RommFSSlug: "forwarders", ProwlarrCategories: nil, TorznabCategory: "1090", MediaClass: "", IsSystem: true},
 	{Slug: "other", DisplayName: "Other", IGDBSlug: "", IGDBID: 0,
@@ -194,10 +205,10 @@ func (s *JobStore) seedPlatformDefaults() {
 		}
 		if _, err := s.db.Exec(`INSERT INTO platforms
 			(slug, display_name, igdb_slug, igdb_id, romm_fs_slug, prowlarr_categories,
-			 torznab_category, media_class, converts_to_chd, acquisition_enabled, is_system)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 torznab_category, media_class, converts_to_chd, rename_frozen, acquisition_enabled, is_system)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			p.Slug, p.DisplayName, p.IGDBSlug, p.IGDBID, p.RommFSSlug, string(cats),
-			p.TorznabCategory, p.MediaClass, boolInt(p.ConvertsToCHD),
+			p.TorznabCategory, p.MediaClass, boolInt(p.ConvertsToCHD), boolInt(p.RenameFrozen),
 			boolInt(!p.IsSystem), boolInt(p.IsSystem)); err != nil {
 			slog.Warn("seed platform", "slug", p.Slug, "error", err)
 		}
@@ -208,13 +219,14 @@ func (s *JobStore) seedPlatformDefaults() {
 func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 	var p platform.Row
 	var cats string
-	var chd, acq, sys, coll int
+	var chd, frozen, acq, sys, coll int
 	err := rows.Scan(&p.Slug, &p.DisplayName, &p.IGDBSlug, &p.IGDBID, &p.RommFSSlug, &cats,
-		&p.TorznabCategory, &p.MediaClass, &chd, &acq, &sys, &p.DefaultProfileID, &coll, &p.UpdatedAt)
+		&p.TorznabCategory, &p.MediaClass, &chd, &frozen, &acq, &sys, &p.DefaultProfileID, &coll, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}
 	p.ConvertsToCHD, p.AcquisitionEnabled, p.IsSystem = chd == 1, acq == 1, sys == 1
+	p.RenameFrozen = frozen == 1
 	p.CollectionMode = coll == 1
 	if cats != "" {
 		_ = json.Unmarshal([]byte(cats), &p.ProwlarrCategories)
@@ -223,7 +235,7 @@ func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 }
 
 const platformCols = `slug, display_name, igdb_slug, igdb_id, romm_fs_slug, prowlarr_categories,
-	torznab_category, media_class, converts_to_chd, acquisition_enabled, is_system,
+	torznab_category, media_class, converts_to_chd, rename_frozen, acquisition_enabled, is_system,
 	default_profile_id, collection_mode, updated_at`
 
 // PlatformRows implements platform.Registry.
