@@ -904,6 +904,62 @@ func (s *JobStore) MatchDatRom(platformSlug, fileName, crc, md5, sha1 string) Da
 	}
 }
 
+// DatRomMatch is one active-snapshot hash hit, for naming. Where MatchDatRom
+// answers "is this the real dump?" with a single verdict, this returns EVERY
+// row the hashes land on so a caller deciding a FILENAME can see a tie
+// (header twins, compilation extractions) instead of inheriting whichever
+// row SQLite returns first.
+type DatRomMatch struct {
+	GameID   int64
+	GameName string
+	RomName  string // dat_roms.name — the canonical file name, extension included
+}
+
+// LookupDatRomsByHash returns every rom in the platform's active snapshot
+// whose crc/md5/sha1 equals one of the given values, in deterministic
+// (game name, rom name) order so ties resolve the same way every run.
+// Nil when the slug is empty or no hash is given.
+func (s *JobStore) LookupDatRomsByHash(platformSlug, crc, md5, sha1 string) []DatRomMatch {
+	if platformSlug == "" {
+		return nil
+	}
+	crc, md5, sha1 = strings.ToLower(crc), strings.ToLower(md5), strings.ToLower(sha1)
+	// Built from a slice, not a map: the clauses and their arguments are two
+	// halves of one list, and iterating a map would pair them by luck.
+	var hashClauses []string
+	args := []interface{}{platformSlug}
+	for _, h := range []struct{ col, val string }{{"crc", crc}, {"md5", md5}, {"sha1", sha1}} {
+		if h.val != "" {
+			hashClauses = append(hashClauses, "(r."+h.col+" = ? AND r."+h.col+" != '')")
+			args = append(args, h.val)
+		}
+	}
+	if len(hashClauses) == 0 {
+		return nil
+	}
+	rows, err := s.db.Query(
+		`SELECT g.id, g.name, r.name FROM dat_roms r
+		   JOIN dat_games g ON g.id = r.game_id
+		   JOIN dat_snapshots s ON s.id = g.snapshot_id
+		  WHERE g.platform_slug = ? AND s.active = 1 AND (`+strings.Join(hashClauses, " OR ")+`)
+		  ORDER BY g.name, r.name`,
+		args...,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []DatRomMatch
+	for rows.Next() {
+		var m DatRomMatch
+		if err := rows.Scan(&m.GameID, &m.GameName, &m.RomName); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 // SetLibraryCatalogStatus records a catalog verdict on the library row a
 // source produced. Kept separate from AddLibraryItem so the verdict can be
 // written after the import without threading a new argument through every

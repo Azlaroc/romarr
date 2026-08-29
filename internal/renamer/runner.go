@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 
 	"gamarr/internal/config"
 	"gamarr/internal/converto"
+	"gamarr/internal/datname"
 	"gamarr/internal/db"
 	"gamarr/internal/platform"
 )
@@ -34,16 +34,6 @@ const maxConsecutiveErrors = 25
 // workDirName is the scratch workspace at the roms root — dot-prefixed so
 // library scans ignore it; reaped at every run start.
 const workDirName = ".gamarr-normalize-tmp"
-
-// compilationEntryRe flags DAT names that look like extractions from modern
-// compilation/re-release products rather than original releases. Some
-// No-Intro DATs carry byte-identical entries for both ("Super Pocket - The
-// Atari Collection (World) (Extracted)", "(Atari Anthology)", "(Atari Lynx
-// Collection 1)"), making the hash lookup ambiguous — the resolver can
-// legitimately return the compilation entry. Only parenthesized tags match,
-// and "Collection" only with a trailing number, so title-position words
-// ("Konami GB Collection Vol. 1 (Europe)") are never flagged.
-var compilationEntryRe = regexp.MustCompile(`\([^)]*\b(?:Anthology|Collection \d|Extracted)\b[^)]*\)`)
 
 // Collision describes the library entry already holding a row's proposed
 // canonical name.
@@ -366,7 +356,7 @@ func (r *Runner) runPreview(ctx context.Context, scope string) {
 				row.Reason = "canonical name already exists in library"
 				row.Collision = r.collisionWith(target, row.md5)
 				r.appendRow(row, func() { r.skipped++; r.collisions++ })
-			} else if compilationEntryRe.MatchString(identity.ProposedName) && !compilationEntryRe.MatchString(row.OldName) {
+			} else if datname.LooksLikeCompilationEntry(identity.ProposedName) && !datname.LooksLikeCompilationEntry(row.OldName) {
 				// The intra-run collision guard catches the 2nd..Nth file that
 				// hash-matches the same compilation entry; this flags the
 				// first claimant, the residual single-file risk.
