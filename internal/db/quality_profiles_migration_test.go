@@ -99,6 +99,26 @@ func TestQualityProfiles_LegacyMigrationBackfill(t *testing.T) {
 		t.Errorf("PC Default legacy fields changed: cutoff=%q upgrade=%v", pc.CutoffSource, pc.UpgradeAllowed)
 	}
 
+	// The retired size plane is dropped on upgrade: the legacy table carried
+	// preferred_size_* and this database predates the plane's removal, so the
+	// migration must strip both the columns and the definitions table while
+	// every other value above survives untouched.
+	var n int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('quality_profiles') WHERE name LIKE 'preferred_size%'`).Scan(&n); err != nil {
+		t.Fatalf("probe size columns: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("%d preferred_size columns survive the migration, want 0", n)
+	}
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='platform_size_definitions'`).Scan(&n); err != nil {
+		t.Fatalf("probe definitions table: %v", err)
+	}
+	if n != 0 {
+		t.Error("platform_size_definitions still exists after migration")
+	}
+
 	// Migration is idempotent: reopening must not duplicate or re-backfill.
 	store.Close()
 	store2, err := New(path)

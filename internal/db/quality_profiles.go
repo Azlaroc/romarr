@@ -86,8 +86,6 @@ func (s *JobStore) migrateQualityProfiles() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL UNIQUE,
 		source_ranking TEXT NOT NULL DEFAULT '[]',
-		preferred_size_min INTEGER NOT NULL DEFAULT 0,
-		preferred_size_max INTEGER NOT NULL DEFAULT 0,
 		upgrade_allowed INTEGER NOT NULL DEFAULT 0,
 		cutoff_source TEXT NOT NULL DEFAULT '',
 		platform_slug TEXT NOT NULL DEFAULT '',
@@ -128,6 +126,18 @@ func (s *JobStore) migrateQualityProfiles() {
 	} {
 		if !s.qpColumnExists(col.name) {
 			s.db.Exec(fmt.Sprintf("ALTER TABLE quality_profiles ADD COLUMN %s %s", col.name, col.def))
+		}
+	}
+
+	// Size left the selection path entirely (no reject, no score), so the
+	// per-profile bounds go with it. Guarded: a fresh install's table never
+	// had the columns. Plain defaulted INTEGER columns, no index — safe for
+	// SQLite's DROP COLUMN.
+	for _, col := range []string{"preferred_size_min", "preferred_size_max"} {
+		if s.qpColumnExists(col) {
+			if _, err := s.db.Exec("ALTER TABLE quality_profiles DROP COLUMN " + col); err != nil {
+				slog.Warn("drop retired size column", "column", col, "error", err)
+			}
 		}
 	}
 

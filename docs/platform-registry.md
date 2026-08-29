@@ -61,12 +61,11 @@ external service to ask.
 ## What the registry does not do
 
 **It does not absorb the other slug-keyed tables.** `dat_platforms` (which
-authority catalogues a platform) and `platform_size_definitions` (the size
-bounds a candidate is judged against) keep their own tables and their own
-screens. The registry is the vocabulary they enumerate from. The catalog
-vocabulary being *wider* than the download-side category map is intentional and
-documented where it is enforced; the registry anchors that divergence rather
-than forcing a join.
+authority catalogues a platform) keeps its own table and its own screen. The
+registry is the vocabulary it enumerates from. The catalog vocabulary being
+*wider* than the download-side category map is intentional and documented
+where it is enforced; the registry anchors that divergence rather than forcing
+a join.
 
 **It does not replace the parsers.** `internal/platform` still holds an
 extension map, a set of metadata-name aliases and an ordered list of title
@@ -112,6 +111,6 @@ slug, and a test pins the round trip for every seeded platform.
 | `PUT /api/platforms/{slug}` | admin; sparse `{display_name, media_class, converts_to_chd, acquisition_enabled}` |
 
 Reads are open because every picker in the app needs the vocabulary. Edits are
-configuration, so they sit behind the same admin gate as the DAT assignments
-and the size definitions. Identity fields are not editable: they are what a
-platform *is*, not how you treat it.
+configuration, so they sit behind the same admin gate as the DAT assignments.
+Identity fields are not editable: they are what a platform *is*, not how you
+treat it.

@@ -191,58 +191,24 @@ PUT /api/dat/platforms/<slug>
 Then refresh that authority. There is no delete — set `enabled: false` to retire
 an assignment, which keeps its catalog readable.
 
-## Size definitions
+## Size definitions (retired)
 
-A catalog import also writes the platform's **size definition** — the band a
-candidate's size is judged against, in `platform_size_definitions`.
+There used to be a per-platform size band here — `platform_size_definitions`,
+derived from each catalog's `size_p01`/`size_p99`, editable on its own screen,
+enforced as a hard reject and a score tier in selection, with per-profile
+`preferred_size_min`/`max` overrides on top.
 
-`min_size` and `max_size` are bytes, and **zero on either end means that end is
-unbounded**, not zero bytes. A platform with both at zero, or with no row at
-all, is not size-filtered and scores neutral on size. That is deliberate: a
-platform we have no catalog for is one we have nothing to say about, and a
-confident wrong floor is worse than no floor. Platforms with no lane — arcade,
-apple-iigs, switch, wiiu, pc — simply have no row.
+The whole plane is retired. The DAT knows every dump's exact bytes before a
+search runs, and the post-extract trust gate measures the actual bytes after a
+download, so a size bound could only ever reject on a *proxy* for information
+the pipeline measures directly — and the measured record of the bands was
+that they rejected almost nothing except, once, legitimate tiny cartridge
+dumps. An absurd candidate now costs one wasted download before the gate
+blocklists it and moves on: bandwidth, not correctness.
 
-The stored numbers are the numbers that enforce, and the numbers a screen
-shows. Nothing widens them at the point of use, so both allowances are folded
-in once, at derivation:
-
-| End | Derived from | Why |
-|---|---|---|
-| `min_size` | `size_p01 / 8` | The catalog measures the game inside the archive; a candidate is the archive. Eight is generous because being wrong in the strict direction means a title silently never appears. |
-| `max_size` | `size_p99 * 2` | Anything legitimately larger than a platform's biggest dumps is rare; far larger is usually a bundle or a mislabel. |
-
-Each end is decided on its own. **The floor is dropped when `size_p01` equals
-`size_p99`** — every GameCube disc is exactly 1,459,978,240 bytes, so the
-percentile is the median repeated back and carries no information about the
-small end. A floor derived from it rejects compressed images of ordinary games.
-The ceiling survives that case, since a flat catalog still says plenty about
-how large is too large.
-
-`source` is `catalog` for a derived row or `manual` for one an operator set.
-**A manual row is never overwritten by a refresh** — that is what makes the
-table an override surface rather than a cache, and the escape hatch when a
-catalog is wrong about a platform.
-
-```
-GET  /api/size-definitions
-PUT  /api/size-definitions/<slug>        {"min_size": 256, "max_size": 65536}
-POST /api/size-definitions/<slug>/reset
-```
-
-Reset re-derives from the active snapshot, or removes the row when there is no
-snapshot to fall back on. As with assignments, there is no delete: retiring
-your own numbers is a reset to the authority's.
-
-A quality profile's `preferred_size_min`/`max` still override the definition
-per profile, and are likewise enforced verbatim.
-
-Definitions for catalogs imported before the table existed are derived at
-boot. They cannot arrive any other way: a refresh whose bytes are unchanged
-short-circuits before the import path — correctly, since nothing moved — so an
-installation whose catalogs are already current would otherwise sit with an
-empty table and every platform unbounded. The backfill writes only where
-nothing is stored, so it never disturbs an operator's row.
+What remains is measurement, not machinery: the `size_p01`/`size_p50`/
+`size_p99` columns on `dat_snapshots` are still recorded at import, as inert
+data about the catalog. Nothing reads them into a decision.
 
 ## Where this lives in the UI
 
