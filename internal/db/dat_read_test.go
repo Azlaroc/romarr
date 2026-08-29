@@ -163,3 +163,61 @@ func TestMatchDatRom(t *testing.T) {
 		}
 	})
 }
+
+func TestLookupDatRomsByHash(t *testing.T) {
+	store, _ := datStore(t)
+	defer store.Close()
+	// Compilation-extraction shape: byte-identical dumps -> two rows share
+	// every hash value.
+	seedCatalog(t, store, "a26",
+		romGame("Dark Cavern (USA)", "Dark Cavern (USA).a26", "feed0001", "aa01", "bb01"),
+		romGame("Super Pocket - The Atari Collection (World) (Extracted)",
+			"Super Pocket - The Atari Collection (World) (Extracted).a26", "feed0001", "aa01", "bb01"),
+	)
+	seedCatalog(t, store, "nes",
+		romGame("Metroid (USA)", "Metroid (USA).nes", "aaaa0001", "", ""),
+	)
+
+	t.Run("multi-row hit in deterministic game-name order", func(t *testing.T) {
+		got := store.LookupDatRomsByHash("a26", "feed0001", "", "")
+		if len(got) != 2 {
+			t.Fatalf("rows = %d, want 2 (a tie must be visible)", len(got))
+		}
+		if got[0].GameName != "Dark Cavern (USA)" || got[1].RomName == "" || got[0].GameID == 0 {
+			t.Errorf("order/fields wrong: %+v", got)
+		}
+	})
+
+	t.Run("uppercase input is lowered", func(t *testing.T) {
+		if got := store.LookupDatRomsByHash("a26", "", "AA01", ""); len(got) != 2 {
+			t.Fatalf("uppercase md5 rows = %d, want 2", len(got))
+		}
+	})
+
+	t.Run("no hashes or no slug means no match", func(t *testing.T) {
+		if got := store.LookupDatRomsByHash("a26", "", "", ""); got != nil {
+			t.Errorf("all-empty hashes = %v, want nil", got)
+		}
+		if got := store.LookupDatRomsByHash("", "feed0001", "", ""); got != nil {
+			t.Errorf("empty slug = %v, want nil", got)
+		}
+	})
+
+	t.Run("scoped to the platform", func(t *testing.T) {
+		if got := store.LookupDatRomsByHash("a26", "aaaa0001", "", ""); len(got) != 0 {
+			t.Errorf("nes hash on a26 = %v, want none", got)
+		}
+	})
+
+	t.Run("inactive snapshot is invisible", func(t *testing.T) {
+		// Re-seeding the platform retires the earlier snapshot.
+		seedCatalog(t, store, "nes",
+			romGame("Metroid (USA)", "Metroid (USA).nes", "aaaa0002", "", ""))
+		if got := store.LookupDatRomsByHash("nes", "aaaa0001", "", ""); len(got) != 0 {
+			t.Errorf("retired snapshot's hash still matches: %v", got)
+		}
+		if got := store.LookupDatRomsByHash("nes", "aaaa0002", "", ""); len(got) != 1 {
+			t.Errorf("active snapshot rows = %d, want 1", len(got))
+		}
+	})
+}

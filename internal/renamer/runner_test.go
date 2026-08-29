@@ -369,27 +369,3 @@ func TestPreviewReviewFlagForCompilationEntries(t *testing.T) {
 		t.Error("legit compilation rename did not apply")
 	}
 }
-
-func TestCompilationEntryRe(t *testing.T) {
-	flagged := []string{
-		"Super Pocket - The Atari Collection (World) (Extracted).a26",
-		"Basketbrawl (USA, Europe) (Atari Lynx Collection 1) (Unl).zip",
-		"Dark Cavern (Atari Anthology).a26",
-	}
-	clean := []string{
-		"Konami GB Collection Vol. 1 (Europe).gb",
-		"Collection of Mana (USA).zip",
-		"Checkered Flag (USA, Europe).zip",
-		"Secret of Mana (Collection of Mana) (USA).zip", // Collection without digit
-	}
-	for _, s := range flagged {
-		if !compilationEntryRe.MatchString(s) {
-			t.Errorf("%q should be flagged", s)
-		}
-	}
-	for _, s := range clean {
-		if compilationEntryRe.MatchString(s) {
-			t.Errorf("%q should NOT be flagged", s)
-		}
-	}
-}
