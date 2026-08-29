@@ -45,9 +45,6 @@ type harness struct {
 	cfg   *config.Config
 	url   string
 	hits  map[string]int
-	// hooked records every platform the snapshot callback fired for, so a
-	// test can assert that a no-op refresh stays a no-op downstream.
-	hooked []string
 }
 
 // newHarness wires a real store, a temp DataDir and a stub source. serve maps
@@ -73,8 +70,7 @@ func newHarness(t *testing.T, serve func(path string) ([]byte, bool)) *harness {
 	t.Cleanup(srv.Close)
 
 	h.cfg = &config.Config{DataDir: t.TempDir()}
-	h.svc = New(h.cfg, store, WithHTTPClient(srv.Client()),
-		WithOnSnapshot(func(slug string) { h.hooked = append(h.hooked, slug) }))
+	h.svc = New(h.cfg, store, WithHTTPClient(srv.Client()))
 	h.url = srv.URL
 	return h
 }

@@ -18,9 +18,9 @@ func TestScoreResults_ExactMatch(t *testing.T) {
 	if r.ScoreBreakdown == nil {
 		t.Fatal("expected ScoreBreakdown to be populated")
 	}
-	// Exact title match should get max title score (40)
-	if r.ScoreBreakdown.TitleMatch != 40 {
-		t.Errorf("TitleMatch=%d, want 40", r.ScoreBreakdown.TitleMatch)
+	// Exact title match should get max title score (45)
+	if r.ScoreBreakdown.TitleMatch != 45 {
+		t.Errorf("TitleMatch=%d, want 45", r.ScoreBreakdown.TitleMatch)
 	}
 }
 
@@ -29,8 +29,8 @@ func TestScoreResults_SubstringMatch(t *testing.T) {
 		{Title: "Super Mario Bros Deluxe Edition", Seeders: 10, Size: 1_000_000, PlatformSlug: "nes"},
 	}
 	scored := ScoreResults(results, "Super Mario Bros", "")
-	if scored[0].ScoreBreakdown.TitleMatch != 35 {
-		t.Errorf("TitleMatch=%d, want 35 (substring match)", scored[0].ScoreBreakdown.TitleMatch)
+	if scored[0].ScoreBreakdown.TitleMatch != 39 {
+		t.Errorf("TitleMatch=%d, want 39 (substring match)", scored[0].ScoreBreakdown.TitleMatch)
 	}
 }
 
@@ -38,10 +38,10 @@ func TestScoreResults_WordOverlap(t *testing.T) {
 	results := []*models.SearchResult{
 		{Title: "Mario Kart Double Dash", Seeders: 10, Size: 1_000_000_000, PlatformSlug: "ngc"},
 	}
-	// "mario" overlaps, "bros" doesn't -> 50% of 40 = 20
+	// "mario" overlaps, "bros" doesn't -> 50% of 45 = 22
 	scored := ScoreResults(results, "Mario Bros", "")
-	if scored[0].ScoreBreakdown.TitleMatch != 20 {
-		t.Errorf("TitleMatch=%d, want 20 (50%% word overlap)", scored[0].ScoreBreakdown.TitleMatch)
+	if scored[0].ScoreBreakdown.TitleMatch != 22 {
+		t.Errorf("TitleMatch=%d, want 22 (50%% word overlap)", scored[0].ScoreBreakdown.TitleMatch)
 	}
 }
 
@@ -50,9 +50,9 @@ func TestScoreResults_EmptyQuery(t *testing.T) {
 		{Title: "Some Game", Seeders: 10, Size: 1_000_000_000},
 	}
 	scored := ScoreResults(results, "", "")
-	// Empty query should give neutral title score (20)
-	if scored[0].ScoreBreakdown.TitleMatch != 20 {
-		t.Errorf("TitleMatch=%d, want 20 (empty query)", scored[0].ScoreBreakdown.TitleMatch)
+	// Empty query should give neutral title score (22)
+	if scored[0].ScoreBreakdown.TitleMatch != 22 {
+		t.Errorf("TitleMatch=%d, want 22 (empty query)", scored[0].ScoreBreakdown.TitleMatch)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestScoreResults_DDLSeederScore(t *testing.T) {
 	}
 	scored := ScoreResults(results, "Game", "")
 	// Direct HTTP tops the protocol order, with no seeders involved.
-	if scored[0].ScoreBreakdown.SeederScore != 15 {
-		t.Errorf("DDL SeederScore=%d, want 15", scored[0].ScoreBreakdown.SeederScore)
+	if scored[0].ScoreBreakdown.SeederScore != 20 {
+		t.Errorf("DDL SeederScore=%d, want 20", scored[0].ScoreBreakdown.SeederScore)
 	}
 }
 
@@ -126,8 +126,8 @@ func TestScoreResults_NZBSeederScore(t *testing.T) {
 	}
 	scored := ScoreResults(results, "Game", "")
 	// nzb sits between direct HTTP and any torrent.
-	if scored[0].ScoreBreakdown.SeederScore != 12 {
-		t.Errorf("NZB SeederScore=%d, want 12", scored[0].ScoreBreakdown.SeederScore)
+	if scored[0].ScoreBreakdown.SeederScore != 16 {
+		t.Errorf("NZB SeederScore=%d, want 16", scored[0].ScoreBreakdown.SeederScore)
 	}
 }
 
@@ -179,34 +179,23 @@ func TestScoreResults_ProtocolPreferenceOrdering(t *testing.T) {
 	}
 }
 
-func TestScoreResults_SizeInRange(t *testing.T) {
-	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
+// TestScoreResults_TierScale pins the 100-point composition — Title 45 +
+// Platform 15 + Seeders 20 + Safety 20 — so a retune can't silently shrink
+// the scale out from under SCHEDULER_MIN_SCORE and the confidence bands
+// (blaster#349: size's 15 points were redistributed, not deleted, for
+// exactly that reason).
+func TestScoreResults_TierScale(t *testing.T) {
 	results := []*models.SearchResult{
-		{Title: "Game", Seeders: 10, Size: 1_000_000, PlatformSlug: "nes"},   // 1MB in range
-		{Title: "Game", Seeders: 10, Size: 100_000_000, PlatformSlug: "nes"}, // 100MB way out of range
-		{Title: "Game", Seeders: 10, Size: 0, PlatformSlug: "nes"},           // unknown
+		{Title: "Game", Seeders: 0, Size: 12345, PlatformSlug: "nes", SourceType: "ddl", SafetyScore: 100},
 	}
-	scored := ScoreResults(results, "Game", "")
-	if scored[0].ScoreBreakdown.SizeScore != 15 {
-		t.Errorf("in-range SizeScore=%d, want 15", scored[0].ScoreBreakdown.SizeScore)
+	scored := ScoreResults(results, "Game", "nes")
+	b := scored[0].ScoreBreakdown
+	if b.TitleMatch != 45 || b.PlatformMatch != 15 || b.SeederScore != 20 || b.SafetyScore != 20 {
+		t.Errorf("tier maxima = title %d / platform %d / seeders %d / safety %d, want 45/15/20/20",
+			b.TitleMatch, b.PlatformMatch, b.SeederScore, b.SafetyScore)
 	}
-	if scored[1].ScoreBreakdown.SizeScore != 2 {
-		t.Errorf("out-of-range SizeScore=%d, want 2", scored[1].ScoreBreakdown.SizeScore)
-	}
-	if scored[2].ScoreBreakdown.SizeScore != 7 {
-		t.Errorf("unknown SizeScore=%d, want 7", scored[2].ScoreBreakdown.SizeScore)
-	}
-}
-
-func TestScoreResults_SizeSlightlyOutOfRange(t *testing.T) {
-	// NES ceiling is 5MB, slightly over = 5MB to 10MB
-	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
-	results := []*models.SearchResult{
-		{Title: "Game", Seeders: 10, Size: 7_000_000, PlatformSlug: "nes"}, // 7MB: > 5MB but < 10MB
-	}
-	scored := ScoreResults(results, "Game", "")
-	if scored[0].ScoreBreakdown.SizeScore != 10 {
-		t.Errorf("slightly-out SizeScore=%d, want 10", scored[0].ScoreBreakdown.SizeScore)
+	if scored[0].Score != 100 {
+		t.Errorf("perfect result Total=%d, want exactly 100 — the tiers no longer sum to the scale", scored[0].Score)
 	}
 }
 
@@ -218,9 +207,9 @@ func TestScoreResults_SafetyScore(t *testing.T) {
 	}{
 		{"zero", 0, 0},
 		{"negative", -5, 0},
-		{"50", 50, 7},
-		{"100", 100, 15},
-		{"75", 75, 11},
+		{"50", 50, 10},
+		{"100", 100, 20},
+		{"75", 75, 15},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -292,21 +281,20 @@ func TestScoreResults_EmptyResults(t *testing.T) {
 	}
 }
 
-func TestScoreResults_UnknownPlatformSize(t *testing.T) {
-	armBands(t, map[string][2]int64{"nes": {10e3, 5e6}})
-
-	// A platform with no definition scores neutral rather than being measured
-	// against a generic band. The generic band was never neutral: its floor
-	// rejected small-cartridge platforms outright and its scoring pushed them
-	// below the grab threshold, which is how unlisted platforms broke.
+// TestScoreResults_SizeNeverScores pins blaster#349's other half: size is not
+// a scoring input either. Two identical releases differing only in size must
+// score identically — a 3KB cart and a 500MB disc are the same candidate to
+// the scorer, because the DAT and the trust gate own byte-level judgment.
+func TestScoreResults_SizeNeverScores(t *testing.T) {
 	results := []*models.SearchResult{
-		{Title: "Game", Seeders: 10, Size: 500_000_000, PlatformSlug: "unknownplatform"},
-		{Title: "Game", Seeders: 10, Size: 2_987, PlatformSlug: "unknownplatform"},
+		{Title: "Game", Seeders: 10, Size: 500_000_000, PlatformSlug: "nes"},
+		{Title: "Game", Seeders: 10, Size: 2_987, PlatformSlug: "nes"},
+		{Title: "Game", Seeders: 10, Size: 0, PlatformSlug: "nes"},
 	}
 	scored := ScoreResults(results, "Game", "")
-	for i, r := range scored {
-		if r.ScoreBreakdown.SizeScore != 7 {
-			t.Errorf("result %d: undefined-platform SizeScore=%d, want 7 (neutral)", i, r.ScoreBreakdown.SizeScore)
+	for i, r := range scored[1:] {
+		if r.Score != scored[0].Score {
+			t.Errorf("result %d: score %d != result 0's %d — size is influencing the score", i+1, r.Score, scored[0].Score)
 		}
 	}
 }

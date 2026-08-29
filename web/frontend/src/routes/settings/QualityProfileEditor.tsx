@@ -5,7 +5,6 @@ import { usePlatformRegistry, useQualityProfiles, useSaveQualityProfile } from '
 import { ApiError } from '../../api/client'
 import type { QualityProfile } from '../../api/types'
 import { REGION_TOKENS, FORMAT_TOKENS } from '../../lib/profileVocab'
-import { formatSize } from '../../lib/format'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
@@ -28,8 +27,6 @@ const NEW_PROFILE: QualityProfile = {
   allow_demo: false,
   allow_bios: false,
   source_ranking: [],
-  preferred_size_min: 0,
-  preferred_size_max: 0,
   upgrade_allowed: false,
   cutoff_source: '',
 }
@@ -185,28 +182,6 @@ export function QualityProfileEditor() {
           </FormRow>
           <FormRow label="Source ranking" hint="Case-insensitive substring match against the indexer name; best first.">
             <OrderedTokenList value={form.source_ranking} onChange={(v) => set('source_ranking', v)} allowCustom testid="qp-source" emptyLabel="None — sources rank equally" />
-          </FormRow>
-          <FormRow label="Size bounds" hint="Raw bytes. 0 defers to the platform's size definition; a value here is enforced exactly as typed.">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                type="number"
-                min={0}
-                label="Min"
-                value={form.preferred_size_min}
-                onChange={(e) => set('preferred_size_min', Number(e.target.value) || 0)}
-                hint={form.preferred_size_min > 0 ? formatSize(form.preferred_size_min) : 'platform definition'}
-                data-testid="qp-size-min"
-              />
-              <Input
-                type="number"
-                min={0}
-                label="Max"
-                value={form.preferred_size_max}
-                onChange={(e) => set('preferred_size_max', Number(e.target.value) || 0)}
-                hint={form.preferred_size_max > 0 ? formatSize(form.preferred_size_max) : 'platform definition'}
-                data-testid="qp-size-max"
-              />
-            </div>
           </FormRow>
         </Card>
 

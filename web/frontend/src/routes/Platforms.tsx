@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Joystick } from 'lucide-react'
 import { PageShell } from '../components/layout/PageShell'
 import { AdminNotice } from '../components/ui/AdminNotice'
@@ -17,10 +16,8 @@ import {
   usePlatformRegistry,
   useQualityProfiles,
   useSavePlatform,
-  useSizeDefinitions,
 } from '../api/queries'
 import type { PlatformRow } from '../api/types'
-import { formatSize } from '../lib/format'
 
 interface RowEdit {
   default_profile_id?: number
@@ -34,17 +31,10 @@ const CLASS_COLOR: Record<string, 'blue' | 'purple' | 'orange' | 'slate'> = {
   arcade: 'orange',
 }
 
-/** 0 is meaningful on both ends: no limit there. */
-function renderBand(min: number, max: number): string {
-  if (!min && !max) return 'Unlimited'
-  return `${min ? formatSize(min) : '0'} – ${max ? formatSize(max) : '∞'}`
-}
-
 export function Platforms() {
   const { data: platforms, isLoading, error } = usePlatformRegistry()
   const { data: profileData } = useQualityProfiles()
   const { data: coverage } = useDatCoverage()
-  const { data: sizeDefs } = useSizeDefinitions()
   const save = useSavePlatform()
   const { toast } = useToast()
   const [edits, setEdits] = useState<Record<string, RowEdit>>({})
@@ -66,12 +56,6 @@ export function Platforms() {
     for (const c of coverage?.coverage ?? []) out[c.platform_slug] = c.summary
     return out
   }, [coverage])
-
-  const bandBySlug = useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const d of sizeDefs ?? []) out[d.platform_slug] = renderBand(d.min_size, d.max_size)
-    return out
-  }, [sizeDefs])
 
   const effective = (row: PlatformRow) => ({
     profileID: edits[row.slug]?.default_profile_id ?? row.default_profile_id,
@@ -197,21 +181,6 @@ export function Platforms() {
             </option>
           ))}
         </select>
-      ),
-    },
-    {
-      key: 'limits',
-      header: 'Size limits',
-      align: 'right',
-      sortValue: (r) => bandBySlug[r.slug] ?? '',
-      render: (r) => (
-        <Link
-          to="/settings/quality-definitions"
-          className="text-xs text-slate-400 underline decoration-dotted hover:text-slate-200"
-          data-testid={`plat-limits-${r.slug}`}
-        >
-          {bandBySlug[r.slug] ?? 'Unlimited'}
-        </Link>
       ),
     },
     {

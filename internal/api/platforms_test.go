@@ -114,41 +114,6 @@ func TestPlatformFullRowsAndPatch(t *testing.T) {
 	wantStatus(t, rr, http.StatusNotFound)
 }
 
-// TestSizeDefinitionsReachLanelessPlatforms closes the gap PR-D of the DAT
-// work recorded: the screen enumerated stored rows ∪ DAT lanes, so a platform
-// with no catalog — arcade, switch, PC — could never be given limits by hand
-// even though the table supports it. There was no vocabulary to offer.
-func TestSizeDefinitionsReachLanelessPlatforms(t *testing.T) {
-	e := newTestEnv(t, nil)
-
-	rr := e.do("GET", "/api/size-definitions", "")
-	wantStatus(t, rr, http.StatusOK)
-	var out struct {
-		Definitions []struct {
-			PlatformSlug string `json:"platform_slug"`
-			HasCatalog   bool   `json:"has_catalog"`
-		} `json:"definitions"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	seen := map[string]bool{}
-	for _, d := range out.Definitions {
-		seen[d.PlatformSlug] = true
-	}
-	for _, slug := range []string{"arcade", "switch", "wiiu", "pc"} {
-		if !seen[slug] {
-			t.Errorf("laneless platform %q is still unreachable from the definitions screen", slug)
-		}
-	}
-	// Directories that are not platforms stay out of a configuration screen.
-	for _, slug := range []string{"forwarders", "supporting_files"} {
-		if seen[slug] {
-			t.Errorf("%q is a directory, not a platform — it should not be offered limits", slug)
-		}
-	}
-}
-
 // TestPickerExcludesSystemDirectories keeps nonsense out of add dialogs: a
 // directory that is not a platform is still reachable by the Library filter
 // (it is merged back in once rows exist under it), but it is never offered as

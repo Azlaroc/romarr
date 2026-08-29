@@ -65,11 +65,10 @@ type ReleaseAttrs struct {
 
 // ScoreBreakdown provides a detailed breakdown of a search result's confidence score.
 type ScoreBreakdown struct {
-	TitleMatch    int    `json:"title_match"`    // 0-40
+	TitleMatch    int    `json:"title_match"`    // 0-45
 	PlatformMatch int    `json:"platform_match"` // 0-15
-	SeederScore   int    `json:"seeder_score"`   // 0-15
-	SizeScore     int    `json:"size_score"`     // 0-15
-	SafetyScore   int    `json:"safety_score"`   // 0-15
+	SeederScore   int    `json:"seeder_score"`   // 0-20
+	SafetyScore   int    `json:"safety_score"`   // 0-20
 	ProfileAdjust int    `json:"profile_adjust"` // release-profile preferred-word adjustment
 	Total         int    `json:"total"`          // 0-100 (clamped; always == SearchResult.Score)
 	Confidence    string `json:"confidence"`     // "high", "medium", "low"

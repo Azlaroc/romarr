@@ -76,15 +76,6 @@ def test_degraded_set_repair_journey(stub_server, gamarr_binary, tmp_path_factor
     base = f"http://127.0.0.1:{port}"
     proc, log = _boot_gamarr(gamarr_binary, env, data)
     try:
-        # The stub ROM zips are ~1KB — far below the real per-platform size
-        # bands — so loosen the default profile's size-sanity bounds (persisted
-        # in this instance's DB, so the repair cycle after reboot inherits it).
-        profiles = _req(base, "/api/quality-profiles").get("profiles", [])
-        default = next(p for p in profiles if p.get("is_default"))
-        default["preferred_size_min"] = 1
-        default["preferred_size_max"] = 10_000_000_000
-        _req(base, f"/api/quality-profiles/{default['id']}", "PUT", default)
-
         # Disc 1 of a declared 2-disc set; disc 2 is never submitted.
         url = f"{stub_server}/download/{IA_PSX_ITEM}/{urllib.parse.quote(DISC1)}"
         resp = _req(base, "/api/download", "POST", {

@@ -72,8 +72,6 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     page.get_by_test_id("qp-name").fill("GB E2E")
     page.get_by_test_id("qp-region-add-usa").click()
     page.get_by_test_id("qp-region-add-world").click()
-    page.get_by_test_id("qp-size-min").fill("1")
-    page.get_by_test_id("qp-size-max").fill("10000000000")
     page.get_by_test_id("qp-save").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("GB E2E", timeout=SLOW_MS)
 

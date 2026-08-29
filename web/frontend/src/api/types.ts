@@ -338,8 +338,6 @@ export interface QualityProfile {
   allow_demo: boolean
   allow_bios: boolean
   source_ranking: string[]
-  preferred_size_min: number // bytes, 0 = platform default
-  preferred_size_max: number // bytes, 0 = platform default
   upgrade_allowed: boolean // reserved — stored but not read by the selector
   cutoff_source: string // reserved — stored but not read by the selector
 }
@@ -582,24 +580,6 @@ export interface DatCoverageResponse {
 }
 
 // ---------- per-platform size definitions (Settings > Quality Definitions) ----------
-
-/** Sizes are bytes and 0 means unlimited on that end. The stored number is the
- *  enforcing number: any compression allowance was folded in when it was
- *  written, so what this screen shows is what rejects a candidate. */
-export interface SizeDefinition {
-  platform_slug: string
-  min_size: number
-  max_size: number
-  source: string
-  snapshot_version?: string
-  updated_at?: string
-  /** Whether a reset has an active catalog snapshot to re-derive from. */
-  has_catalog: boolean
-}
-
-export interface SizeDefinitionsResponse {
-  definitions: SizeDefinition[]
-}
 
 /** A metadata authority as GET /api/metadata/providers reports it. */
 export interface MetadataProvider {

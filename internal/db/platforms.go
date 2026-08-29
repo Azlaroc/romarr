@@ -22,12 +22,11 @@ import (
 //
 // Two things this table deliberately does NOT do:
 //
-//   - It does not absorb dat_platforms or platform_size_definitions. Both are
-//     already slug-keyed with their own screens; the registry is the
-//     vocabulary they enumerate from, not a replacement. The catalog
-//     vocabulary staying wider than the category map is intentional (see
-//     internal/datsvc/validate.go) — this anchors that divergence, it does
-//     not force a join.
+//   - It does not absorb dat_platforms. It is already slug-keyed with its
+//     own screen; the registry is the vocabulary it enumerates from, not a
+//     replacement. The catalog vocabulary staying wider than the category map
+//     is intentional (see internal/datsvc/validate.go) — this anchors that
+//     divergence, it does not force a join.
 //   - It does not replace the platform *parsers*. The extension map, the
 //     title hints and the metadata-name aliases in platform.go turn a string
 //     into a slug; they are parsers, not vocabulary, and they resolve into

@@ -226,13 +226,6 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// the vocabulary — while edits are configuration, so admin-only.
 	r.Put("/api/platforms/{slug}", requireAdmin(s.handleUpdatePlatform))
 
-	// Per-platform size definitions: the band candidates are judged against.
-	// Configuration, so admin-only throughout. Reset rather than delete, for
-	// the same reason the DAT assignments have no delete.
-	r.Get("/api/size-definitions", requireAdmin(s.handleSizeDefinitions))
-	r.Put("/api/size-definitions/{slug}", requireAdmin(s.handleUpdateSizeDefinition))
-	r.Post("/api/size-definitions/{slug}/reset", requireAdmin(s.handleResetSizeDefinition))
-
 	// Settings & config (admin only)
 	r.Get("/api/settings", requireAdmin(s.handleGetSettings))
 	r.Put("/api/settings", requireAdmin(s.handleUpdateSettings))

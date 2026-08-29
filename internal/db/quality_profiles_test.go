@@ -36,12 +36,10 @@ func TestQualityProfile_CRUD(t *testing.T) {
 
 	// Add custom profile
 	profile := &QualityProfile{
-		Name:             "Custom",
-		SourceRanking:    []string{"Myrient", "Vimm", "Prowlarr"},
-		PreferredSizeMin: 1_000_000,
-		PreferredSizeMax: 10_000_000_000,
-		UpgradeAllowed:   false,
-		CutoffSource:     "Myrient",
+		Name:           "Custom",
+		SourceRanking:  []string{"Myrient", "Vimm", "Prowlarr"},
+		UpgradeAllowed: false,
+		CutoffSource:   "Myrient",
 	}
 	id, err := store.AddQualityProfile(profile)
 	if err != nil {
@@ -64,12 +62,6 @@ func TestQualityProfile_CRUD(t *testing.T) {
 	}
 	if got.SourceRanking[0] != "Myrient" {
 		t.Errorf("SourceRanking[0]=%q, want 'Myrient'", got.SourceRanking[0])
-	}
-	if got.PreferredSizeMin != 1_000_000 {
-		t.Errorf("PreferredSizeMin=%d", got.PreferredSizeMin)
-	}
-	if got.PreferredSizeMax != 10_000_000_000 {
-		t.Errorf("PreferredSizeMax=%d", got.PreferredSizeMax)
 	}
 	if got.UpgradeAllowed {
 		t.Error("UpgradeAllowed should be false")

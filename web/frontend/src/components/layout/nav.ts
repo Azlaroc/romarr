@@ -52,7 +52,6 @@ export const NAV: NavItem[] = [
     children: [
       { to: '/settings/media-management', label: 'Media Management' },
       { to: '/settings/profiles', label: 'Profiles' },
-      { to: '/settings/quality-definitions', label: 'Quality Definitions' },
       { to: '/settings/indexers', label: 'Indexers' },
       { to: '/settings/download-clients', label: 'Download Clients' },
       { to: '/settings/connect', label: 'Connect' },

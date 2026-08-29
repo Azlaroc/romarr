@@ -94,13 +94,6 @@ def _refresh(base: str, name: str):
           msg=f"{name} refresh to finish")
 
 
-def _definition(base: str, slug: str) -> dict:
-    for d in _req(base, "/api/size-definitions")["definitions"]:
-        if d["platform_slug"] == slug:
-            return d
-    raise AssertionError(f"{slug} missing from the size definitions list")
-
-
 def _dat(name: str, games: int, version: str) -> bytes:
     rows = [f'clrmamepro (\n\tname "{name}"\n\tversion "{version}"\n)\n']
     for i in range(1, games + 1):
@@ -183,50 +176,12 @@ def test_dat_catalog_journey(app, stub_server):
     except urllib.error.HTTPError as e:
         assert e.code == 400, e.code
 
-    # ── the band the catalog implies, and who gets to overrule it ───────
-    derived = _definition(base, "gb")
-    assert derived["source"] == "catalog", derived
-    assert derived["snapshot_version"], derived
-    assert derived["has_catalog"] is True, derived
-    assert derived["min_size"] > 0 and derived["max_size"] > 0, derived
-    # The stored numbers are the ones that enforce, so the floor carries the
-    # compression allowance already and sits below the catalog's smallest
-    # entry rather than on it.
-    assert derived["min_size"] < 2048, derived
-
-    # Every lane that actually imported carries a definition. A lane left
-    # silently unbounded while its catalog sits in the database is the
-    # failure this replaced, so assert the whole set rather than one row.
-    defs = _req(base, "/api/size-definitions")["definitions"]
-    assert len(defs) >= 21, len(defs)
-    catalogued = [d for d in defs if d["has_catalog"]]
-    assert catalogued, "no platform reported a catalog after two refreshes"
-    unbounded = [d for d in catalogued if d["source"] != "catalog" or d["max_size"] <= 0]
-    assert not unbounded, unbounded
-
-    # An operator's own bounds are enforced as typed and survive an import,
-    # which is what makes this an override surface rather than a cache.
-    _req(base, "/api/size-definitions/gb", "PUT", {"min_size": 7, "max_size": 999_999_999})
-    manual = _definition(base, "gb")
-    assert manual["source"] == "manual", manual
-    assert (manual["min_size"], manual["max_size"]) == (7, 999_999_999), manual
-
+    # ── a later upload replaces the active snapshot ─────────────────────
     status, resp = _multipart(base, "/api/dat/authorities/no-intro/upload?platform=gb",
                               "Nintendo - Game Boy.dat",
                               _dat("Nintendo - Game Boy", 11, "2026.08.17-rederive"))
     assert status == 200 and resp.get("success"), (status, resp)
     assert _coverage(base, "gb")["known"] == 11, "the re-derive upload did not import"
-    kept = _definition(base, "gb")
-    assert (kept["min_size"], kept["max_size"]) == (7, 999_999_999), \
-        f"an import overwrote a hand-set definition: {kept}"
-
-    # Reset hands the platform back to the authority, derived from whatever
-    # snapshot is active now.
-    _req(base, "/api/size-definitions/gb/reset", "POST", {})
-    back = _definition(base, "gb")
-    assert back["source"] == "catalog", back
-    assert back["snapshot_version"] == "2026.08.17-rederive", back
-    assert back["min_size"] > 0 and back["max_size"] > 0, back
 
     # The catalog is readable, not just countable: browse returns the dumps
     # themselves, scoped to the ACTIVE snapshot, and a dump's files are their

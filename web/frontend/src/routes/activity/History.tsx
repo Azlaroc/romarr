@@ -16,7 +16,6 @@ import {
   MailPlus,
   Pencil,
   RotateCcw,
-  Ruler,
   Scale,
   Sparkles,
   Upload,
@@ -54,7 +53,6 @@ const EVENT_META: Record<string, { icon: LucideIcon; color: BadgeColor; label: s
   library_pruned: { icon: Archive, color: 'orange', label: 'Decluttered' },
   library_hashed: { icon: Fingerprint, color: 'blue', label: 'Hashed' },
   dat_refreshed: { icon: DatabaseZap, color: 'purple', label: 'DAT refreshed' },
-  size_definition_updated: { icon: Ruler, color: 'purple', label: 'Size definition' },
   repair_exhausted: { icon: XCircle, color: 'orange', label: 'Repair exhausted' },
   test: { icon: FlaskConical, color: 'slate', label: 'Test' },
 }

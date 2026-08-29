@@ -8,7 +8,7 @@ import (
 
 // QualityProfile defines the per-platform selection policy for downloads:
 // which regions and formats to prefer, what release classes to allow, and
-// source ranking / size bounds.
+// source ranking.
 //
 // Scope: a profile is a free-standing object chosen per title at add time.
 // A platform's default profile is a column on the platform registry row
@@ -27,27 +27,21 @@ import (
 // arcade), which is how adding a platform stopped being a setup step.
 //
 // Semantics of the pre-F4 fields:
-//   - PreferredSizeMin/Max: size-sanity bounds in bytes; 0 means "fall back
-//     to this platform's size definition" (platform_size_definitions, see
-//     PlatformSizeRow). Both are enforced exactly as given — a bound typed
-//     here is a statement about the files themselves, so nothing widens it.
 //   - UpgradeAllowed/CutoffSource: reserved for the active upgrade loop
 //     (re-grab when a better release appears, stop at CutoffSource). No code
 //     consumes them yet — the F4 selector is skip-if-owned only.
 type QualityProfile struct {
 	ID               int64    `json:"id"`
 	Name             string   `json:"name"`
-	PlatformSlug     string   `json:"platform_slug"`      // "" = global profile
-	IsDefault        bool     `json:"is_default"`         // the global fallback row
-	RegionPriority   []string `json:"region_priority"`    // ordered list: best first (lowered tokens)
-	FormatPreference []string `json:"format_preference"`  // ordered list: best first
-	Prefer1G1R       bool     `json:"prefer_1g1r"`        // prefer verified dumps / latest revision
-	AllowProto       bool     `json:"allow_proto"`        // allow (Proto)/(Beta)/(Sample) releases
-	AllowDemo        bool     `json:"allow_demo"`         // allow (Demo) releases
-	AllowBIOS        bool     `json:"allow_bios"`         // allow [BIOS] releases
-	SourceRanking    []string `json:"source_ranking"`     // ordered list: best first
-	PreferredSizeMin int64    `json:"preferred_size_min"` // bytes; 0 = use the platform definition
-	PreferredSizeMax int64    `json:"preferred_size_max"` // bytes; 0 = use the platform definition
+	PlatformSlug     string   `json:"platform_slug"`     // "" = global profile
+	IsDefault        bool     `json:"is_default"`        // the global fallback row
+	RegionPriority   []string `json:"region_priority"`   // ordered list: best first (lowered tokens)
+	FormatPreference []string `json:"format_preference"` // ordered list: best first
+	Prefer1G1R       bool     `json:"prefer_1g1r"`       // prefer verified dumps / latest revision
+	AllowProto       bool     `json:"allow_proto"`       // allow (Proto)/(Beta)/(Sample) releases
+	AllowDemo        bool     `json:"allow_demo"`        // allow (Demo) releases
+	AllowBIOS        bool     `json:"allow_bios"`        // allow [BIOS] releases
+	SourceRanking    []string `json:"source_ranking"`    // ordered list: best first
 	UpgradeAllowed   bool     `json:"upgrade_allowed"`
 	CutoffSource     string   `json:"cutoff_source"` // stop upgrading once this source is reached
 	IsTemplate       bool     `json:"is_template"`   // cloned on first add, never used directly
@@ -158,12 +152,12 @@ func (s *JobStore) migrateQualityProfiles() {
 		regions, _ := json.Marshal(defaultRegionPriority)
 		formats, _ := json.Marshal(defaultFormatPreference)
 		s.db.Exec(
-			"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"PC Default", string(pcRanking), 50*1024*1024, 100*1024*1024*1024, 1, "FitGirl", "pc", 0, "[]", "[]", 1,
+			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"PC Default", string(pcRanking), 1, "FitGirl", "pc", 0, "[]", "[]", 1,
 		)
 		s.db.Exec(
-			"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"ROM Default", string(romRanking), 0, 0, 0, "Internet Archive", "", 1, string(regions), string(formats), 1,
+			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"ROM Default", string(romRanking), 0, "Internet Archive", "", 1, string(regions), string(formats), 1,
 		)
 	}
 }
@@ -190,13 +184,13 @@ func (s *JobStore) qpColumnExists(name string) bool {
 	return false
 }
 
-const qpSelectColumns = "id, name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class"
+const qpSelectColumns = "id, name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class"
 
 func scanQualityProfile(scan func(dest ...interface{}) error) (*QualityProfile, error) {
 	var p QualityProfile
 	var rankingJSON, regionsJSON, formatsJSON string
 	var upgradeAllowed, isDefault, prefer1g1r, allowProto, allowDemo, allowBIOS, isTemplate int
-	err := scan(&p.ID, &p.Name, &rankingJSON, &p.PreferredSizeMin, &p.PreferredSizeMax, &upgradeAllowed, &p.CutoffSource,
+	err := scan(&p.ID, &p.Name, &rankingJSON, &upgradeAllowed, &p.CutoffSource,
 		&p.PlatformSlug, &isDefault, &regionsJSON, &formatsJSON, &prefer1g1r, &allowProto, &allowDemo, &allowBIOS,
 		&isTemplate, &p.TemplateClass)
 	if err != nil {
@@ -271,8 +265,8 @@ func (s *JobStore) AddQualityProfile(p *QualityProfile) (int64, error) {
 	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	result, err := s.db.Exec(
-		"INSERT INTO quality_profiles (name, source_ranking, preferred_size_min, preferred_size_max, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		p.Name, string(rankingJSON), p.PreferredSizeMin, p.PreferredSizeMax, boolToInt(p.UpgradeAllowed), p.CutoffSource,
+		"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		p.Name, string(rankingJSON), boolToInt(p.UpgradeAllowed), p.CutoffSource,
 		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
 		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
 		boolToInt(p.IsTemplate), p.TemplateClass,
@@ -296,8 +290,8 @@ func (s *JobStore) UpdateQualityProfile(p *QualityProfile) error {
 	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	_, err := s.db.Exec(
-		"UPDATE quality_profiles SET name = ?, source_ranking = ?, preferred_size_min = ?, preferred_size_max = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, region_priority = ?, format_preference = ?, prefer_1g1r = ?, allow_proto = ?, allow_demo = ?, allow_bios = ?, is_template = ?, template_class = ? WHERE id = ?",
-		p.Name, string(rankingJSON), p.PreferredSizeMin, p.PreferredSizeMax, boolToInt(p.UpgradeAllowed), p.CutoffSource,
+		"UPDATE quality_profiles SET name = ?, source_ranking = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, region_priority = ?, format_preference = ?, prefer_1g1r = ?, allow_proto = ?, allow_demo = ?, allow_bios = ?, is_template = ?, template_class = ? WHERE id = ?",
+		p.Name, string(rankingJSON), boolToInt(p.UpgradeAllowed), p.CutoffSource,
 		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
 		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
 		boolToInt(p.IsTemplate), p.TemplateClass, p.ID,

@@ -66,7 +66,6 @@ def test_quality_profile_crud(ui):
     expect(page.get_by_test_id("qp-region-item-1")).to_contain_text("europe")
 
     page.get_by_test_id("qp-1g1r").click()  # default true -> off
-    page.get_by_test_id("qp-size-min").fill("1")
     page.get_by_test_id("qp-save").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("E2E SNES", timeout=SLOW_MS)
 
@@ -95,7 +94,6 @@ def test_quality_profile_crud(ui):
     expect(page.get_by_test_id("qp-region-item-1")).to_contain_text("europe")
     expect(page.get_by_test_id("qp-region-item-2")).to_contain_text("world")
     expect(page.get_by_test_id("qp-1g1r")).not_to_be_checked()
-    expect(page.get_by_test_id("qp-size-min")).to_have_value("1")
     # The editor says what defaults to this profile instead of setting it.
     expect(page.get_by_test_id("qp-used-by")).to_contain_text("No platform defaults to this profile")
     page.get_by_test_id("qp-cancel").click()

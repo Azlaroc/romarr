@@ -59,14 +59,12 @@ import type {
   DatRefreshResponse,
   DatStatus,
   DatUploadResponse,
-  SizeDefinition,
   PruneStatus,
   PrunePreviewRow,
   HashfillStatus,
   HashfillRow,
   CollectionTargetsResponse,
   CollectionSyncResult,
-  SizeDefinitionsResponse,
 } from './types'
 
 export const keys = {
@@ -112,7 +110,6 @@ export const keys = {
   datAuthorities: ['dat-authorities'] as const,
   datStatus: ['dat-status'] as const,
   datCoverage: ['dat-coverage'] as const,
-  sizeDefinitions: ['size-definitions'] as const,
   collectionTargets: ['collection-targets'] as const,
 }
 
@@ -1051,7 +1048,6 @@ export function useUploadDat() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.datAuthorities })
       qc.invalidateQueries({ queryKey: keys.datCoverage })
-      qc.invalidateQueries({ queryKey: keys.sizeDefinitions })
     },
   })
 }
@@ -1086,36 +1082,3 @@ export function useSyncCollection() {
   })
 }
 
-export function useSizeDefinitions(): UseQueryResult<SizeDefinition[]> {
-  return useQuery({
-    queryKey: keys.sizeDefinitions,
-    queryFn: async () => {
-      const data = await api.get<SizeDefinitionsResponse>('/api/size-definitions')
-      return pickArray<SizeDefinition>(data, 'definitions')
-    },
-  })
-}
-
-/** Omitting an end leaves it alone server-side, so a floor edit cannot silently drop a ceiling. */
-export function useSaveSizeDefinition() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ slug, min, max }: { slug: string; min?: number; max?: number }) =>
-      api.put<{ success: boolean; definition: SizeDefinition }>(
-        `/api/size-definitions/${encodeURIComponent(slug)}`,
-        { ...(min === undefined ? {} : { min_size: min }), ...(max === undefined ? {} : { max_size: max }) },
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sizeDefinitions }),
-  })
-}
-
-export function useResetSizeDefinition() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (slug: string) =>
-      api.post<{ success: boolean; definition: SizeDefinition }>(
-        `/api/size-definitions/${encodeURIComponent(slug)}/reset`,
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sizeDefinitions }),
-  })
-}
