@@ -156,6 +156,29 @@ Disc sets are not gated in this pass: their members converge at a set barrier
 that already has its own verification step, and a per-member verdict there would
 condemn a set for one late track.
 
+## The naming authority
+
+The snapshot names files. The bulk renamer resolves a library entry's stored
+hashes (`$.gamarr`, including the header-stripped `unh` set on headered
+platforms, then `$.romm` — the same inner-content domain) against `dat_roms`
+and proposes the catalog's canonical name; a row with no stored hashes is
+staged, hashed once and the result persisted, so it never stages again. The
+file's name and the file's verdict come from the same book, and naming works
+offline.
+
+The lookup is tie-aware — every row the hashes land on is considered, unlike
+the gate's single-verdict lookup. A headered/headerless twin pair collapses to
+one answer (the `.unh` extension never reaches a filename); a hash tie between
+an original release and a compilation extraction resolves to the original;
+anything else is surfaced as *review*, never renamed automatically.
+
+A local miss **fails loudly**: the row reads `no local DAT match`, is counted
+(`dat_misses`), and keeps its name — uncatalogued content forgoes name
+authority by design. The online Playmatch engine survives only behind the
+`normalize_online_fallback` setting (default off); when enabled its answers
+land as review with `name_source: "playmatch"`, and an engine failure degrades
+to the loud miss rather than aborting the run.
+
 ## Adding a platform
 
 No code change:

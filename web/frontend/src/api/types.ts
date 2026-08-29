@@ -79,6 +79,7 @@ export interface NormalizePreviewRow {
   old_path: string
   old_name: string
   new_name?: string
+  name_source?: 'dat' | 'playmatch'
   status: 'rename' | 'renamed' | 'noop' | 'skip' | 'review'
   reason?: string
   collision?: NormalizeCollision
@@ -96,6 +97,9 @@ export interface NormalizeStatus {
   skipped?: number
   collisions?: number
   reviews?: number
+  dat_misses?: number
+  source_dat?: number
+  source_playmatch?: number
   errors?: number
   last_error?: string
   started_at?: string | null
@@ -235,6 +239,7 @@ export interface AppConfig {
 export interface Settings {
   extract_archives?: boolean
   normalize_roms?: boolean
+  normalize_online_fallback?: boolean
   convert_roms?: boolean
   remove_torrent_after_import?: boolean
   seed_janitor_enabled?: boolean

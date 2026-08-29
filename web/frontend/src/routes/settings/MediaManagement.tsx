@@ -21,6 +21,12 @@ const PIPELINE_TOGGLES = [
     help: 'DAT-canonical rename (No-Intro/Redump) + .m3u playlists for disc sets',
   },
   {
+    key: 'normalize_online_fallback',
+    testId: 'setting-online-fallback',
+    label: 'Online naming fallback (Playmatch)',
+    help: 'Consult the online Playmatch engine when the local DAT snapshot has no match — its proposals land as review, never auto-applied',
+  },
+  {
     key: 'convert_roms',
     testId: 'setting-convert',
     label: 'Convert disc images to CHD',

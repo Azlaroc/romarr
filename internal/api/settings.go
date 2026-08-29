@@ -22,6 +22,7 @@ type settingSpec struct {
 var settingSpecs = []settingSpec{
 	{Key: "extract_archives", Kind: "bool"},
 	{Key: "normalize_roms", Kind: "bool"},
+	{Key: "normalize_online_fallback", Kind: "bool"},
 	{Key: "convert_roms", Kind: "bool"},
 	{Key: "remove_torrent_after_import", Kind: "bool"},
 	{Key: "seed_janitor_enabled", Kind: "bool"},
@@ -51,6 +52,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{
 		"extract_archives":            st.ExtractArchives,
 		"normalize_roms":              st.NormalizeROMs,
+		"normalize_online_fallback":   s.cfg.OnlineFallbackOn(),
 		"convert_roms":                st.ConvertROMs,
 		"remove_torrent_after_import": s.cfg.RemoveTorrentAfterImport(),
 		"seed_janitor_enabled":        s.cfg.SeedJanitor(),

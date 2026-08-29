@@ -26,6 +26,14 @@ function verdictBadge(verdict?: string): { color: BadgeColor; label: string } {
   return { color: 'blue', label: 'unknown bytes' }
 }
 
+// sourceBadge renders which authority proposed a row's name: the local DAT
+// snapshot (the decider) or the online Playmatch fallback (review-only).
+export function sourceBadge(source?: string): { color: BadgeColor; label: string } | null {
+  if (source === 'playmatch') return { color: 'yellow', label: 'Playmatch' }
+  if (source === 'dat') return { color: 'blue', label: 'DAT' }
+  return null
+}
+
 function statusBadge(status: NormalizePreviewRow['status']): BadgeColor {
   switch (status) {
     case 'rename':
@@ -149,6 +157,10 @@ export function LibraryRename() {
             <span>{counters?.skipped ?? 0} skipped</span>
             <span className={counters?.collisions ? 'text-yellow-400' : ''}>{counters?.collisions ?? 0} collisions</span>
             <span className={counters?.reviews ? 'text-yellow-400' : ''}>{counters?.reviews ?? 0} to review</span>
+            <span className={counters?.dat_misses ? 'text-orange-400' : ''} data-testid="rename-dat-misses">{counters?.dat_misses ?? 0} no local DAT match</span>
+            {(counters?.source_playmatch ?? 0) > 0 && (
+              <span className="text-yellow-400">{counters?.source_playmatch} named via Playmatch</span>
+            )}
             <span className={counters?.errors ? 'text-red-400' : ''}>{counters?.errors ?? 0} errors</span>
           </>
         )}
@@ -171,6 +183,7 @@ export function LibraryRename() {
         <div className="space-y-2" data-testid="rename-results">
           {rows.map((r) => {
             const excl = excluded.has(r.library_id)
+            const src = sourceBadge(r.name_source)
             return (
               <div
                 key={r.library_id}
@@ -186,6 +199,7 @@ export function LibraryRename() {
                       <span className="font-mono text-sm text-white">{r.new_name}</span>
                     </>
                   )}
+                  {src && r.status !== 'noop' && <Badge color={src.color}>{src.label}</Badge>}
                   {r.status === 'rename' && (
                     <button
                       onClick={() => toggleExcluded(r.library_id)}
