@@ -411,12 +411,18 @@ func (r *Runner) enumerate(scope, root string) ([]entry, map[string]bool) {
 	return out, scanned
 }
 
-// walkPlatform collects entries under one platform dir: a directory that
-// directly holds game files is one entry (a multi-file game), any other
-// directory is organizational and recursed into, and every non-sidecar file
-// is one entry. No extension allowlist for files: DAT-canonical names carry
-// cartridge extensions no fixed list stays ahead of (.a26, .lnx, .ws, ...),
-// and the sidecar exclusion is the honest filter.
+// walkPlatform collects entries under one platform dir — ONE level, never
+// deeper. The library model (RomM's, and now ours) is platform/entry: every
+// depth-1 item is one entry, a directory being a multi-file game. Verified
+// against the real library before this shipped: all 21K rows sit at exactly
+// depth 1, including whole directories-of-files as single rows. A recursion
+// heuristic ("does this dir hold game files?") was tried and rejected — it
+// keyed on an extension list that no cart platform's DAT-canonical names
+// (.a26, .pce, .lnx, ...) stay inside, and misreading a game dir as
+// organizational would mint depth-2 rows no other plane expects.
+//
+// Files have no extension allowlist either: the sidecar exclusion is the
+// honest filter, for the same reason.
 func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 	dirents, err := os.ReadDir(dir)
 	if err != nil {
@@ -434,11 +440,7 @@ func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 		}
 		fp := filepath.Join(dir, name)
 		if e.IsDir() {
-			if containsGameFiles(fp) {
-				*out = append(*out, entry{path: fp, topDir: top, slug: slug, isDir: true})
-			} else {
-				r.walkPlatform(fp, top, slug, out)
-			}
+			*out = append(*out, entry{path: fp, topDir: top, slug: slug, isDir: true})
 			continue
 		}
 		if romfile.IsSidecarExtension(name) {
@@ -450,21 +452,6 @@ func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 		}
 		*out = append(*out, entry{path: fp, topDir: top, slug: slug, size: size})
 	}
-}
-
-// containsGameFiles reports whether a directory directly holds game files —
-// the "this directory IS the game" test (disc sets, [NSP] folders).
-func containsGameFiles(dir string) bool {
-	dirents, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range dirents {
-		if !e.IsDir() && romfile.IsGameExtension(e.Name()) {
-			return true
-		}
-	}
-	return false
 }
 
 // report appends a bookkeeping row (no visit counter — these are not work

@@ -313,15 +313,25 @@ func TestScanNeverDowngradesBankedVerdict(t *testing.T) {
 func TestScanGameDirAndNestedRows(t *testing.T) {
 	e := newEnv(t)
 
-	// A directory that directly holds game files is ONE entry.
+	// Any directory at depth 1 is ONE entry — including one whose contents
+	// carry extensions no allowlist knows (.a26 cart dirs, forwarder packs).
+	// The walk never recurses: the library model is platform/entry, and a
+	// depth-2 row is a row no other plane expects.
 	e.file(t, "nes/Disc Set/a.nes", []byte("aa"))
 	e.file(t, "nes/Disc Set/b.nes", []byte("bb"))
-	// A row tracking a file INSIDE it is accounted for, not missing.
+	e.file(t, "nes/Oddball Cart (USA)/Oddball Cart (USA).a26", []byte("cart"))
+	// A row tracking a file INSIDE a dir entry is accounted for, not missing.
 	innerID := e.row(t, "nes", "Inner", filepath.Join(e.roms, "nes", "Disc Set", "a.nes"), "ddl", "")
 
 	st := e.runSync(t, "all", Opts{})
-	if st["created"] != 1 {
-		t.Fatalf("status = %+v, want the dir as one created entry", st)
+	if st["created"] != 2 {
+		t.Fatalf("status = %+v, want both dirs as single created entries", st)
+	}
+	if e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Oddball Cart (USA)", "Oddball Cart (USA).a26")) != nil {
+		t.Fatal("walk recursed into a game dir and minted a depth-2 row")
+	}
+	if e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Oddball Cart (USA)")) == nil {
+		t.Fatal("cart dir not created as one entry")
 	}
 	dirRow := e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Disc Set"))
 	if dirRow == nil {
