@@ -79,10 +79,10 @@ export function Profiles() {
     setConfirmRelease(null)
   }
 
-  const regionSummary = (p: QualityProfile) => {
-    if (p.region_priority.length === 0) return 'default regions'
-    const head = p.region_priority.slice(0, 3).join(' › ')
-    const extra = p.region_priority.length - 3
+  const formatSummary = (p: QualityProfile) => {
+    if (p.format_preference.length === 0) return 'default formats'
+    const head = p.format_preference.slice(0, 3).join(' › ')
+    const extra = p.format_preference.length - 3
     return extra > 0 ? `${head} +${extra}` : head
   }
 
@@ -105,9 +105,9 @@ export function Profiles() {
           }
         >
           <p className="mb-3 text-xs text-slate-500">
-            Drive the release selector: region priority, format preference, 1G1R and size bounds. A title is added
-            under one — the platform&apos;s default unless you pick another. Templates are cloned for a platform&apos;s
-            first title and are never applied directly.
+            Drive the release selector: format preference, source ranking and 1G1R. A title is added under one —
+            the platform&apos;s default unless you pick another. Templates are cloned for a platform&apos;s first
+            title and are never applied directly. What a platform collects lives on its Collection Profile.
           </p>
           {/* Container stays mounted (empty or full) so tests can observe rows appearing. */}
           <div className="space-y-2" data-testid="profiles-quality-list">
@@ -121,7 +121,7 @@ export function Profiles() {
                     {p.is_default && <Badge color="emerald">Global default</Badge>}
                   </div>
                   <div className="mt-0.5 text-xs text-slate-500">
-                    {regionSummary(p)}
+                    {formatSummary(p)}
                     {p.is_template
                       ? ` · cloned for new ${p.template_class ?? ''} platforms`
                       : usedBy(p.id).length

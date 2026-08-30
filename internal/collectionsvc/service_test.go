@@ -284,15 +284,13 @@ func TestPolicyRewireGoldenEquivalence(t *testing.T) {
 	seedCatalog(t, store, "atari7800", games)
 	addLibraryItem(t, store, "atari7800", "Solar Fox", "/roms/atari7800/Solar Fox (USA).a78", "s1")
 
-	// The old effective policy, expressed in today's Policy vocabulary:
-	// quality-profile region + three gates, aftermarket folded into the
-	// unlicensed gate (both false), pirate NEVER excluded, Applications out.
-	prof := store.ResolveProfileForItem(0, "atari7800")
+	// The old effective policy, as a HISTORICAL constant: the quality-profile
+	// scrape resolved the shipped default chain with every gate closed,
+	// aftermarket folded into the unlicensed gate, pirate NEVER excluded,
+	// Applications out. Stated rather than derived — the fields it was
+	// scraped from no longer exist.
 	oldPolicy := collection.Policy{
-		RegionPriority:    prof.RegionPriority,
-		AllowProto:        prof.AllowProto,
-		AllowDemo:         prof.AllowDemo,
-		AllowBIOS:         prof.AllowBIOS,
+		RegionPriority:    []string{"usa", "world", "europe", "japan"},
 		AllowPirate:       true,
 		ExcludeCategories: []string{"Applications"},
 	}
