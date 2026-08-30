@@ -261,3 +261,84 @@ func TestCycleOwnershipIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// Golden equivalence for the profile rewire: under the shipped Standard
+// profile, the set must match what the OLD policyFor (scraping the quality
+// profile + the hardcoded category list) produced — with exactly ONE declared
+// delta: pirate-tagged dumps now leave the set. That delta is the deliberate
+// half of parser v3 (they used to pollute gap lists because (Pirate) was
+// unparsed); everything else is byte-equal membership.
+func TestPolicyRewireGoldenEquivalence(t *testing.T) {
+	svc, store, _ := newTestService(t)
+	games := []db.DatGameRow{
+		catGame("Solar Fox (USA)", "usa", "s1"),
+		catGame("Solar Fox (Europe)", "europe", "s2"),
+		catGame("Mother 3 (Japan)", "japan", "m1"),
+		catGame("Proto Thing (USA) (Proto)", "usa", "p1"),
+		catGame("Homebrew Blast (World)", "world", "h1"),
+		catGame("Bootleg 52-in-1 (Taiwan)", "taiwan", "b1"),
+	}
+	games[3].Flags = "proto"
+	games[4].Flags = "aftermarket"
+	games[5].Flags = "pirate"
+	seedCatalog(t, store, "atari7800", games)
+	addLibraryItem(t, store, "atari7800", "Solar Fox", "/roms/atari7800/Solar Fox (USA).a78", "s1")
+
+	// The old effective policy, expressed in today's Policy vocabulary:
+	// quality-profile region + three gates, aftermarket folded into the
+	// unlicensed gate (both false), pirate NEVER excluded, Applications out.
+	prof := store.ResolveProfileForItem(0, "atari7800")
+	oldPolicy := collection.Policy{
+		RegionPriority:    prof.RegionPriority,
+		AllowProto:        prof.AllowProto,
+		AllowDemo:         prof.AllowDemo,
+		AllowBIOS:         prof.AllowBIOS,
+		AllowPirate:       true,
+		ExcludeCategories: []string{"Applications"},
+	}
+	oldGroups := collection.Build(membersOf(t, store, "atari7800"), nil, oldPolicy)
+
+	res := svc.NewCycle().Set("atari7800")
+	if len(res.Entries) != len(oldGroups) {
+		t.Fatalf("group count drifted: new %d vs old %d", len(res.Entries), len(oldGroups))
+	}
+	for i, e := range res.Entries {
+		old := oldGroups[i]
+		if e.Key != old.Key {
+			t.Fatalf("group order drifted at %d: %q vs %q", i, e.Key, old.Key)
+		}
+		newKeeper, newOK := e.Keeper()
+		oldKeeper, oldOK := old.Keeper()
+		pirate := strings.Contains(e.Key, "bootleg")
+		if pirate {
+			// The declared delta, and nothing more.
+			if newOK {
+				t.Errorf("pirate group %q still has a keeper under Standard", e.Key)
+			}
+			continue
+		}
+		if newOK != oldOK {
+			t.Errorf("group %q keeper presence drifted: new %v old %v", e.Key, newOK, oldOK)
+			continue
+		}
+		if newOK && newKeeper.GameID != oldKeeper.GameID {
+			t.Errorf("group %q keeper drifted: new %d old %d", e.Key, newKeeper.GameID, oldKeeper.GameID)
+		}
+		for mi := range e.Members {
+			if e.Members[mi].Excluded != old.Members[mi].Excluded {
+				t.Errorf("group %q member %d exclusion drifted", e.Key, mi)
+			}
+		}
+	}
+}
+
+// membersOf loads a platform's catalog the way the service does, so the
+// golden comparison feeds both sides identical members.
+func membersOf(t *testing.T, store *db.JobStore, slug string) []collection.Member {
+	t.Helper()
+	members := mapMembers(store.DatSetMembers(slug))
+	if len(members) == 0 {
+		t.Fatalf("no catalog rows for %s", slug)
+	}
+	return members
+}

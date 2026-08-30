@@ -23,8 +23,12 @@ import (
 
 // CollectionProfile is one named slice of a catalog.
 type CollectionProfile struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID int64 `json:"id"`
+	// IsDefault marks the row unassigned platforms resolve to (exactly one,
+	// seed-managed: the API never writes it — operators re-point platforms
+	// rather than moving the flag, the quality-profile convention).
+	IsDefault bool   `json:"is_default"`
+	Name      string `json:"name"`
 	// RegionPriority ORDERS keeper choice and never excludes: a Japan-only
 	// game keeps its Japanese dump under any order. Empty = no region
 	// opinion.
@@ -70,6 +74,7 @@ func DefaultCollectionProfile() *CollectionProfile {
 func (s *JobStore) migrateCollectionProfiles() {
 	ddl := `CREATE TABLE IF NOT EXISTS collection_profiles (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		is_default INTEGER NOT NULL DEFAULT 0,
 		name TEXT NOT NULL,
 		region_priority TEXT NOT NULL DEFAULT '[]',
 		english_preferred INTEGER NOT NULL DEFAULT 1,
@@ -86,6 +91,17 @@ func (s *JobStore) migrateCollectionProfiles() {
 	if _, err := s.db.Exec(ddl); err != nil {
 		slog.Warn("migrate collection_profiles", "error", err)
 	}
+	// Backfill at column birth for tables the pre-is_default migration
+	// created: the shipped Standard row (still under its seeded name) becomes
+	// the default unassigned platforms resolve to.
+	if !s.columnExists("collection_profiles", "is_default") {
+		if _, err := s.db.Exec(`ALTER TABLE collection_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate collection_profiles is_default", "error", err)
+		} else if _, err := s.db.Exec(`UPDATE collection_profiles SET is_default = 1
+			WHERE name = 'Standard — Licensed Retail'`); err != nil {
+			slog.Warn("seed collection_profiles is_default", "error", err)
+		}
+	}
 	s.seedCollectionProfiles()
 	s.foldInCollectionProfiles()
 }
@@ -99,6 +115,7 @@ func (s *JobStore) seedCollectionProfiles() {
 		return
 	}
 	std := DefaultCollectionProfile()
+	std.IsDefault = true
 	everything := &CollectionProfile{
 		Name:               "Everything (incl. aftermarket)",
 		RegionPriority:     append([]string(nil), defaultRegionPriority...),
@@ -192,18 +209,19 @@ func equalStringSlices(a, b []string) bool {
 	return true
 }
 
-const cpCols = `id, name, region_priority, english_preferred, keep_without_english,
+const cpCols = `id, is_default, name, region_priority, english_preferred, keep_without_english,
 	allow_proto, allow_demo, allow_bios, allow_unlicensed, allow_aftermarket,
 	allow_pirate, verified_only, exclude_categories`
 
 func scanCollectionProfile(scan func(dest ...any) error) (*CollectionProfile, error) {
 	var p CollectionProfile
 	var regions, cats string
-	var englishPref, keepNoEnglish, proto, demo, bios, unl, after, pirate, verified int
-	if err := scan(&p.ID, &p.Name, &regions, &englishPref, &keepNoEnglish,
+	var isDefault, englishPref, keepNoEnglish, proto, demo, bios, unl, after, pirate, verified int
+	if err := scan(&p.ID, &isDefault, &p.Name, &regions, &englishPref, &keepNoEnglish,
 		&proto, &demo, &bios, &unl, &after, &pirate, &verified, &cats); err != nil {
 		return nil, err
 	}
+	p.IsDefault = isDefault == 1
 	p.EnglishPreferred, p.KeepWithoutEnglish = englishPref == 1, keepNoEnglish == 1
 	p.AllowProto, p.AllowDemo, p.AllowBIOS = proto == 1, demo == 1, bios == 1
 	p.AllowUnlicensed, p.AllowAftermarket, p.AllowPirate = unl == 1, after == 1, pirate == 1
@@ -257,11 +275,11 @@ func (s *JobStore) AddCollectionProfile(p *CollectionProfile) (int64, error) {
 	regions, _ := json.Marshal(orEmpty(p.RegionPriority))
 	cats, _ := json.Marshal(orEmpty(p.ExcludeCategories))
 	res, err := s.db.Exec(`INSERT INTO collection_profiles
-		(name, region_priority, english_preferred, keep_without_english,
+		(is_default, name, region_priority, english_preferred, keep_without_english,
 		 allow_proto, allow_demo, allow_bios, allow_unlicensed, allow_aftermarket,
 		 allow_pirate, verified_only, exclude_categories)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, string(regions), boolInt(p.EnglishPreferred), boolInt(p.KeepWithoutEnglish),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		boolInt(p.IsDefault), name, string(regions), boolInt(p.EnglishPreferred), boolInt(p.KeepWithoutEnglish),
 		boolInt(p.AllowProto), boolInt(p.AllowDemo), boolInt(p.AllowBIOS),
 		boolInt(p.AllowUnlicensed), boolInt(p.AllowAftermarket), boolInt(p.AllowPirate),
 		boolInt(p.VerifiedOnly), string(cats))
@@ -298,9 +316,13 @@ func (s *JobStore) UpdateCollectionProfile(p *CollectionProfile) error {
 }
 
 // DeleteCollectionProfile removes a profile. A profile a platform still
-// references is refused — re-point the platform (0 = Standard) first, so a
-// delete can never silently change what a platform collects.
+// references is refused — re-point the platform (0 = the default) first, so a
+// delete can never silently change what a platform collects — and so is the
+// default row itself.
 func (s *JobStore) DeleteCollectionProfile(id int64) error {
+	if p, err := s.GetCollectionProfile(id); err == nil && p.IsDefault {
+		return fmt.Errorf("the default collection profile cannot be deleted")
+	}
 	var refs int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM platforms WHERE collection_profile_id = ?`, id).Scan(&refs); err == nil && refs > 0 {
 		return fmt.Errorf("collection profile is used by %d platform(s)", refs)
@@ -316,14 +338,22 @@ func (s *JobStore) DeleteCollectionProfile(id int64) error {
 }
 
 // ResolveCollectionProfile answers "what does this platform collect": the
-// platform's assigned profile, or the built-in Standard when none is set or
-// the row is gone. Never returns nil.
+// platform's assigned profile → the stored default row → the built-in.
+// Never returns nil. The built-in is a disaster fallback only (default row
+// deleted by hand); the normal unassigned path lands on the EDITABLE stored
+// default, so the summary names a real row and editing it retunes every
+// unassigned platform at once — the arr convention.
 func (s *JobStore) ResolveCollectionProfile(slug string) *CollectionProfile {
 	if row, ok := s.GetPlatformRow(slug); ok && row.CollectionProfileID != 0 {
 		if p, err := s.GetCollectionProfile(row.CollectionProfileID); err == nil && p != nil {
 			return p
 		}
-		slog.Debug("collection profile missing, using built-in", "platform", slug, "profile_id", row.CollectionProfileID)
+		slog.Debug("collection profile missing, falling back to default", "platform", slug, "profile_id", row.CollectionProfileID)
+	}
+	for _, p := range s.GetCollectionProfiles() {
+		if p.IsDefault {
+			return p
+		}
 	}
 	return DefaultCollectionProfile()
 }

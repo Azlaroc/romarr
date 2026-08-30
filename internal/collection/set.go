@@ -55,20 +55,37 @@ type Member struct {
 	Roms      []Rom  `json:"roms,omitempty"`
 }
 
-// Policy is what the operator wants the set to contain. Everything here comes
-// from the platform's resolved quality profile plus the excluded catalog
-// categories, so the set and the selector cannot drift apart.
+// Policy is what the operator wants the set to contain — the platform's
+// collection profile, flattened for this package. Retool's 1G1R vocabulary:
+// region/language priorities plus the category gates.
+//
+// 🔴 Zero value == the historical behavior. The two language knobs are
+// therefore expressed as opt-INTO-deviation booleans (NoEnglishPreference /
+// RequireEnglish) rather than mirroring the profile row's english_preferred /
+// keep_without_english defaults-true columns: a test building Policy{} and an
+// old caller both keep today's semantics without knowing the knobs exist.
 type Policy struct {
 	// RegionPriority is ordered best-first ("usa", "world", "europe", ...).
 	// It ORDERS members; it never removes one.
 	RegionPriority []string
-	// AllowProto covers (Proto)/(Beta)/(Sample), AllowDemo (Demo), AllowBIOS
-	// [BIOS], AllowUnlicensed (Unl)/(Aftermarket) — the same four gates the
-	// selector applies to releases, read here against catalogued dumps.
-	AllowProto      bool
-	AllowDemo       bool
-	AllowBIOS       bool
-	AllowUnlicensed bool
+	// The category gates: AllowProto covers (Proto)/(Beta)/(Sample),
+	// AllowDemo (Demo…), AllowBIOS [BIOS], AllowUnlicensed (Unl),
+	// AllowAftermarket the modern homebrew tag, AllowPirate (Pirate).
+	AllowProto       bool
+	AllowDemo        bool
+	AllowBIOS        bool
+	AllowUnlicensed  bool
+	AllowAftermarket bool
+	AllowPirate      bool
+	// VerifiedOnly narrows the set to dumps the authority marks verified.
+	VerifiedOnly bool
+	// NoEnglishPreference disables the English-tag tier in keeper choice.
+	NoEnglishPreference bool
+	// RequireEnglish drops groups with no English-capable dump from the set
+	// entirely (the inverse of Retool's "include titles without an
+	// English-language release"). An untagged dump counts as English-capable
+	// — absence of a language list is not evidence of a foreign release.
+	RequireEnglish bool
 	// ExcludeCategories names clone-list categories to leave out of the set
 	// ("Applications", "Educational"). Retool's category vocabulary, not ours.
 	ExcludeCategories []string
@@ -77,12 +94,16 @@ type Policy struct {
 // Exclusion reasons. Stable strings: they are displayed, logged, and asserted
 // on in tests.
 const (
-	ReasonProto      = "prototype/beta"
-	ReasonDemo       = "demo"
-	ReasonBIOS       = "BIOS"
-	ReasonUnlicensed = "unlicensed/aftermarket"
-	ReasonBadDump    = "bad dump"
-	ReasonCategory   = "excluded category"
+	ReasonProto       = "prototype/beta"
+	ReasonDemo        = "demo"
+	ReasonBIOS        = "BIOS"
+	ReasonUnlicensed  = "unlicensed"
+	ReasonAftermarket = "aftermarket homebrew"
+	ReasonPirate      = "pirate"
+	ReasonUnverified  = "not a verified dump"
+	ReasonNoEnglish   = "no English release"
+	ReasonBadDump     = "bad dump"
+	ReasonCategory    = "excluded category"
 )
 
 // Candidate is one member of a group with the verdict attached.
@@ -182,6 +203,7 @@ func Build(members []Member, overlay *Overlay, p Policy) []Group {
 			g.Members = append(g.Members, c)
 		}
 		chooseKeeper(&g, b.titlePriority, p)
+		requireEnglish(&g, p)
 		out = append(out, g)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -227,6 +249,12 @@ func excludedBy(m Member, categories []string, p Policy) (string, bool) {
 		return ReasonDemo, true
 	case f.unlicensed && !p.AllowUnlicensed:
 		return ReasonUnlicensed, true
+	case f.aftermarket && !p.AllowAftermarket:
+		return ReasonAftermarket, true
+	case f.pirate && !p.AllowPirate:
+		return ReasonPirate, true
+	case p.VerifiedOnly && !f.verified:
+		return ReasonUnverified, true
 	}
 	for _, want := range p.ExcludeCategories {
 		for _, have := range categories {
@@ -238,7 +266,9 @@ func excludedBy(m Member, categories []string, p Policy) (string, bool) {
 	return "", false
 }
 
-type flags struct{ bios, proto, demo, unlicensed, bad, verified bool }
+type flags struct {
+	bios, proto, demo, unlicensed, aftermarket, pirate, bad, verified bool
+}
 
 // classify merges the catalog's own flags with what the rom names say.
 func classify(m Member) flags {
@@ -254,9 +284,9 @@ func classify(m Member) flags {
 		case "unl":
 			f.unlicensed = true
 		case "aftermarket":
-			// Folded into unlicensed until aftermarket gets its own gate;
-			// stored by parser v3 catalogs.
-			f.unlicensed = true
+			f.aftermarket = true
+		case "pirate":
+			f.pirate = true
 		case "bad":
 			f.bad = true
 		case "verified":
@@ -269,17 +299,16 @@ func classify(m Member) flags {
 		f.proto = f.proto || a.IsProto
 		f.demo = f.demo || a.IsDemo
 		f.unlicensed = f.unlicensed || a.IsUnlicensed
+		f.aftermarket = f.aftermarket || a.IsAftermarket
+		f.pirate = f.pirate || a.IsPirate
 		f.bad = f.bad || a.BadDump
 		f.verified = f.verified || a.VerifiedDump
-		// "(Aftermarket)" is a modern No-Intro homebrew tag, parsed
-		// first-class since parser v3; folded into unlicensed until it
-		// gets its own gate.
-		f.unlicensed = f.unlicensed || a.IsAftermarket
 	}
-	if ga := selection.Parse(m.Name); ga.IsAftermarket {
-		// Live parse, not stored flags alone: catalogs imported by parser
-		// v2 lack the aftermarket token until their next refresh.
-		f.unlicensed = true
+	// Live parse of the game name too, not stored flags alone: a catalog
+	// imported by an older parser lacks the newer tokens until its refresh.
+	if ga := selection.Parse(m.Name); ga.IsAftermarket || ga.IsPirate {
+		f.aftermarket = f.aftermarket || ga.IsAftermarket
+		f.pirate = f.pirate || ga.IsPirate
 	}
 	return f
 }
@@ -321,8 +350,10 @@ func less(a, b Candidate, titlePriority map[int64]int, p Policy) bool {
 	if ra, rb := regionRank(a.Region, p.RegionPriority), regionRank(b.Region, p.RegionPriority); ra != rb {
 		return ra < rb
 	}
-	if ea, eb := englishRank(a), englishRank(b); ea != eb {
-		return ea < eb
+	if !p.NoEnglishPreference {
+		if ea, eb := englishRank(a), englishRank(b); ea != eb {
+			return ea < eb
+		}
 	}
 	if a.Revision != b.Revision {
 		return a.Revision > b.Revision
@@ -350,6 +381,32 @@ func regionRank(region string, priority []string) int {
 		}
 	}
 	return best
+}
+
+// requireEnglish drops a group from the set when policy demands an English
+// release and none of its eligible dumps is English-capable. A GROUP gate,
+// not a member gate: excluding only the non-English members would leave a
+// keeperless husk indistinguishable from a policy bug, and excluding a
+// Japanese dump of a game that ALSO has a USA release is the region
+// priority's job, not this knob's.
+func requireEnglish(g *Group, p Policy) {
+	if !p.RequireEnglish {
+		return
+	}
+	for _, c := range g.Members {
+		if !c.Excluded && englishRank(c) == 0 {
+			return
+		}
+	}
+	for i := range g.Members {
+		if !g.Members[i].Excluded {
+			g.Members[i].Excluded = true
+			g.Members[i].Reason = ReasonNoEnglish
+			g.Members[i].Keeper = false
+		}
+	}
+	g.KeeperIndex = -1
+	g.Reason = ReasonNoEnglish
 }
 
 func englishRank(c Candidate) int {
