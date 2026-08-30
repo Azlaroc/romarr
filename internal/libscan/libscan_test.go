@@ -1,6 +1,7 @@
 package libscan
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/platform"
+	"gamarr/internal/romfile"
 )
 
 // The package's behaviour depends on the platform vocabulary, so the harness
@@ -346,6 +349,51 @@ func TestScanReportsUnvisited(t *testing.T) {
 	st := e.runSync(t, "all", Opts{})
 	if st["unvisited"] != 1 {
 		t.Fatalf("status = %+v, want 1 unvisited", st)
+	}
+}
+
+// 🔴 A stored hash_skipped marker is a measurement that already happened:
+// the scan must not re-extract the archive to re-learn it. Pinned by
+// stubbing the extractor to prove it is never invoked.
+func TestScanHonorsHashSkipMarker(t *testing.T) {
+	e := newEnv(t)
+
+	path := e.file(t, "nes/Pack (USA).zip", []byte("PK\x03\x04 pretend archive"))
+	id := e.row(t, "nes", "Pack", path, "romm", `{"gamarr":{"hash_skipped":"multi-file-archive"}}`)
+
+	extractorCalled := false
+	orig := romfile.Exec7z
+	romfile.Exec7z = func(ctx context.Context, archive, destDir string) *exec.Cmd {
+		extractorCalled = true
+		return orig(ctx, archive, destDir)
+	}
+	t.Cleanup(func() { romfile.Exec7z = orig })
+
+	st := e.runSync(t, "all", Opts{})
+	if st["adopted"] != 1 {
+		t.Fatalf("status = %+v", st)
+	}
+	if extractorCalled {
+		t.Fatal("scan re-extracted an entry the backfill already classified")
+	}
+	if got := e.catalogOf(t, id); got != db.CatalogUnknown {
+		t.Errorf("marked row verdict = %q, want unknown", got)
+	}
+}
+
+// A created row with no single-ROM identity gets the same permanent marker
+// the hash backfill writes, so no later sweep re-measures it.
+func TestScanMarksCreatedDirRows(t *testing.T) {
+	e := newEnv(t)
+	e.file(t, "nes/Boxed Set/a.nes", []byte("aa"))
+
+	e.runSync(t, "all", Opts{})
+	row := e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Boxed Set"))
+	if row == nil {
+		t.Fatal("dir row not created")
+	}
+	if got := db.ParseHashSkip(row.Metadata); got != db.HashSkipDirectory {
+		t.Errorf("hash_skipped = %q, want %q", got, db.HashSkipDirectory)
 	}
 }
 

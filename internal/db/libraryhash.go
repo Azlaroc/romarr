@@ -141,6 +141,23 @@ func hashSetClause(h LibraryHashes) ([]string, []interface{}, error) {
 	return sets, args, nil
 }
 
+// ParseHashSkip reads $.gamarr.hash_skipped — the permanent "this row can
+// never carry a hash" marker — off a metadata blob. "" when unmarked. The
+// scanner reads it before measuring: a marker is a measurement that already
+// happened, and re-extracting every multi-file archive on every scan to
+// re-learn the same classification would be an I/O bomb.
+func ParseHashSkip(metadata string) string {
+	var envelope struct {
+		Gamarr struct {
+			HashSkipped string `json:"hash_skipped"`
+		} `json:"gamarr"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &envelope); err != nil {
+		return ""
+	}
+	return envelope.Gamarr.HashSkipped
+}
+
 // MarkLibraryHashSkipped records why a row can never be hashed. Idempotent.
 func (s *JobStore) MarkLibraryHashSkipped(id int64, reason string) error {
 	if reason == "" {

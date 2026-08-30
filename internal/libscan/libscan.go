@@ -538,6 +538,7 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 
 	var hashes *db.LibraryHashes
 	catalog := db.CatalogUnknown
+	var measureErr error
 	if e.isDir {
 		row.Detail = DetailDirectory
 		row.Size = dirSize(e.path)
@@ -550,6 +551,7 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 				return row
 			}
 			row.Detail = detail
+			measureErr = err
 		} else {
 			hashes = measuredHashes(res)
 			catalog = r.doubleAsk(e.slug, filepath.Base(e.path), res.Hashes, payloadOf(res))
@@ -599,7 +601,50 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 		}
 	}
 	r.store.SetLibraryCatalogStatusByID(id, catalog)
+	// Permanent classifications are recorded exactly as the hash backfill
+	// records them, so neither plane ever re-extracts this entry to re-learn
+	// what it is.
+	if e.isDir {
+		r.markSkipReason(id, db.HashSkipDirectory, opts)
+	} else if measureErr != nil {
+		r.markSkip(id, measureErr, opts)
+	}
 	return row
+}
+
+// markSkip records a permanent skip marker for a measurement classification;
+// transient ones (no space) are deliberately not recorded — worth retrying.
+func (r *Runner) markSkip(id int64, err error, opts Opts) {
+	var multi *romfile.MultiFileError
+	switch {
+	case errors.Is(err, romfile.ErrRarArchive):
+		r.markSkipReason(id, db.HashSkipRar, opts)
+	case errors.As(err, &multi):
+		r.markSkipReason(id, db.HashSkipMultiFile, opts)
+	}
+}
+
+func (r *Runner) markSkipReason(id int64, reason string, opts Opts) {
+	if opts.DryRun {
+		return // a dry run leaves no trace, and a marker is a write
+	}
+	if err := r.store.MarkLibraryHashSkipped(id, reason); err != nil {
+		slog.Warn("mark hash skip", "library_id", id, "error", err)
+	}
+}
+
+// detailForMarker maps a stored skip marker back onto this runner's detail
+// vocabulary.
+func detailForMarker(marker string) string {
+	switch marker {
+	case db.HashSkipDirectory:
+		return DetailDirectory
+	case db.HashSkipMultiFile:
+		return DetailMultiFile
+	case db.HashSkipRar:
+		return DetailRar
+	}
+	return marker
 }
 
 // ensureVerdict fills a row's catalog verdict, preferring stored hashes.
@@ -632,12 +677,25 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 	if e.isDir {
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
 	}
+
+	// A permanent skip marker is a measurement that already happened: the
+	// hash backfill (or a prior scan) extracted this entry once and learned
+	// it can never carry a single-ROM hash. Honoring it is what keeps a
+	// re-scan from re-extracting every multi-file archive in the library.
+	// Force deliberately ignores it — that is what Force is for.
+	if !opts.Force {
+		if skip := db.ParseHashSkip(item.Metadata); skip != "" {
+			return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), detailForMarker(skip), ""
+		}
+	}
+
 	res, err := romfile.Measure(ctx, e.path, workRoot)
 	if err != nil {
 		d, hard := classifyMeasure(err)
 		if hard {
 			return "", "", d
 		}
+		r.markSkip(item.ID, err, opts)
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), d, ""
 	}
 	if !opts.DryRun {
