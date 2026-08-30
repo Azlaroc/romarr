@@ -205,3 +205,104 @@ func TestExcludedCategoryLeavesTheSet(t *testing.T) {
 		t.Errorf("reason = %q, want the category exclusion", got)
 	}
 }
+
+// The three gates the collection-profile plane added, each openable.
+func TestNewPolicyGates(t *testing.T) {
+	t.Run("aftermarket has its own rung and reason", func(t *testing.T) {
+		m := member(1, "Homebrew Thing (World)", "world", "Homebrew Thing (World) (Aftermarket).a78")
+		groups := Build([]Member{m}, nil, defaultPolicy())
+		if _, ok := groups[0].Keeper(); ok {
+			t.Fatal("aftermarket dump kept under the default policy")
+		}
+		if got := groups[0].Members[0].Reason; got != ReasonAftermarket {
+			t.Errorf("reason = %q, want %q — not the unlicensed fold", got, ReasonAftermarket)
+		}
+		p := defaultPolicy()
+		p.AllowAftermarket = true
+		if _, ok := Build([]Member{m}, nil, p)[0].Keeper(); !ok {
+			t.Error("aftermarket dump still excluded after AllowAftermarket")
+		}
+	})
+	t.Run("pirate has its own rung and reason", func(t *testing.T) {
+		m := member(1, "Bootleg Cart (Taiwan)", "taiwan")
+		m.Flags = "pirate"
+		groups := Build([]Member{m}, nil, defaultPolicy())
+		if _, ok := groups[0].Keeper(); ok {
+			t.Fatal("pirate dump kept under the default policy")
+		}
+		if got := groups[0].Members[0].Reason; got != ReasonPirate {
+			t.Errorf("reason = %q, want %q", got, ReasonPirate)
+		}
+		p := defaultPolicy()
+		p.AllowPirate = true
+		if _, ok := Build([]Member{m}, nil, p)[0].Keeper(); !ok {
+			t.Error("pirate dump still excluded after AllowPirate")
+		}
+	})
+	t.Run("verified-only narrows the set", func(t *testing.T) {
+		v := member(1, "Kirby (USA)", "usa")
+		v.Flags = "verified"
+		u := member(2, "Kirby (Europe)", "europe")
+		p := defaultPolicy()
+		p.VerifiedOnly = true
+		groups := Build([]Member{v, u}, nil, p)
+		keeper, ok := groups[0].Keeper()
+		if !ok || keeper.GameID != 1 {
+			t.Fatalf("verified-only keeper = %+v, want the verified dump", keeper)
+		}
+		if !groups[0].Members[1].Excluded || groups[0].Members[1].Reason != ReasonUnverified {
+			t.Errorf("unverified member = %+v, want excluded as %q", groups[0].Members[1], ReasonUnverified)
+		}
+	})
+}
+
+// RequireEnglish is a GROUP gate: a game whose only dumps are explicitly
+// non-English leaves the set; an untagged dump keeps its group in (absence of
+// a language list is not evidence of a foreign release). The Japan-orphan
+// protection stays intact when the knob is off — the zero-value Policy is the
+// historical behavior.
+func TestRequireEnglishDropsOnlyExplicitlyForeignGroups(t *testing.T) {
+	foreign := member(1, "Datach Game (Japan)", "japan")
+	foreign.Languages = "Ja"
+	untagged := member(2, "Mother 3 (Japan)", "japan")
+
+	p := defaultPolicy()
+	p.RequireEnglish = true
+	groups := Build([]Member{foreign, untagged}, nil, p)
+	byKey := map[string]Group{}
+	for _, g := range groups {
+		byKey[g.Key] = g
+	}
+	fg := byKey["title:datach game"]
+	if _, ok := fg.Keeper(); ok {
+		t.Fatal("explicitly Japanese-only group kept a keeper under RequireEnglish")
+	}
+	if fg.Reason != ReasonNoEnglish || fg.Members[0].Reason != ReasonNoEnglish {
+		t.Errorf("group/member reasons = %q / %q, want %q", fg.Reason, fg.Members[0].Reason, ReasonNoEnglish)
+	}
+	if _, ok := byKey["title:mother 3"].Keeper(); !ok {
+		t.Error("untagged Japan dump lost its keeper — RequireEnglish must not treat missing tags as foreign")
+	}
+}
+
+// NoEnglishPreference disables the English tier in keeper choice without
+// touching anything else.
+func TestNoEnglishPreferenceDisablesTheTier(t *testing.T) {
+	// The Ja dump's name sorts FIRST, so with the tier off the final
+	// name tie-break keeps it; with the tier on, the En tag outranks.
+	ja := member(1, "Game (Japan)", "japan")
+	ja.Languages = "Ja"
+	en := member(2, "Game (Japan) (En)", "japan")
+	en.Languages = "En"
+
+	keeper, _ := Build([]Member{ja, en}, nil, defaultPolicy())[0].Keeper()
+	if keeper.GameID != 2 {
+		t.Fatalf("default keeper = %d, want the English-tagged dump", keeper.GameID)
+	}
+	p := defaultPolicy()
+	p.NoEnglishPreference = true
+	keeper, _ = Build([]Member{ja, en}, nil, p)[0].Keeper()
+	if keeper.GameID != 1 {
+		t.Errorf("keeper = %d; with the tier off the name tie-break should keep the (En) name from winning on language", keeper.GameID)
+	}
+}

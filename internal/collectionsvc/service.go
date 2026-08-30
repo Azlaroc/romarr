@@ -20,12 +20,6 @@ import (
 	"gamarr/internal/selection"
 )
 
-// defaultExcludedCategories are the clone-list categories left out of a set by
-// default. Applications are the DS's "Photo Channel"-class entries: catalogued
-// dumps that are not games, so a set that wants them would report gaps nobody
-// intends to fill.
-var defaultExcludedCategories = []string{"Applications"}
-
 // Service answers set questions for one install.
 type Service struct {
 	cfg   *config.Config
@@ -48,14 +42,22 @@ func New(cfg *config.Config, store *db.JobStore) *Service {
 // with every set response because a keeper choice nobody can explain is the
 // same defect as a rejection on an invisible number.
 type PolicySummary struct {
-	ProfileID         int64    `json:"profile_id"`
-	ProfileName       string   `json:"profile_name"`
-	RegionPriority    []string `json:"region_priority"`
-	AllowProto        bool     `json:"allow_proto"`
-	AllowDemo         bool     `json:"allow_demo"`
-	AllowBIOS         bool     `json:"allow_bios"`
-	AllowUnlicensed   bool     `json:"allow_unlicensed"`
-	ExcludeCategories []string `json:"exclude_categories"`
+	// ProfileID/ProfileName identify the COLLECTION profile that decided the
+	// set (0 = the built-in Standard). Before the profile plane these named
+	// the quality profile the policy was scraped from.
+	ProfileID          int64    `json:"profile_id"`
+	ProfileName        string   `json:"profile_name"`
+	RegionPriority     []string `json:"region_priority"`
+	EnglishPreferred   bool     `json:"english_preferred"`
+	KeepWithoutEnglish bool     `json:"keep_without_english"`
+	AllowProto         bool     `json:"allow_proto"`
+	AllowDemo          bool     `json:"allow_demo"`
+	AllowBIOS          bool     `json:"allow_bios"`
+	AllowUnlicensed    bool     `json:"allow_unlicensed"`
+	AllowAftermarket   bool     `json:"allow_aftermarket"`
+	AllowPirate        bool     `json:"allow_pirate"`
+	VerifiedOnly       bool     `json:"verified_only"`
+	ExcludeCategories  []string `json:"exclude_categories"`
 }
 
 // SetResult is one platform's reconciled set.
@@ -107,24 +109,40 @@ func (c *Cycle) Set(slug string) SetResult {
 	return res
 }
 
-// policyFor resolves the platform's policy from its default profile. It
-// deliberately calls ResolveProfileForItem rather than EnsurePlatformProfile:
-// looking at a set must not materialize a profile as a side effect.
+// policyFor resolves the platform's COLLECTION profile — the single owner of
+// "what does this platform collect" since the profile plane landed. The
+// quality profile is no longer consulted here; its region/category fields
+// retire with the search rewire.
 func (s *Service) policyFor(slug string) (collection.Policy, PolicySummary) {
-	prof := s.store.ResolveProfileForItem(0, slug)
-	p := collection.Policy{ExcludeCategories: defaultExcludedCategories}
-	sum := PolicySummary{ExcludeCategories: defaultExcludedCategories}
-	if prof != nil {
-		p.RegionPriority = prof.RegionPriority
-		p.AllowProto, p.AllowDemo, p.AllowBIOS = prof.AllowProto, prof.AllowDemo, prof.AllowBIOS
-		sum.ProfileID, sum.ProfileName = prof.ID, prof.Name
-		sum.RegionPriority = prof.RegionPriority
-		sum.AllowProto, sum.AllowDemo, sum.AllowBIOS = prof.AllowProto, prof.AllowDemo, prof.AllowBIOS
+	cp := s.store.ResolveCollectionProfile(slug)
+	p := collection.Policy{
+		RegionPriority:      cp.RegionPriority,
+		AllowProto:          cp.AllowProto,
+		AllowDemo:           cp.AllowDemo,
+		AllowBIOS:           cp.AllowBIOS,
+		AllowUnlicensed:     cp.AllowUnlicensed,
+		AllowAftermarket:    cp.AllowAftermarket,
+		AllowPirate:         cp.AllowPirate,
+		VerifiedOnly:        cp.VerifiedOnly,
+		NoEnglishPreference: !cp.EnglishPreferred,
+		RequireEnglish:      !cp.KeepWithoutEnglish,
+		ExcludeCategories:   cp.ExcludeCategories,
 	}
-	// Unlicensed and aftermarket dumps have no profile flag of their own yet;
-	// the set excludes them, which is what makes atari2600's homebrew pile
-	// surplus rather than 1,786 gaps nobody asked for.
-	sum.AllowUnlicensed = p.AllowUnlicensed
+	sum := PolicySummary{
+		ProfileID:          cp.ID,
+		ProfileName:        cp.Name,
+		RegionPriority:     cp.RegionPriority,
+		EnglishPreferred:   cp.EnglishPreferred,
+		KeepWithoutEnglish: cp.KeepWithoutEnglish,
+		AllowProto:         cp.AllowProto,
+		AllowDemo:          cp.AllowDemo,
+		AllowBIOS:          cp.AllowBIOS,
+		AllowUnlicensed:    cp.AllowUnlicensed,
+		AllowAftermarket:   cp.AllowAftermarket,
+		AllowPirate:        cp.AllowPirate,
+		VerifiedOnly:       cp.VerifiedOnly,
+		ExcludeCategories:  cp.ExcludeCategories,
+	}
 	return p, sum
 }
 

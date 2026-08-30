@@ -34,13 +34,14 @@ func TestCollectionProfileSeedAndResolveDefaults(t *testing.T) {
 		t.Fatalf("unassigned platform resolves to %+v, want the Standard policy", got)
 	}
 
-	// A dangling id degrades to the built-in, never nil.
+	// A dangling id degrades to the stored default row, never nil — and the
+	// summary keeps naming a REAL, editable profile.
 	bogus := int64(9999)
 	if err := store.PatchPlatform("snes", PlatformPatch{CollectionProfileID: &bogus}); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-	if got := store.ResolveCollectionProfile("snes"); got == nil || got.ID != 0 {
-		t.Fatalf("dangling id resolves to %+v, want the built-in", got)
+	if got := store.ResolveCollectionProfile("snes"); got == nil || !got.IsDefault || got.ID == 0 {
+		t.Fatalf("dangling id resolves to %+v, want the stored default row", got)
 	}
 }
 
