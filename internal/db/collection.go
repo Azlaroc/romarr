@@ -326,8 +326,11 @@ func (s *JobStore) DatSetMembers(slug string) []DatSetMember {
 // file to another platform's set. One query for every platform, because the
 // scheduler reconciles many platforms per cycle.
 func (s *JobStore) LibraryNameIndexByPlatform() map[string]map[string]*LibraryItem {
+	// ORDER BY id: with first-writer-wins on the name keys below, the lowest
+	// library id owns a contested key on every rebuild (same rule as the hash
+	// and title indexes).
 	rows, err := s.db.Query(`SELECT id, title, platform, platform_slug, is_pc, file_path, file_size,
-		source, source_type, source_id, metadata, added_at FROM library_items`)
+		source, source_type, source_id, metadata, added_at FROM library_items ORDER BY id`)
 	if err != nil {
 		slog.Warn("library name index", "error", err)
 		return nil

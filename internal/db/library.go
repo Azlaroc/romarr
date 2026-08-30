@@ -925,7 +925,10 @@ func NormalizeTitleKey(title string) string {
 // GetAllLibraryTitles returns a map of normalized "title|platform_slug" to LibraryItem for bulk lookups.
 // RomM-synced rows are additionally keyed by their fs-name search key.
 func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') FROM library_items")
+	// ORDER BY id + first-writer-wins below: on a contested key the lowest
+	// library id wins, matching LibraryHashIndex and the cycle's title index.
+	// An unordered scan left the winner to SQLite's whim.
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') FROM library_items ORDER BY id")
 	if err != nil {
 		return nil
 	}
@@ -944,10 +947,14 @@ func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
 		item.IsPC = isPC != 0
 		key := strings.ToLower(strings.TrimSpace(item.Title)) + "|" + item.PlatformSlug
 		cp := item
-		result[key] = &cp
+		if _, dup := result[key]; !dup {
+			result[key] = &cp
+		}
 		// Second key on the RomM fs-name so release-name lookups hit too.
 		if searchKey.Valid && searchKey.String != "" {
-			result[searchKey.String+"|"+item.PlatformSlug] = &cp
+			if _, dup := result[searchKey.String+"|"+item.PlatformSlug]; !dup {
+				result[searchKey.String+"|"+item.PlatformSlug] = &cp
+			}
 		}
 	}
 	return result

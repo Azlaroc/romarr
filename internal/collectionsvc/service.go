@@ -10,6 +10,7 @@
 package collectionsvc
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
@@ -194,7 +195,28 @@ func (s *Service) NewCycle() *Cycle {
 		names:  s.store.LibraryNameIndexByPlatform(),
 		titles: map[string]map[string]*db.LibraryItem{},
 	}
-	for key, item := range s.store.GetAllLibraryTitles() {
+	// 🔴 Deterministic assembly. Two library titles routinely expand to the
+	// SAME ownership key ("Boulder Dash (USA)" and "Boulder Dash (Aftermarket)"
+	// both bare to "boulder dash"), and iterating the titles map directly let
+	// Go's randomized map order pick the winner — a different library row per
+	// rebuild, a different claim burned by the single-claim rule, and owned/gap
+	// counts that wobbled between two requests on the SAME process. The rule,
+	// here and in every library index: on a contested key, the LOWEST library
+	// id wins.
+	titles := s.store.GetAllLibraryTitles()
+	keys := make([]string, 0, len(titles))
+	for key := range titles {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := titles[keys[i]], titles[keys[j]]
+		if a.ID != b.ID {
+			return a.ID < b.ID
+		}
+		return keys[i] < keys[j]
+	})
+	for _, key := range keys {
+		item := titles[key]
 		cut := strings.LastIndex(key, "|")
 		if cut < 0 {
 			continue

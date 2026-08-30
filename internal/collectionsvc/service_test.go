@@ -228,3 +228,36 @@ func TestRefreshReportsAFetchFailure(t *testing.T) {
 		t.Errorf("status after a failed run = %+v", st)
 	}
 }
+
+// 🔴 Ownership claims must be identical on every rebuild. Two library titles
+// that expand to the same ownership key ("Great Escape" / "Great Escape
+// (Europe)" both bare to "great escape") used to race for the title-index
+// slot in map-iteration order, so owned/gap/surplus counts wobbled between
+// two requests on the same process — live prod read colecovision owned as
+// 127, 128 and 129 in three consecutive calls. The rule: the lowest library
+// id wins a contested key, every time.
+func TestCycleOwnershipIsDeterministic(t *testing.T) {
+	svc, store, _ := newTestService(t)
+	seedCatalog(t, store, "atari7800", []db.DatGameRow{
+		catGame("Great Escape (USA)", "usa", "ge1"),
+	})
+	// No hashes: force the title tier, where the collision lives.
+	addLibraryItem(t, store, "atari7800", "Great Escape", "/roms/atari7800/Great Escape.a78", "")
+	addLibraryItem(t, store, "atari7800", "Great Escape (Europe)", "/roms/atari7800/Great Escape (Europe).a78", "")
+
+	const wantPath = "/roms/atari7800/Great Escape.a78" // the lower library id
+	for i := 0; i < 40; i++ {
+		res := svc.NewCycle().Set("atari7800")
+		if len(res.Entries) != 1 {
+			t.Fatalf("rebuild %d: entries = %d, want 1", i, len(res.Entries))
+		}
+		keeper := res.Entries[0].Members[res.Entries[0].KeeperIndex]
+		if keeper.Owned == nil {
+			t.Fatalf("rebuild %d: keeper unowned", i)
+		}
+		if keeper.Owned.FilePath != wantPath {
+			t.Fatalf("rebuild %d: owner = %q, want the lowest library id %q",
+				i, keeper.Owned.FilePath, wantPath)
+		}
+	}
+}
