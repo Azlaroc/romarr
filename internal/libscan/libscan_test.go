@@ -397,6 +397,45 @@ func TestScanMarksCreatedDirRows(t *testing.T) {
 	}
 }
 
+// 🔴 The routine scan never measures an adopted row — sized against the
+// real library that was hundreds of GB of reads per scan. A hashless row is
+// counted as unmeasured and left verdict-absent; Force pays for it.
+func TestScanDoesNotMeasureAdoptedRows(t *testing.T) {
+	e := newEnv(t)
+
+	body := []byte("bytes the catalog knows")
+	crc, _, _ := hashesOf(body)
+	path := e.file(t, "nes/Hashless (USA).nes", body)
+	id := e.row(t, "nes", "Hashless", path, "romm", `{"romm":{"crc":"`+crc+`"}}`)
+	seedCatalog(t, e.store, "nes", [2]string{"Hashless (USA)", crc})
+
+	st := e.runSync(t, "all", Opts{})
+	if st["adopted"] != 1 {
+		t.Fatalf("status = %+v", st)
+	}
+	if got := e.catalogOf(t, id); got != "" {
+		t.Fatalf("verdict = %q — minted without a measurement (and $.romm must never answer)", got)
+	}
+	g, _ := e.meta(t, id)["gamarr"].(map[string]interface{})
+	if g != nil && g["md5"] != nil {
+		t.Fatal("scan measured an adopted row without Force")
+	}
+	counts, _ := e.runner.Status()["counts"].(map[string]int)
+	if counts[DetailUnmeasured] != 1 {
+		t.Errorf("counts = %+v, want 1 unmeasured", counts)
+	}
+
+	// Force pays for the measurement: hashes land, verdict fills.
+	e.runSync(t, "all", Opts{Force: true})
+	if got := e.catalogOf(t, id); got != db.CatalogVerified {
+		t.Errorf("post-force verdict = %q, want verified", got)
+	}
+	g, _ = e.meta(t, id)["gamarr"].(map[string]interface{})
+	if g == nil || g["crc"] != crc {
+		t.Errorf("post-force hashes not saved: %+v", g)
+	}
+}
+
 func TestScanScopedToPlatform(t *testing.T) {
 	e := newEnv(t)
 	e.file(t, "nes/One (USA).nes", []byte("one"))

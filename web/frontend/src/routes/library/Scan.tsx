@@ -150,11 +150,12 @@ export function LibraryScan() {
         {status.data?.last_error ? <span className="text-red-400">{status.data.last_error}</span> : null}
         <InfoPopover label="Scan">
           The library&apos;s inventory comes from its own root folders. A file a row already tracks is{' '}
-          <em>adopted</em> — the row keeps its history and gains what it lacked: hashes, a catalog verdict, a
-          repaired platform when its stored one named nothing. A file no row tracks becomes a new row. A row whose
-          file is gone is only <em>reported</em>: this scan deletes nothing, moves nothing, renames nothing.
-          Platforms come from the top-level directory name checked against the registry — never guessed from a
-          file&apos;s extension.
+          <em>adopted</em> — the row keeps its history and gains a catalog verdict when its stored hashes can
+          answer for free; rows with no stored measurement are counted and left alone (the routine scan never
+          reads file bytes for adopted rows — re-measure, per platform, is the way to fill them). A file no row
+          tracks becomes a new row, hashed and judged. A row whose file is gone is only <em>reported</em>: this
+          scan deletes nothing, moves nothing, renames nothing. Platforms come from the top-level directory name
+          checked against the registry — never guessed from a file&apos;s extension.
         </InfoPopover>
       </div>
 

@@ -71,6 +71,10 @@ const (
 	DetailNoSpace   = "not enough free space to extract"
 	DetailNested    = "inside an entry the scan already tracks"
 	DetailUnscanned = "under a directory the scan did not walk"
+	// DetailUnmeasured marks an adopted row with no stored measurement: the
+	// routine scan refuses to pay file I/O for it (a first scan would read
+	// hundreds of GB). Force, scoped to a platform, is the way to fill it.
+	DetailUnmeasured = "no stored measurement — force a re-measure to fill the verdict"
 )
 
 // maxConsecutiveErrors aborts a run failing for a systemic reason — a
@@ -647,22 +651,30 @@ func detailForMarker(marker string) string {
 	return marker
 }
 
-// ensureVerdict fills a row's catalog verdict, preferring stored hashes.
+// ensureVerdict fills a row's catalog verdict from what is already known.
 // Returns the verdict recorded ("" when the banked one was kept), a detail
-// note for unmeasurable entries, and an error detail ("" when none).
+// note, and an error detail ("" when none).
 //
-// A verdict means MEASURED: it comes from $.gamarr hashes (stored or
-// computed here), never from $.romm — that namespace is rewritten wholesale
-// by a plane this app does not control, and a verdict minted from it would
-// assert evidence nobody here ever saw.
+// A verdict means MEASURED: it comes from $.gamarr hashes (stored, or
+// computed under Force), never from $.romm — that namespace is rewritten
+// wholesale by a plane this app does not control, and a verdict minted from
+// it would assert evidence nobody here ever saw.
+//
+// 🔴 The routine scan NEVER measures an adopted row. Sized against the real
+// library, "measure whatever lacks stored hashes" meant hundreds of GB of
+// reads — and extraction of every multi-file arcade set — on every first
+// scan. So without Force: stored hashes answer for free, a skip marker or a
+// directory answers unknown for free, and everything else is counted as
+// unmeasured and left verdict-absent. Force is the explicit, per-platform
+// way to pay for measurement.
 func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entry, workRoot string, opts Opts) (catalog, detail, errDetail string) {
 	existing := db.LibraryCatalogStatus(item.Metadata)
 	if existing != "" && !opts.Force {
 		return "", "", ""
 	}
 
-	// Fast path: stored $.gamarr hashes answer without touching the file.
 	if !opts.Force {
+		// Stored $.gamarr hashes answer without touching the file.
 		if gh, ok := db.ParseGamarrHashes(item.Metadata); ok {
 			var unh romfile.Hashes
 			if gh.Unh != nil {
@@ -672,23 +684,22 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 				romfile.Hashes{CRC: gh.CRC, MD5: gh.MD5, SHA1: gh.SHA1}, unh)
 			return r.recordVerdict(item.ID, existing, verdict, opts), "", ""
 		}
-	}
-
-	if e.isDir {
-		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
-	}
-
-	// A permanent skip marker is a measurement that already happened: the
-	// hash backfill (or a prior scan) extracted this entry once and learned
-	// it can never carry a single-ROM hash. Honoring it is what keeps a
-	// re-scan from re-extracting every multi-file archive in the library.
-	// Force deliberately ignores it — that is what Force is for.
-	if !opts.Force {
+		// A permanent skip marker is a measurement that already happened:
+		// the entry was extracted once and can never carry a single-ROM
+		// hash. Same class as a directory: unknown, for free.
 		if skip := db.ParseHashSkip(item.Metadata); skip != "" {
 			return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), detailForMarker(skip), ""
 		}
+		if e.isDir {
+			return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
+		}
+		return "", DetailUnmeasured, ""
 	}
 
+	// Force: the operator asked to pay for a re-measure.
+	if e.isDir {
+		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
+	}
 	res, err := romfile.Measure(ctx, e.path, workRoot)
 	if err != nil {
 		d, hard := classifyMeasure(err)
@@ -699,9 +710,6 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), d, ""
 	}
 	if !opts.DryRun {
-		// Self-heal: the row was hashless and the bytes are in hand — the
-		// same rule as the renamer's hashless arm, so no row is measured
-		// twice across planes.
 		if err := r.store.SaveLibraryHashes(item.ID, *measuredHashes(res)); err != nil {
 			return "", "", "save hashes: " + err.Error()
 		}
