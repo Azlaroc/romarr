@@ -1,6 +1,7 @@
 package libscan
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/db"
 	"gamarr/internal/platform"
+	"gamarr/internal/romfile"
 )
 
 // The package's behaviour depends on the platform vocabulary, so the harness
@@ -310,15 +313,25 @@ func TestScanNeverDowngradesBankedVerdict(t *testing.T) {
 func TestScanGameDirAndNestedRows(t *testing.T) {
 	e := newEnv(t)
 
-	// A directory that directly holds game files is ONE entry.
+	// Any directory at depth 1 is ONE entry — including one whose contents
+	// carry extensions no allowlist knows (.a26 cart dirs, forwarder packs).
+	// The walk never recurses: the library model is platform/entry, and a
+	// depth-2 row is a row no other plane expects.
 	e.file(t, "nes/Disc Set/a.nes", []byte("aa"))
 	e.file(t, "nes/Disc Set/b.nes", []byte("bb"))
-	// A row tracking a file INSIDE it is accounted for, not missing.
+	e.file(t, "nes/Oddball Cart (USA)/Oddball Cart (USA).a26", []byte("cart"))
+	// A row tracking a file INSIDE a dir entry is accounted for, not missing.
 	innerID := e.row(t, "nes", "Inner", filepath.Join(e.roms, "nes", "Disc Set", "a.nes"), "ddl", "")
 
 	st := e.runSync(t, "all", Opts{})
-	if st["created"] != 1 {
-		t.Fatalf("status = %+v, want the dir as one created entry", st)
+	if st["created"] != 2 {
+		t.Fatalf("status = %+v, want both dirs as single created entries", st)
+	}
+	if e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Oddball Cart (USA)", "Oddball Cart (USA).a26")) != nil {
+		t.Fatal("walk recursed into a game dir and minted a depth-2 row")
+	}
+	if e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Oddball Cart (USA)")) == nil {
+		t.Fatal("cart dir not created as one entry")
 	}
 	dirRow := e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Disc Set"))
 	if dirRow == nil {
@@ -346,6 +359,90 @@ func TestScanReportsUnvisited(t *testing.T) {
 	st := e.runSync(t, "all", Opts{})
 	if st["unvisited"] != 1 {
 		t.Fatalf("status = %+v, want 1 unvisited", st)
+	}
+}
+
+// 🔴 A stored hash_skipped marker is a measurement that already happened:
+// the scan must not re-extract the archive to re-learn it. Pinned by
+// stubbing the extractor to prove it is never invoked.
+func TestScanHonorsHashSkipMarker(t *testing.T) {
+	e := newEnv(t)
+
+	path := e.file(t, "nes/Pack (USA).zip", []byte("PK\x03\x04 pretend archive"))
+	id := e.row(t, "nes", "Pack", path, "romm", `{"gamarr":{"hash_skipped":"multi-file-archive"}}`)
+
+	extractorCalled := false
+	orig := romfile.Exec7z
+	romfile.Exec7z = func(ctx context.Context, archive, destDir string) *exec.Cmd {
+		extractorCalled = true
+		return orig(ctx, archive, destDir)
+	}
+	t.Cleanup(func() { romfile.Exec7z = orig })
+
+	st := e.runSync(t, "all", Opts{})
+	if st["adopted"] != 1 {
+		t.Fatalf("status = %+v", st)
+	}
+	if extractorCalled {
+		t.Fatal("scan re-extracted an entry the backfill already classified")
+	}
+	if got := e.catalogOf(t, id); got != db.CatalogUnknown {
+		t.Errorf("marked row verdict = %q, want unknown", got)
+	}
+}
+
+// A created row with no single-ROM identity gets the same permanent marker
+// the hash backfill writes, so no later sweep re-measures it.
+func TestScanMarksCreatedDirRows(t *testing.T) {
+	e := newEnv(t)
+	e.file(t, "nes/Boxed Set/a.nes", []byte("aa"))
+
+	e.runSync(t, "all", Opts{})
+	row := e.store.LibraryItemByFilePath(filepath.Join(e.roms, "nes", "Boxed Set"))
+	if row == nil {
+		t.Fatal("dir row not created")
+	}
+	if got := db.ParseHashSkip(row.Metadata); got != db.HashSkipDirectory {
+		t.Errorf("hash_skipped = %q, want %q", got, db.HashSkipDirectory)
+	}
+}
+
+// 🔴 The routine scan never measures an adopted row — sized against the
+// real library that was hundreds of GB of reads per scan. A hashless row is
+// counted as unmeasured and left verdict-absent; Force pays for it.
+func TestScanDoesNotMeasureAdoptedRows(t *testing.T) {
+	e := newEnv(t)
+
+	body := []byte("bytes the catalog knows")
+	crc, _, _ := hashesOf(body)
+	path := e.file(t, "nes/Hashless (USA).nes", body)
+	id := e.row(t, "nes", "Hashless", path, "romm", `{"romm":{"crc":"`+crc+`"}}`)
+	seedCatalog(t, e.store, "nes", [2]string{"Hashless (USA)", crc})
+
+	st := e.runSync(t, "all", Opts{})
+	if st["adopted"] != 1 {
+		t.Fatalf("status = %+v", st)
+	}
+	if got := e.catalogOf(t, id); got != "" {
+		t.Fatalf("verdict = %q — minted without a measurement (and $.romm must never answer)", got)
+	}
+	g, _ := e.meta(t, id)["gamarr"].(map[string]interface{})
+	if g != nil && g["md5"] != nil {
+		t.Fatal("scan measured an adopted row without Force")
+	}
+	counts, _ := e.runner.Status()["counts"].(map[string]int)
+	if counts[DetailUnmeasured] != 1 {
+		t.Errorf("counts = %+v, want 1 unmeasured", counts)
+	}
+
+	// Force pays for the measurement: hashes land, verdict fills.
+	e.runSync(t, "all", Opts{Force: true})
+	if got := e.catalogOf(t, id); got != db.CatalogVerified {
+		t.Errorf("post-force verdict = %q, want verified", got)
+	}
+	g, _ = e.meta(t, id)["gamarr"].(map[string]interface{})
+	if g == nil || g["crc"] != crc {
+		t.Errorf("post-force hashes not saved: %+v", g)
 	}
 }
 

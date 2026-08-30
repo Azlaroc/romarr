@@ -71,6 +71,10 @@ const (
 	DetailNoSpace   = "not enough free space to extract"
 	DetailNested    = "inside an entry the scan already tracks"
 	DetailUnscanned = "under a directory the scan did not walk"
+	// DetailUnmeasured marks an adopted row with no stored measurement: the
+	// routine scan refuses to pay file I/O for it (a first scan would read
+	// hundreds of GB). Force, scoped to a platform, is the way to fill it.
+	DetailUnmeasured = "no stored measurement — force a re-measure to fill the verdict"
 )
 
 // maxConsecutiveErrors aborts a run failing for a systemic reason — a
@@ -407,12 +411,18 @@ func (r *Runner) enumerate(scope, root string) ([]entry, map[string]bool) {
 	return out, scanned
 }
 
-// walkPlatform collects entries under one platform dir: a directory that
-// directly holds game files is one entry (a multi-file game), any other
-// directory is organizational and recursed into, and every non-sidecar file
-// is one entry. No extension allowlist for files: DAT-canonical names carry
-// cartridge extensions no fixed list stays ahead of (.a26, .lnx, .ws, ...),
-// and the sidecar exclusion is the honest filter.
+// walkPlatform collects entries under one platform dir — ONE level, never
+// deeper. The library model (RomM's, and now ours) is platform/entry: every
+// depth-1 item is one entry, a directory being a multi-file game. Verified
+// against the real library before this shipped: all 21K rows sit at exactly
+// depth 1, including whole directories-of-files as single rows. A recursion
+// heuristic ("does this dir hold game files?") was tried and rejected — it
+// keyed on an extension list that no cart platform's DAT-canonical names
+// (.a26, .pce, .lnx, ...) stay inside, and misreading a game dir as
+// organizational would mint depth-2 rows no other plane expects.
+//
+// Files have no extension allowlist either: the sidecar exclusion is the
+// honest filter, for the same reason.
 func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 	dirents, err := os.ReadDir(dir)
 	if err != nil {
@@ -430,11 +440,7 @@ func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 		}
 		fp := filepath.Join(dir, name)
 		if e.IsDir() {
-			if containsGameFiles(fp) {
-				*out = append(*out, entry{path: fp, topDir: top, slug: slug, isDir: true})
-			} else {
-				r.walkPlatform(fp, top, slug, out)
-			}
+			*out = append(*out, entry{path: fp, topDir: top, slug: slug, isDir: true})
 			continue
 		}
 		if romfile.IsSidecarExtension(name) {
@@ -446,21 +452,6 @@ func (r *Runner) walkPlatform(dir, top, slug string, out *[]entry) {
 		}
 		*out = append(*out, entry{path: fp, topDir: top, slug: slug, size: size})
 	}
-}
-
-// containsGameFiles reports whether a directory directly holds game files —
-// the "this directory IS the game" test (disc sets, [NSP] folders).
-func containsGameFiles(dir string) bool {
-	dirents, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range dirents {
-		if !e.IsDir() && romfile.IsGameExtension(e.Name()) {
-			return true
-		}
-	}
-	return false
 }
 
 // report appends a bookkeeping row (no visit counter — these are not work
@@ -538,6 +529,7 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 
 	var hashes *db.LibraryHashes
 	catalog := db.CatalogUnknown
+	var measureErr error
 	if e.isDir {
 		row.Detail = DetailDirectory
 		row.Size = dirSize(e.path)
@@ -550,6 +542,7 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 				return row
 			}
 			row.Detail = detail
+			measureErr = err
 		} else {
 			hashes = measuredHashes(res)
 			catalog = r.doubleAsk(e.slug, filepath.Base(e.path), res.Hashes, payloadOf(res))
@@ -599,25 +592,76 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 		}
 	}
 	r.store.SetLibraryCatalogStatusByID(id, catalog)
+	// Permanent classifications are recorded exactly as the hash backfill
+	// records them, so neither plane ever re-extracts this entry to re-learn
+	// what it is.
+	if e.isDir {
+		r.markSkipReason(id, db.HashSkipDirectory, opts)
+	} else if measureErr != nil {
+		r.markSkip(id, measureErr, opts)
+	}
 	return row
 }
 
-// ensureVerdict fills a row's catalog verdict, preferring stored hashes.
+// markSkip records a permanent skip marker for a measurement classification;
+// transient ones (no space) are deliberately not recorded — worth retrying.
+func (r *Runner) markSkip(id int64, err error, opts Opts) {
+	var multi *romfile.MultiFileError
+	switch {
+	case errors.Is(err, romfile.ErrRarArchive):
+		r.markSkipReason(id, db.HashSkipRar, opts)
+	case errors.As(err, &multi):
+		r.markSkipReason(id, db.HashSkipMultiFile, opts)
+	}
+}
+
+func (r *Runner) markSkipReason(id int64, reason string, opts Opts) {
+	if opts.DryRun {
+		return // a dry run leaves no trace, and a marker is a write
+	}
+	if err := r.store.MarkLibraryHashSkipped(id, reason); err != nil {
+		slog.Warn("mark hash skip", "library_id", id, "error", err)
+	}
+}
+
+// detailForMarker maps a stored skip marker back onto this runner's detail
+// vocabulary.
+func detailForMarker(marker string) string {
+	switch marker {
+	case db.HashSkipDirectory:
+		return DetailDirectory
+	case db.HashSkipMultiFile:
+		return DetailMultiFile
+	case db.HashSkipRar:
+		return DetailRar
+	}
+	return marker
+}
+
+// ensureVerdict fills a row's catalog verdict from what is already known.
 // Returns the verdict recorded ("" when the banked one was kept), a detail
-// note for unmeasurable entries, and an error detail ("" when none).
+// note, and an error detail ("" when none).
 //
-// A verdict means MEASURED: it comes from $.gamarr hashes (stored or
-// computed here), never from $.romm — that namespace is rewritten wholesale
-// by a plane this app does not control, and a verdict minted from it would
-// assert evidence nobody here ever saw.
+// A verdict means MEASURED: it comes from $.gamarr hashes (stored, or
+// computed under Force), never from $.romm — that namespace is rewritten
+// wholesale by a plane this app does not control, and a verdict minted from
+// it would assert evidence nobody here ever saw.
+//
+// 🔴 The routine scan NEVER measures an adopted row. Sized against the real
+// library, "measure whatever lacks stored hashes" meant hundreds of GB of
+// reads — and extraction of every multi-file arcade set — on every first
+// scan. So without Force: stored hashes answer for free, a skip marker or a
+// directory answers unknown for free, and everything else is counted as
+// unmeasured and left verdict-absent. Force is the explicit, per-platform
+// way to pay for measurement.
 func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entry, workRoot string, opts Opts) (catalog, detail, errDetail string) {
 	existing := db.LibraryCatalogStatus(item.Metadata)
 	if existing != "" && !opts.Force {
 		return "", "", ""
 	}
 
-	// Fast path: stored $.gamarr hashes answer without touching the file.
 	if !opts.Force {
+		// Stored $.gamarr hashes answer without touching the file.
 		if gh, ok := db.ParseGamarrHashes(item.Metadata); ok {
 			var unh romfile.Hashes
 			if gh.Unh != nil {
@@ -627,8 +671,19 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 				romfile.Hashes{CRC: gh.CRC, MD5: gh.MD5, SHA1: gh.SHA1}, unh)
 			return r.recordVerdict(item.ID, existing, verdict, opts), "", ""
 		}
+		// A permanent skip marker is a measurement that already happened:
+		// the entry was extracted once and can never carry a single-ROM
+		// hash. Same class as a directory: unknown, for free.
+		if skip := db.ParseHashSkip(item.Metadata); skip != "" {
+			return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), detailForMarker(skip), ""
+		}
+		if e.isDir {
+			return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
+		}
+		return "", DetailUnmeasured, ""
 	}
 
+	// Force: the operator asked to pay for a re-measure.
 	if e.isDir {
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), DetailDirectory, ""
 	}
@@ -638,12 +693,10 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 		if hard {
 			return "", "", d
 		}
+		r.markSkip(item.ID, err, opts)
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), d, ""
 	}
 	if !opts.DryRun {
-		// Self-heal: the row was hashless and the bytes are in hand — the
-		// same rule as the renamer's hashless arm, so no row is measured
-		// twice across planes.
 		if err := r.store.SaveLibraryHashes(item.ID, *measuredHashes(res)); err != nil {
 			return "", "", "save hashes: " + err.Error()
 		}
