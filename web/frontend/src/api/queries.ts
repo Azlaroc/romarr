@@ -34,6 +34,8 @@ import type {
   LoginResponse,
   TestResult,
   QualityProfile,
+  CollectionProfile,
+  PlatformSetPage,
   ReleaseProfile,
   BlocklistItem,
   MetadataProvider,
@@ -87,6 +89,8 @@ export const keys = {
   authStatus: ['auth-status'] as const,
   unread: ['notifications-unread'] as const,
   qualityProfiles: ['quality-profiles'] as const,
+  collectionProfiles: ['collection-profiles'] as const,
+  platformSet: (slug: string, status: string, page: number) => ['platform-set', slug, status, page] as const,
   platformRegistry: ['platform-registry'] as const,
   releaseProfiles: ['release-profiles'] as const,
   blocklist: ['blocklist'] as const,
@@ -328,6 +332,42 @@ export function useDeleteQualityProfile() {
   return useMutation({
     mutationFn: (id: number) => api.del(`/api/quality-profiles/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.qualityProfiles }),
+  })
+}
+
+export function useCollectionProfiles() {
+  return useQuery({
+    queryKey: keys.collectionProfiles,
+    queryFn: async () => pickArray<CollectionProfile>(await api.get('/api/collection-profiles'), 'profiles'),
+  })
+}
+
+export function useSaveCollectionProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (p: CollectionProfile) =>
+      p.id ? api.put(`/api/collection-profiles/${p.id}`, p) : api.post('/api/collection-profiles', p),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.collectionProfiles }),
+  })
+}
+
+export function useDeleteCollectionProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/collection-profiles/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.collectionProfiles }),
+  })
+}
+
+// One page of a platform's reconciled 1G1R set — the quadrant view.
+export function usePlatformSet(slug: string, status: string, page: number) {
+  return useQuery({
+    queryKey: keys.platformSet(slug, status, page),
+    queryFn: async () =>
+      api.get<PlatformSetPage>(
+        `/api/platforms/${encodeURIComponent(slug)}/set?status=${encodeURIComponent(status)}&page=${page}&page_size=50`,
+      ),
+    enabled: slug !== '',
   })
 }
 
