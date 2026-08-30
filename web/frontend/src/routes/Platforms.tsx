@@ -11,7 +11,9 @@ import { Toggle } from '../components/ui/Toggle'
 import { inputCls } from '../components/ui/Input'
 import { useToast } from '../components/ui/Toast'
 import { isForbidden } from '../api/client'
+import { Link } from 'react-router-dom'
 import {
+  useCollectionProfiles,
   useDatCoverage,
   usePlatformRegistry,
   useQualityProfiles,
@@ -21,6 +23,7 @@ import type { PlatformRow } from '../api/types'
 
 interface RowEdit {
   default_profile_id?: number
+  collection_profile_id?: number
   acquisition_enabled?: boolean
   collection_mode?: boolean
 }
@@ -34,6 +37,7 @@ const CLASS_COLOR: Record<string, 'blue' | 'purple' | 'orange' | 'slate'> = {
 export function Platforms() {
   const { data: platforms, isLoading, error } = usePlatformRegistry()
   const { data: profileData } = useQualityProfiles()
+  const { data: collectionProfiles = [] } = useCollectionProfiles()
   const { data: coverage } = useDatCoverage()
   const save = useSavePlatform()
   const { toast } = useToast()
@@ -59,6 +63,7 @@ export function Platforms() {
 
   const effective = (row: PlatformRow) => ({
     profileID: edits[row.slug]?.default_profile_id ?? row.default_profile_id,
+    collectionProfileID: edits[row.slug]?.collection_profile_id ?? row.collection_profile_id,
     acquisition: edits[row.slug]?.acquisition_enabled ?? row.acquisition_enabled,
     collection: edits[row.slug]?.collection_mode ?? row.collection_mode,
   })
@@ -70,10 +75,12 @@ export function Platforms() {
       // change and undoing it leaves the page clean.
       const cand = next[row.slug]
       const profileID = cand.default_profile_id ?? row.default_profile_id
+      const collectionProfileID = cand.collection_profile_id ?? row.collection_profile_id
       const acquisition = cand.acquisition_enabled ?? row.acquisition_enabled
       const collection = cand.collection_mode ?? row.collection_mode
       if (
         profileID === row.default_profile_id &&
+        collectionProfileID === row.collection_profile_id &&
         acquisition === row.acquisition_enabled &&
         collection === row.collection_mode
       )
@@ -96,6 +103,9 @@ export function Platforms() {
           slug,
           ...(e.default_profile_id !== undefined && e.default_profile_id !== row.default_profile_id
             ? { default_profile_id: e.default_profile_id }
+            : {}),
+          ...(e.collection_profile_id !== undefined && e.collection_profile_id !== row.collection_profile_id
+            ? { collection_profile_id: e.collection_profile_id }
             : {}),
           ...(e.acquisition_enabled !== undefined && e.acquisition_enabled !== row.acquisition_enabled
             ? { acquisition_enabled: e.acquisition_enabled }
@@ -181,6 +191,40 @@ export function Platforms() {
             </option>
           ))}
         </select>
+      ),
+    },
+    {
+      key: 'arc',
+      header: 'Collection profile',
+      sortValue: (r) => effective(r).collectionProfileID,
+      render: (r) => (
+        <div className="flex items-center gap-2">
+          <select
+            className={`${inputCls} w-52`}
+            value={effective(r).collectionProfileID}
+            onChange={(e) => edit(r, { collection_profile_id: Number(e.target.value) })}
+            aria-label={`Collection profile for ${r.display_name}`}
+            data-testid={`plat-cprof-${r.slug}`}
+            disabled={!r.dat_authority}
+          >
+            {/* 0 = follow the stored default profile. */}
+            <option value={0}>Default</option>
+            {collectionProfiles.filter((p) => !p.is_default).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {r.dat_authority ? (
+            <Link
+              to={`/platforms/${r.slug}/set`}
+              className="whitespace-nowrap text-xs text-violet-400 underline decoration-dotted"
+              data-testid={`plat-set-${r.slug}`}
+            >
+              set
+            </Link>
+          ) : null}
+        </div>
       ),
     },
     {

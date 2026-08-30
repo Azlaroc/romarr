@@ -7,6 +7,7 @@ import { LibraryRename } from './routes/library/Rename'
 import { LibraryScan } from './routes/library/Scan'
 import { AddNew } from './routes/AddNew'
 import { Platforms } from './routes/Platforms'
+import { PlatformSet } from './routes/PlatformSet'
 import { Calendar } from './routes/Calendar'
 import { PlayLog } from './routes/PlayLog'
 import { Queue } from './routes/activity/Queue'
@@ -23,6 +24,7 @@ import { Metadata } from './routes/settings/Metadata'
 import { Tags } from './routes/settings/Tags'
 import { Profiles } from './routes/settings/Profiles'
 import { QualityProfileEditor } from './routes/settings/QualityProfileEditor'
+import { CollectionProfileEditor } from './routes/settings/CollectionProfileEditor'
 import { ReleaseProfileEditor } from './routes/settings/ReleaseProfileEditor'
 import { SystemStatus } from './routes/system/Status'
 import { Tasks } from './routes/system/Tasks'
@@ -43,6 +45,7 @@ export const router = createBrowserRouter([
       { path: 'add', element: <AddNew /> },
       { path: 'calendar', element: <Calendar /> },
       { path: 'platforms', element: <Platforms /> },
+      { path: 'platforms/:slug/set', element: <PlatformSet /> },
       { path: 'playlog', element: <PlayLog /> },
       { path: 'activity', element: <Navigate to="/activity/queue" replace /> },
       { path: 'activity/queue', element: <Queue /> },
@@ -62,6 +65,8 @@ export const router = createBrowserRouter([
       { path: 'settings/profiles', element: <Profiles /> },
       { path: 'settings/profiles/quality/new', element: <QualityProfileEditor /> },
       { path: 'settings/profiles/quality/:id', element: <QualityProfileEditor /> },
+      { path: 'settings/profiles/collection/new', element: <CollectionProfileEditor /> },
+      { path: 'settings/profiles/collection/:id', element: <CollectionProfileEditor /> },
       { path: 'settings/profiles/release/new', element: <ReleaseProfileEditor /> },
       { path: 'settings/profiles/release/:id', element: <ReleaseProfileEditor /> },
       { path: 'system', element: <Navigate to="/system/status" replace /> },

@@ -28,9 +28,97 @@ export interface PlatformRow {
   collection_mode: boolean
   is_system: boolean
   default_profile_id: number
+  /** Which collection profile this platform follows; 0 = the stored default. */
+  collection_profile_id: number
   updated_at?: string
   dat_authority?: string
   dat_code?: string
+}
+
+/** What a platform collects out of its DAT — region order, language
+ * preference, category gates. The Lidarr metadata-profile analog in Retool's
+ * 1G1R vocabulary. */
+export interface CollectionProfile {
+  id: number
+  is_default: boolean
+  name: string
+  region_priority: string[]
+  english_preferred: boolean
+  keep_without_english: boolean
+  allow_proto: boolean
+  allow_demo: boolean
+  allow_bios: boolean
+  allow_unlicensed: boolean
+  allow_aftermarket: boolean
+  allow_pirate: boolean
+  verified_only: boolean
+  exclude_categories: string[]
+}
+
+export interface SetMatch {
+  library_id: number
+  title: string
+  file_path: string
+  matched_by: string
+}
+
+export interface SetCandidate {
+  game_id: number
+  name: string
+  region?: string
+  excluded?: boolean
+  reason?: string
+  keeper?: boolean
+  owned?: SetMatch | null
+}
+
+export interface SetEntry {
+  key: string
+  title: string
+  source: string
+  status: string // owned | covered | gap | out
+  reason?: string
+  keeper_index: number
+  members: SetCandidate[]
+  surplus?: SetCandidate[]
+}
+
+export interface SetCounts {
+  groups: number
+  owned: number
+  covered: number
+  gaps: number
+  out: number
+  out_on_disk: number
+  surplus: number
+}
+
+export interface SetPolicySummary {
+  profile_id: number
+  profile_name: string
+  region_priority: string[]
+  english_preferred: boolean
+  keep_without_english: boolean
+  allow_proto: boolean
+  allow_demo: boolean
+  allow_bios: boolean
+  allow_unlicensed: boolean
+  allow_aftermarket: boolean
+  allow_pirate: boolean
+  verified_only: boolean
+  exclude_categories: string[]
+}
+
+export interface PlatformSetPage {
+  platform_slug: string
+  entries: SetEntry[]
+  total: number
+  page: number
+  page_size: number
+  counts: SetCounts
+  uncatalogued: number
+  policy: SetPolicySummary
+  grouping: string
 }
 
 export interface SearchResult {
