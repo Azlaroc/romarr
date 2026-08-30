@@ -2,6 +2,7 @@ package collectionsvc
 
 import (
 	"log/slog"
+	"strings"
 
 	"gamarr/internal/collection"
 	"gamarr/internal/db"
@@ -41,10 +42,26 @@ func (c *Cycle) SyncTargets(slug string) SyncResult {
 		}
 		gaps = append(gaps, db.CollectionGap{
 			SetKey: e.Key, Title: e.Title, DumpName: keeper.Name,
+			DumpHashes: keeperHashes(keeper),
 		})
 	}
 	added, removed := c.svc.store.SyncCollectionTargets(slug, gaps)
 	return SyncResult{Platform: slug, Added: added, Removed: removed, Counts: res.Counts}
+}
+
+// keeperHashes collects the keeper's rom md5/sha1 values, lowered — the
+// identity the selector can prefer a candidate on.
+func keeperHashes(keeper collection.Candidate) []string {
+	var out []string
+	for _, r := range keeper.Roms {
+		for _, h := range []string{r.MD5, r.SHA1} {
+			h = strings.ToLower(strings.TrimSpace(h))
+			if h != "" {
+				out = append(out, h)
+			}
+		}
+	}
+	return out
 }
 
 // SyncAll refreshes the gap list for every platform in collection mode, and

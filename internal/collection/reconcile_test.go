@@ -239,3 +239,66 @@ func TestStrongerTierWinsAcrossMembers(t *testing.T) {
 		t.Errorf("matches = %d by hash / %d by title, want the hash tier to claim the file", byHash, byTitle)
 	}
 }
+
+// The quadrant matrix (blaster#327): keeper on disk = owned; an in-profile
+// alternate on disk = covered (playable tonight, wrong copy — fill must not
+// chase it); an EXCLUDED member on disk covers nothing (that file is the
+// outside-profile quadrant); nothing on disk = gap. Alternates bind at the
+// NAME tier here on purpose: the title tier cannot tell regions apart, and
+// the single-claim rule hands a title-tier file to the keeper.
+func TestReconcileCoveredStatus(t *testing.T) {
+	lib := &fakeIndex{names: map[string]int64{
+		"Keeper Game (USA)":  13,
+		"Alt Game (Europe)":  11,
+		"Proto Only (Proto)": 12,
+	}}
+	mk := func(id int64, name, region string, excluded bool) Candidate {
+		c := Candidate{Member: Member{GameID: id, Name: name, BareTitle: name, Region: region}}
+		c.Excluded = excluded
+		return c
+	}
+	groups := []Group{
+		{Key: "owned", Members: []Candidate{mk(1, "Keeper Game (USA)", "usa", false)}, KeeperIndex: 0},
+		{Key: "covered", Members: []Candidate{
+			mk(2, "Alt Game (USA)", "usa", false),
+			mk(3, "Alt Game (Europe)", "europe", false),
+		}, KeeperIndex: 0},
+		{Key: "excluded-owned", Members: []Candidate{
+			mk(4, "Proto Only (USA)", "usa", false),
+			mk(5, "Proto Only (Proto)", "usa", true),
+		}, KeeperIndex: 0},
+		{Key: "gap", Members: []Candidate{mk(6, "Missing Game (USA)", "usa", false)}, KeeperIndex: 0},
+	}
+	for i := range groups {
+		groups[i].Members[groups[i].KeeperIndex].Keeper = true
+	}
+	entries := Reconcile(groups, lib)
+	want := map[string]string{
+		"owned": StatusOwned, "covered": StatusCovered,
+		"excluded-owned": StatusGap, "gap": StatusGap,
+	}
+	for _, e := range entries {
+		if e.Status != want[e.Key] {
+			t.Errorf("group %q status = %q, want %q", e.Key, e.Status, want[e.Key])
+		}
+	}
+	c := Summarise(entries)
+	if c.Owned != 1 || c.Covered != 1 || c.Gaps != 2 || c.Groups != 4 {
+		t.Errorf("counts = %+v, want 1 owned / 1 covered / 2 gaps", c)
+	}
+}
+
+// OutOnDisk counts excluded groups we hold a member of — the P.U.L.S.E
+// quadrant: catalogued, on disk, outside the profile. Derived from members,
+// never a status of its own.
+func TestSummariseOutOnDisk(t *testing.T) {
+	own := Match{LibraryID: 21, FilePath: "/roms/x/f.a26"}
+	entries := []Entry{
+		{Group: Group{Key: "out-empty", KeeperIndex: -1, Members: []Candidate{{}}}, Status: StatusOut},
+		{Group: Group{Key: "out-held", KeeperIndex: -1, Members: []Candidate{{Owned: &own}}}, Status: StatusOut},
+	}
+	c := Summarise(entries)
+	if c.Out != 2 || c.OutOnDisk != 1 {
+		t.Errorf("counts = %+v, want out 2 / out_on_disk 1", c)
+	}
+}

@@ -71,6 +71,7 @@ func (s *Scheduler) fillCollections(stop chan struct{}, cx *cycleCtx) int {
 			}
 			out := s.processWanted(wantedItem{
 				Title: t.Title, PlatformSlug: t.PlatformSlug,
+				DumpName: t.DumpName, DumpHashes: t.DumpHashes,
 			}, cx)
 			searched++
 			budget--

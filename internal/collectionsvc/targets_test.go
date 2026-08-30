@@ -74,3 +74,45 @@ func TestSyncAllOnlyCoversCollectionModePlatforms(t *testing.T) {
 		t.Errorf("targets = %d after leaving collection mode, want 0", len(rows))
 	}
 }
+
+// A covered group (alternate dump on disk, keeper missing) is NOT a gap: the
+// sync must drop its target row — swapping a held dump for the preferred one
+// is upgrade work, not filling (blaster#327). And a true gap's target carries
+// the keeper's hashes for the selector to prefer.
+func TestSyncTargetsSkipsCoveredAndCarriesHashes(t *testing.T) {
+	svc, store, _ := newTestService(t)
+	seedCatalog(t, store, "atari7800", []db.DatGameRow{
+		catGame("Great Escape (USA)", "usa", "ge-usa"),
+		catGame("Great Escape (Europe)", "europe", "ge-eur"),
+		catGame("Xevious (USA)", "usa", "x1"),
+	})
+
+	res := svc.NewCycle().SyncTargets("atari7800")
+	if res.Added != 2 {
+		t.Fatalf("added = %d, want both groups as gaps", res.Added)
+	}
+	rows, _ := store.ListCollectionTargets(db.CollectionTargetQuery{PlatformSlug: "atari7800", Limit: 10})
+	for _, r := range rows {
+		if r.Title == "Xevious" {
+			if len(r.DumpHashes) == 0 || r.DumpHashes[0] != "x1" {
+				t.Errorf("Xevious target hashes = %v, want the keeper's md5", r.DumpHashes)
+			}
+		}
+	}
+
+	// The Europe alternate lands on disk (name-tier binding) → the group
+	// flips gap→covered → its target row must be deleted by the next sync.
+	addLibraryItem(t, store, "atari7800", "Great Escape", "/roms/atari7800/Great Escape (Europe).a78.zip", "")
+	// Bind by name: the library name index keys on the file basename.
+	res = svc.NewCycle().SyncTargets("atari7800")
+	if res.Counts.Covered != 1 {
+		t.Fatalf("counts = %+v, want the Great Escape group covered", res.Counts)
+	}
+	if res.Removed != 1 {
+		t.Fatalf("removed = %d, want the covered group's target dropped", res.Removed)
+	}
+	rows, _ = store.ListCollectionTargets(db.CollectionTargetQuery{PlatformSlug: "atari7800", Limit: 10})
+	if len(rows) != 1 || rows[0].Title != "Xevious" {
+		t.Fatalf("targets = %+v, want only the true gap", rows)
+	}
+}

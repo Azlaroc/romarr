@@ -41,8 +41,15 @@ type Index interface {
 // Entry statuses.
 const (
 	StatusOwned = "owned" // the set's keeper is on disk
-	StatusGap   = "gap"   // the set wants this game and we do not have it
-	StatusOut   = "out"   // policy leaves this group out of the set entirely
+	// StatusCovered: the keeper is not on disk but an in-profile alternate
+	// dump is — the game is playable tonight, just not the preferred copy.
+	// A first-class status because the fill reads statuses: covered games
+	// must be skipped STRUCTURALLY (swapping a Europe dump for a USA one is
+	// upgrade work, not filling), and coverage must stop reading "hold the
+	// game, wrong region" as "missing" (nds: 997 of 3,917 — blaster#327).
+	StatusCovered = "covered"
+	StatusGap     = "gap" // the set wants this game and we hold NO dump of it
+	StatusOut     = "out" // policy leaves this group out of the set entirely
 )
 
 // Entry is one reconciled group: the set's verdict plus what we hold.
@@ -94,9 +101,12 @@ func Reconcile(groups []Group, idx Index) []Entry {
 	for _, g := range groups {
 		e := Entry{Group: g, Status: StatusOut}
 		if keeper, ok := g.Keeper(); ok {
-			if keeper.Owned != nil {
+			switch {
+			case keeper.Owned != nil:
 				e.Status = StatusOwned
-			} else {
+			case anyEligibleOwned(g):
+				e.Status = StatusCovered
+			default:
 				e.Status = StatusGap
 			}
 		}
@@ -109,6 +119,19 @@ func Reconcile(groups []Group, idx Index) []Entry {
 		out = append(out, e)
 	}
 	return out
+}
+
+// anyEligibleOwned reports whether any NON-EXCLUDED member is on disk. An
+// excluded member never covers: holding a proto of a game does not make the
+// retail release less missing — that file is the outside-profile quadrant,
+// not coverage.
+func anyEligibleOwned(g Group) bool {
+	for _, c := range g.Members {
+		if !c.Excluded && !c.Keeper && c.Owned != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // memberOrder yields member indices with the keeper first.
@@ -180,10 +203,16 @@ func Gaps(entries []Entry) []Entry {
 // rather than in the API keeps every caller's arithmetic identical.
 type Counts struct {
 	Groups  int `json:"groups"`  // groups in the set (keeper exists)
-	Owned   int `json:"owned"`   // set entries we hold
-	Gaps    int `json:"gaps"`    // set entries we do not
+	Owned   int `json:"owned"`   // keeper on disk
+	Covered int `json:"covered"` // an in-profile alternate on disk, keeper missing
+	Gaps    int `json:"gaps"`    // no dump of the game on disk at all
 	Out     int `json:"out"`     // groups policy excluded entirely
-	Surplus int `json:"surplus"` // owned dumps the set does not want
+	// OutOnDisk counts excluded groups where we nonetheless hold a member —
+	// the "on disk but outside the profile" quadrant (the P.U.L.S.E class):
+	// real catalogued things the profile chose not to collect. Derived, not a
+	// status: the excluding rule already sits on each member's Reason.
+	OutOnDisk int `json:"out_on_disk"`
+	Surplus   int `json:"surplus"` // owned dumps the set does not want
 }
 
 // Summarise counts a reconciled set.
@@ -194,11 +223,20 @@ func Summarise(entries []Entry) Counts {
 		case StatusOwned:
 			c.Groups++
 			c.Owned++
+		case StatusCovered:
+			c.Groups++
+			c.Covered++
 		case StatusGap:
 			c.Groups++
 			c.Gaps++
 		default:
 			c.Out++
+			for _, m := range e.Members {
+				if m.Owned != nil {
+					c.OutOnDisk++
+					break
+				}
+			}
 		}
 		c.Surplus += len(e.Surplus)
 	}
