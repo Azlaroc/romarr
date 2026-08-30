@@ -66,9 +66,12 @@ type SelectOpts struct {
 	// MinScore gates the winner's quality score (SearchResult.Score, the
 	// tier-6 value) — the SCHEDULER_MIN_SCORE analog of the legacy gate.
 	MinScore int
-	// Profile is the resolved per-platform policy; nil uses the built-in
-	// default.
+	// Profile is the resolved release-side policy (format/source); nil uses
+	// the built-in default.
 	Profile *db.QualityProfile
+	// Collection is the platform's collection profile — the hard filters and
+	// the region tier. Nil uses the built-in Standard.
+	Collection *db.CollectionProfile
 	// Owned returns the library item this title already resolves to, or nil.
 	// Nil func disables the check (PR-5 wires it on the scheduler path).
 	Owned func(title, platformSlug string) *db.LibraryItem
@@ -120,6 +123,10 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	if prof == nil {
 		prof = db.DefaultQualityProfile()
 	}
+	cp := opts.Collection
+	if cp == nil {
+		cp = db.DefaultCollectionProfile()
+	}
 
 	repair := opts.Repair
 	if repair != nil && len(repair.wanted()) == 0 {
@@ -144,7 +151,7 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	var rejected []Rejection
 	var survivors []*models.SearchResult
 	for _, r := range cands {
-		if reason := filterCandidate(r, prof); reason != "" {
+		if reason := filterCandidate(r, cp); reason != "" {
 			rejected = append(rejected, Rejection{Title: r.Title, Reason: reason})
 			continue
 		}
@@ -263,7 +270,7 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// re-rank here for correctness independent of input order.
 	qTokens := titleTokens(opts.Query)
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return buildRankKey(candidates[i].rep, prof, qTokens).less(buildRankKey(candidates[j].rep, prof, qTokens))
+		return buildRankKey(candidates[i].rep, prof, cp, qTokens).less(buildRankKey(candidates[j].rep, prof, cp, qTokens))
 	})
 	winner := candidates[0]
 

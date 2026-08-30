@@ -164,11 +164,15 @@ func main() {
 		if prof == nil {
 			prof = database.ResolveQualityProfile(slug)
 		}
+		// Regions come from the platform's COLLECTION profile — what the
+		// platform collects — never from the per-title quality profile.
+		cp := database.ResolveCollectionProfile(slug)
 		allResults := search.FanOut(context.Background(), search.BuildSources(cfg), query, slug,
-			search.Opts{Regions: prof.RegionPriority})
+			search.Opts{Regions: cp.RegionPriority})
 		// Shared F4 preparation — the scheduler path finally gets the same
 		// blocklist / release-profile / tier-sort treatment as /api/search.
 		pl := &selection.Pipeline{
+			Collection:      cp,
 			Blocklisted:     database.IsBlocklisted,
 			ReleaseProfiles: database.ApplyReleaseProfiles,
 		}

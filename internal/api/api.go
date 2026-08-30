@@ -561,12 +561,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// is the platform default -> global chain; ResolveQualityProfile alone
 	// skipped the platform default a platform row now carries.
 	prof := s.mgr.Jobs().ResolveProfileForItem(profileID, slug)
+	// Regions are collection-profile policy: what the platform collects.
+	cp := s.mgr.Jobs().ResolveCollectionProfile(slug)
 	allResults := search.FanOut(r.Context(), search.BuildSources(s.cfg), query, slug,
-		search.Opts{Regions: prof.RegionPriority})
+		search.Opts{Regions: cp.RegionPriority})
 
 	// One shared preparation stage (F4): torrent gates, blocklist, release
 	// profiles, attrs parse, unified score, profile-tiered sort.
 	pl := &selection.Pipeline{
+		Collection:      cp,
 		Blocklisted:     s.mgr.Jobs().IsBlocklisted,
 		ReleaseProfiles: s.mgr.Jobs().ApplyReleaseProfiles,
 	}

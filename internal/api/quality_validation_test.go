@@ -8,9 +8,12 @@ import (
 func TestQualityProfileValidation(t *testing.T) {
 	env := newTestEnv(t, nil)
 
-	t.Run("unknown region token rejected", func(t *testing.T) {
-		rr := env.do("POST", "/api/quality-profiles", `{"name":"Bad Region","region_priority":["usa","narnia"]}`)
-		wantStatus(t, rr, 400)
+	t.Run("region tokens no longer validated here", func(t *testing.T) {
+		// The field is retired off quality profiles (the collection profile
+		// owns regions); the API tolerates legacy payloads instead of
+		// policing a column that only awaits its drop.
+		rr := env.do("POST", "/api/quality-profiles", `{"name":"Legacy Region Payload","region_priority":["usa","narnia"]}`)
+		wantStatus(t, rr, 201)
 	})
 
 	t.Run("unknown format token rejected", func(t *testing.T) {
@@ -18,8 +21,10 @@ func TestQualityProfileValidation(t *testing.T) {
 		wantStatus(t, rr, 400)
 	})
 
-	t.Run("region tokens normalized to lowercase", func(t *testing.T) {
-		rr := env.do("POST", "/api/quality-profiles", `{"name":"Mixed Case","region_priority":["USA","World"]}`)
+	t.Run("collection profiles own region validation", func(t *testing.T) {
+		rr := env.do("POST", "/api/collection-profiles", `{"name":"Bad Region","region_priority":["usa","narnia"]}`)
+		wantStatus(t, rr, 400)
+		rr = env.do("POST", "/api/collection-profiles", `{"name":"Mixed Case","region_priority":["USA","World"]}`)
 		wantStatus(t, rr, 201)
 	})
 

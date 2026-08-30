@@ -58,12 +58,14 @@ def test_quality_profile_crud(ui):
     # Any profile may be the global default now; nothing disables the toggle.
     expect(page.get_by_test_id("qp-default-toggle")).to_be_enabled()
 
-    page.get_by_test_id("qp-region-add-usa").click()
-    page.get_by_test_id("qp-region-add-world").click()
-    page.get_by_test_id("qp-region-add-europe").click()
-    # [usa, world, europe] -> move europe up -> [usa, europe, world]
-    page.get_by_test_id("qp-region-up-2").click()
-    expect(page.get_by_test_id("qp-region-item-1")).to_contain_text("europe")
+    # Region order left the quality profile for the collection profile; the
+    # editor's remaining ordered list is the format preference.
+    page.get_by_test_id("qp-format-add-chd").click()
+    page.get_by_test_id("qp-format-add-cue").click()
+    page.get_by_test_id("qp-format-add-iso").click()
+    # [chd, cue, iso] -> move iso up -> [chd, iso, cue]
+    page.get_by_test_id("qp-format-up-2").click()
+    expect(page.get_by_test_id("qp-format-item-1")).to_contain_text("iso")
 
     page.get_by_test_id("qp-1g1r").click()  # default true -> off
     page.get_by_test_id("qp-save").click()
@@ -90,9 +92,9 @@ def test_quality_profile_crud(ui):
     # Reopen: the full-body PUT/POST round-trip preserved order and toggles.
     row = page.locator('[data-testid="profiles-quality-list"] > div', has_text="E2E SNES").first
     row.locator('[data-testid^="qp-edit-"]').click()
-    expect(page.get_by_test_id("qp-region-item-0")).to_contain_text("usa")
-    expect(page.get_by_test_id("qp-region-item-1")).to_contain_text("europe")
-    expect(page.get_by_test_id("qp-region-item-2")).to_contain_text("world")
+    expect(page.get_by_test_id("qp-format-item-0")).to_contain_text("chd")
+    expect(page.get_by_test_id("qp-format-item-1")).to_contain_text("iso")
+    expect(page.get_by_test_id("qp-format-item-2")).to_contain_text("cue")
     expect(page.get_by_test_id("qp-1g1r")).not_to_be_checked()
     # The editor says what defaults to this profile instead of setting it.
     expect(page.get_by_test_id("qp-used-by")).to_contain_text("No platform defaults to this profile")

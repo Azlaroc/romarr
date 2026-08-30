@@ -70,8 +70,7 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     expect(page.get_by_test_id("profiles-quality-list")).to_be_visible(timeout=SLOW_MS)
     page.get_by_test_id("qp-add").click()
     page.get_by_test_id("qp-name").fill("GB E2E")
-    page.get_by_test_id("qp-region-add-usa").click()
-    page.get_by_test_id("qp-region-add-world").click()
+    # No region list here any more — regions are collection-profile policy.
     page.get_by_test_id("qp-save").click()
     expect(page.get_by_test_id("profiles-quality-list")).to_contain_text("GB E2E", timeout=SLOW_MS)
 

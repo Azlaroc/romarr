@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { usePlatformRegistry, useQualityProfiles, useSaveQualityProfile } from '../../api/queries'
 import { ApiError } from '../../api/client'
 import type { QualityProfile } from '../../api/types'
-import { REGION_TOKENS, FORMAT_TOKENS } from '../../lib/profileVocab'
+import { FORMAT_TOKENS } from '../../lib/profileVocab'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
@@ -166,19 +166,15 @@ export function QualityProfileEditor() {
         </Card>
 
         <Card title="Selection">
-          <FormRow label="Region priority" hint="Ordered, best first. Empty = default order (usa › world › europe › japan).">
-            <OrderedTokenList value={form.region_priority} onChange={(v) => set('region_priority', v)} available={REGION_TOKENS} testid="qp-region" />
-          </FormRow>
+          <p className="mb-4 text-xs text-slate-500">
+            Region order and category gates (protos, demos, homebrew…) moved to the platform's{' '}
+            Collection Profile — what a platform <em>collects</em> is its policy, not a release preference.
+          </p>
           <FormRow label="Format preference" hint="Ordered, best first. Empty = default order (chd › cue › iso › gdi › zip › 7z › raw).">
             <OrderedTokenList value={form.format_preference} onChange={(v) => set('format_preference', v)} available={FORMAT_TOKENS} testid="qp-format" />
           </FormRow>
           <FormRow label="Releases">
-            <div className="space-y-3">
-              <Toggle checked={form.prefer_1g1r} onChange={(v) => set('prefer_1g1r', v)} label="Prefer 1G1R" hint="One game, one ROM: pick the single best dump per title." data-testid="qp-1g1r" />
-              <Toggle checked={form.allow_proto} onChange={(v) => set('allow_proto', v)} label="Allow prototypes / betas / samples" data-testid="qp-allow-proto" />
-              <Toggle checked={form.allow_demo} onChange={(v) => set('allow_demo', v)} label="Allow demos" data-testid="qp-allow-demo" />
-              <Toggle checked={form.allow_bios} onChange={(v) => set('allow_bios', v)} label="Allow BIOS releases" data-testid="qp-allow-bios" />
-            </div>
+            <Toggle checked={form.prefer_1g1r} onChange={(v) => set('prefer_1g1r', v)} label="Prefer 1G1R" hint="One game, one ROM: pick the single best dump per title." data-testid="qp-1g1r" />
           </FormRow>
           <FormRow label="Source ranking" hint="Case-insensitive substring match against the indexer name; best first.">
             <OrderedTokenList value={form.source_ranking} onChange={(v) => set('source_ranking', v)} allowCustom testid="qp-source" emptyLabel="None — sources rank equally" />

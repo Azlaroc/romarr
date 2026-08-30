@@ -33,13 +33,10 @@ func validateQualityProfile(p *db.QualityProfile) string {
 	if p.Name == "" {
 		return "Name is required"
 	}
-	for i, tok := range p.RegionPriority {
-		tok = strings.ToLower(strings.TrimSpace(tok))
-		if !validRegionTokens[tok] {
-			return "Unknown region token: " + p.RegionPriority[i]
-		}
-		p.RegionPriority[i] = tok
-	}
+	// Region priority is no longer validated here: the field is retired off
+	// quality profiles (the platform's collection profile owns regions) and
+	// the columns only await the final drop. validRegionTokens stays — it
+	// serves the collection-profile validation.
 	for i, tok := range p.FormatPreference {
 		tok = strings.ToLower(strings.TrimSpace(tok))
 		if !validFormatTokens[tok] {
