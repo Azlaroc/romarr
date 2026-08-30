@@ -250,18 +250,6 @@ func TestActivityLog_Pagination(t *testing.T) {
 	}
 }
 
-func TestClearScanEntries(t *testing.T) {
-	store := newTestStore(t)
-	store.AddLibraryItem(&LibraryItem{Title: "Scanned", Source: "scan", Metadata: "{}"})
-	store.AddLibraryItem(&LibraryItem{Title: "Downloaded", Source: "torrent", Metadata: "{}"})
-
-	store.ClearScanEntries()
-
-	if store.LibraryTotal() != 1 {
-		t.Errorf("expected 1 item after clearing scan entries, got %d", store.LibraryTotal())
-	}
-}
-
 func TestFormatSize(t *testing.T) {
 	tests := []struct {
 		size int64

@@ -4,6 +4,7 @@ import { Library } from './routes/Library'
 import { LibraryDeclutter } from './routes/library/Declutter'
 import { LibraryHash } from './routes/library/Hash'
 import { LibraryRename } from './routes/library/Rename'
+import { LibraryScan } from './routes/library/Scan'
 import { AddNew } from './routes/AddNew'
 import { Platforms } from './routes/Platforms'
 import { Calendar } from './routes/Calendar'
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
       { path: 'library/rename', element: <LibraryRename /> },
       { path: 'library/declutter', element: <LibraryDeclutter /> },
       { path: 'library/hashes', element: <LibraryHash /> },
+      { path: 'library/scan', element: <LibraryScan /> },
       { path: 'add', element: <AddNew /> },
       { path: 'calendar', element: <Calendar /> },
       { path: 'platforms', element: <Platforms /> },

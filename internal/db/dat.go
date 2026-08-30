@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -977,6 +978,40 @@ func (s *JobStore) SetLibraryCatalogStatus(sourceID, status string) {
 	if err != nil {
 		slog.Warn("record catalog status", "error", err)
 	}
+}
+
+// SetLibraryCatalogStatusByID is the same write keyed on the row id, for the
+// library scanner, which holds the row it just adopted or created rather than
+// a source_id.
+func (s *JobStore) SetLibraryCatalogStatusByID(id int64, status string) {
+	if id == 0 || status == "" {
+		return
+	}
+	_, err := s.db.Exec(
+		`UPDATE library_items
+		    SET metadata = json_set(
+		          CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
+		          '$.gamarr.catalog', ?)
+		  WHERE id = ?`, status, id)
+	if err != nil {
+		slog.Warn("record catalog status", "error", err)
+	}
+}
+
+// LibraryCatalogStatus reads a metadata blob's banked verdict ("" when none).
+// It is the guard that keeps a scanner from downgrading a verdict banked at
+// import time — a CHD was verified BEFORE conversion, and re-measuring the
+// converted bytes can only ever say unknown.
+func LibraryCatalogStatus(metadata string) string {
+	var envelope struct {
+		Gamarr struct {
+			Catalog string `json:"catalog"`
+		} `json:"gamarr"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &envelope); err != nil {
+		return ""
+	}
+	return envelope.Gamarr.Catalog
 }
 
 // SetSnapshotParserVersion rewrites a snapshot's derivation stamp. Tests use it

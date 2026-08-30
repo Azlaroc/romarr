@@ -266,6 +266,94 @@ func (s *JobStore) DeleteLibraryItem(id int64) error {
 	return err
 }
 
+// LibraryItemByFilePath returns the row tracking this exact path, nil when
+// none does (idx_library_file_path backed). The scanner's adopt lookup: any
+// source counts — an import row, a romm row and a prior scan row are all
+// owners, and creating a second row beside any of them is the bug.
+func (s *JobStore) LibraryItemByFilePath(path string) *LibraryItem {
+	if path == "" {
+		return nil
+	}
+	row := s.db.QueryRow(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE file_path = ? LIMIT 1",
+		path,
+	)
+	var item LibraryItem
+	var isPC int
+	err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
+		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
+		&item.SourceID, &item.Metadata, &item.AddedAt)
+	if err != nil {
+		return nil
+	}
+	item.IsPC = isPC != 0
+	return &item
+}
+
+// AddLibraryItemUnlessPathTracked inserts the item only if no row tracks its
+// file_path, in one statement, and reports whether a row was created. The
+// scanner runs beside a live RomM sync: a check-then-insert would leave a
+// window where both create a row for the same arriving file, and the
+// duplicate would outlive the race.
+func (s *JobStore) AddLibraryItemUnlessPathTracked(item *LibraryItem) (int64, bool, error) {
+	result, err := s.db.Exec(
+		`INSERT INTO library_items (title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		  WHERE NOT EXISTS (SELECT 1 FROM library_items WHERE file_path = ?)`,
+		item.Title, item.Platform, item.PlatformSlug, boolToInt(item.IsPC),
+		item.FilePath, item.FileSize, item.Source, item.SourceType, item.SourceID, item.Metadata,
+		item.FilePath,
+	)
+	if err != nil {
+		return 0, false, err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return 0, false, nil
+	}
+	id, err := result.LastInsertId()
+	return id, err == nil, err
+}
+
+// UpdateLibraryItemPlatform rewrites a row's platform identity. The scanner's
+// slug repair: only for rows whose stored slug the registry does not know,
+// when the directory the file actually lives in names one it does.
+func (s *JobStore) UpdateLibraryItemPlatform(id int64, platformName, platformSlug string) error {
+	_, err := s.db.Exec("UPDATE library_items SET platform = ?, platform_slug = ? WHERE id = ?",
+		platformName, platformSlug, id)
+	return err
+}
+
+// ListLibraryItemsUnderPath returns the non-PC rows whose file_path sits
+// under prefix, ordered by path. The scanner's reconciliation read: what the
+// database believes exists inside the tree it just walked.
+func (s *JobStore) ListLibraryItemsUnderPath(prefix string) []LibraryItem {
+	if prefix == "" {
+		return nil
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	rows, err := s.db.Query(
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at"+
+			" FROM library_items WHERE is_pc = 0 AND file_path LIKE ? ESCAPE '\\' ORDER BY file_path",
+		likePrefixPattern(prefix),
+	)
+	if err != nil {
+		slog.Warn("list library items under path", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	return scanLibraryItems(rows)
+}
+
+// likePrefixPattern escapes LIKE metacharacters in a literal path prefix.
+// ROM names use [brackets] freely and _ matches any character in LIKE, so an
+// unescaped prefix would both miss rows and over-match.
+func likePrefixPattern(prefix string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(prefix) + "%"
+}
+
 // LibraryHasSourceID checks if a source_id already exists in the library.
 func (s *JobStore) LibraryHasSourceID(sourceID string) bool {
 	if sourceID == "" {
@@ -490,18 +578,11 @@ func (s *JobStore) GetActivity(page, pageSize int) ([]ActivityEntry, int) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-// ClearScanEntries removes all library items added by directory scanning.
-// This is called before a rescan to ensure accuracy.
-func (s *JobStore) ClearScanEntries() {
-	result, _ := s.db.Exec("DELETE FROM library_items WHERE source = 'scan'")
-	if n, _ := result.RowsAffected(); n > 0 {
-		slog.Info("cleared scan entries for rescan", "count", n)
-	}
-}
-
-// ClearVaultScanEntries removes only the PC-vault scan rows, leaving ROM scan
-// rows alone. Used when the RomM sync owns the ROM side of the library and
-// the fs scanner only walks the vault.
+// ClearVaultScanEntries removes only the PC-vault scan rows, leaving ROM
+// rows alone. The vault scan is the one clear-then-rescan left: vault rows
+// carry no hashes or verdicts, so re-minting them loses nothing. (The ROM
+// tree's ClearScanEntries died with the legacy boot scan — the library
+// scanner adopts and creates, never clears.)
 func (s *JobStore) ClearVaultScanEntries() {
 	result, _ := s.db.Exec("DELETE FROM library_items WHERE source = 'scan' AND is_pc = 1")
 	if n, _ := result.RowsAffected(); n > 0 {

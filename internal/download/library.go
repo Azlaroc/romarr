@@ -11,47 +11,22 @@ import (
 	"gamarr/internal/platform"
 )
 
-// ScanLibraryDirs scans vault and ROM directories to populate the library.
-// Clears previous scan entries and rescans from scratch for accuracy.
-//
-// When the RomM sync is configured it owns the ROM side of the library
-// (source='romm' rows, extension-list free), so only the PC vault is walked
-// and only vault scan rows are cleared — the sync's full reconcile retires
-// any legacy ROM scan rows.
+// ScanLibraryDirs scans the PC games vault at boot. Vault-only, always: the
+// ROM side of the library belongs to internal/libscan, which adopts and
+// creates but never clears — the legacy ROM branch here re-derived platform
+// slugs from raw directory names and deleted every scan row before walking,
+// both of which are exactly what the scanner exists to not do.
 func (m *Manager) ScanLibraryDirs() {
-	rommOwned := m.cfg.HasRomMAPI() && m.cfg.RomMSyncOn()
-
-	// Clear previous scan entries so we always reflect current disk state
-	if rommOwned {
-		m.jobs.ClearVaultScanEntries()
-	} else {
-		m.jobs.ClearScanEntries()
-	}
+	// Clear previous vault entries so the vault always reflects disk state.
+	// Each top-level entry is one game (no recursion), and vault rows carry
+	// no hashes or verdicts, so clear-then-rescan loses nothing there.
+	m.jobs.ClearVaultScanEntries()
 	total := 0
-
-	// Scan PC games vault — each top-level entry is one game (no recursion)
 	if m.cfg.GamesVaultPath != "" {
-		n := m.scanVault(m.cfg.GamesVaultPath)
-		total += n
+		total = m.scanVault(m.cfg.GamesVaultPath)
 	}
-
-	// Scan ROM platform directories (legacy fallback when no RomM sync)
-	if !rommOwned && m.cfg.GamesRomsPath != "" {
-		entries, err := os.ReadDir(m.cfg.GamesRomsPath)
-		if err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					slug := e.Name()
-					platName := platformNameFromSlug(slug)
-					n := m.scanDir(filepath.Join(m.cfg.GamesRomsPath, slug), platName, slug, false)
-					total += n
-				}
-			}
-		}
-	}
-
 	if total > 0 {
-		slog.Info("library scan complete", "new_items", total)
+		slog.Info("vault scan complete", "new_items", total)
 	}
 }
 
@@ -73,74 +48,6 @@ func (m *Manager) scanVault(dir string) int {
 		}
 		fp := filepath.Join(dir, name)
 		added += m.addLibraryEntry(fp, name, "PC", "", true)
-	}
-	return added
-}
-
-// gameExtensions are file extensions that represent playable games/ROMs.
-var gameExtensions = map[string]bool{
-	".nsp": true, ".xci": true, ".nsz": true, // Switch
-	".nes": true, ".sfc": true, ".smc": true, // NES/SNES
-	".gba": true, ".gb": true, ".gbc": true, // Game Boy
-	".nds": true, ".3ds": true, ".cia": true, // DS/3DS
-	".n64": true, ".z64": true, ".v64": true, // N64
-	".iso": true, ".bin": true, ".cue": true, // Disc images
-	".chd": true, ".gdi": true, ".cdi": true, // Compressed disc
-	".gcz": true, ".gcm": true, ".rvz": true, // GameCube
-	".wbfs": true, ".wad": true, // Wii
-	".pbp": true, ".cso": true, // PSP
-	".zip": true, ".7z": true, ".rar": true, // Archives (common for ROMs)
-	".exe": true, ".msi": true, // PC
-}
-
-func (m *Manager) scanDir(dir, platform, platformSlug string, isPC bool) int {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0
-	}
-	added := 0
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		if strings.HasSuffix(name, ".gamarr.json") || strings.HasSuffix(name, ".extracted") {
-			continue
-		}
-		fp := filepath.Join(dir, name)
-
-		if e.IsDir() {
-			// For ROM platforms, check if this directory contains game files
-			// or is just an organizational subdirectory (like "roms/")
-			if !isPC && containsGameFiles(fp) {
-				// This is a game folder (e.g., "TowerFall [NSP]/")
-				added += m.addLibraryEntry(fp, name, platform, platformSlug, isPC)
-			} else {
-				// Recurse into subdirectories (handles nested "roms/" dirs)
-				added += m.scanDir(fp, platform, platformSlug, isPC)
-			}
-		} else {
-			// Single file — check if it's a game file
-			ext := strings.ToLower(filepath.Ext(name))
-			if isPC || gameExtensions[ext] {
-				// Skip small files (DLC, updates, sidecars)
-				if info, err := e.Info(); err == nil && info.Size() < 1_000_000 && !isPC {
-					continue
-				}
-				// Skip update files
-				nameLower := strings.ToLower(name)
-				if strings.HasPrefix(nameLower, "[update]") || strings.Contains(nameLower, "update v") {
-					continue
-				}
-				// Skip DLC/costume files for Smash etc.
-				if strings.Contains(nameLower, "costume") || strings.Contains(nameLower, "challenger pack") ||
-					strings.Contains(nameLower, "spirit board") || strings.Contains(nameLower, "fighters pass") ||
-					strings.Contains(nameLower, "[dlc]") || strings.Contains(nameLower, "vault shopper") {
-					continue
-				}
-				added += m.addLibraryEntry(fp, name, platform, platformSlug, isPC)
-			}
-		}
 	}
 	return added
 }
@@ -183,24 +90,6 @@ func (m *Manager) addLibraryEntry(fp, name, platform, platformSlug string, isPC 
 		return 1
 	}
 	return 0
-}
-
-// containsGameFiles checks if a directory directly contains game ROM files.
-func containsGameFiles(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if gameExtensions[ext] {
-			return true
-		}
-	}
-	return false
 }
 
 // importMetadata builds the metadata blob for a download-import library row.
@@ -308,8 +197,4 @@ func cleanTitle(name string) string {
 	name = strings.ReplaceAll(name, "%29", ")")
 	name = strings.ReplaceAll(name, "%2C", ",")
 	return strings.TrimSpace(name)
-}
-
-func platformNameFromSlug(slug string) string {
-	return platform.DisplayName(slug)
 }

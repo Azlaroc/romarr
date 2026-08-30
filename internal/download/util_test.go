@@ -2,8 +2,6 @@ package download
 
 import (
 	"testing"
-
-	"gamarr/internal/platform"
 )
 
 func TestCleanTitle(t *testing.T) {
@@ -57,55 +55,5 @@ func TestTitlesMatch(t *testing.T) {
 				t.Errorf("titlesMatch(%q, %q) = %v, want %v", tt.title, tt.torrentName, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestPlatformNameFromSlug(t *testing.T) {
-	// Display names come from the registry now; an unregistered slug still
-	// degrades to the upper-cased slug, which is what "unknown" pins.
-	platform.SetRegistry(platform.StaticRegistry{
-		{Slug: "gba", DisplayName: "Game Boy Advance"},
-		{Slug: "nes", DisplayName: "NES"},
-		{Slug: "switch", DisplayName: "Switch"},
-		{Slug: "psx", DisplayName: "PS1"},
-		{Slug: "ngc", DisplayName: "GameCube"},
-	})
-	t.Cleanup(func() { platform.SetRegistry(nil) })
-
-	tests := []struct {
-		slug string
-		want string
-	}{
-		{"gba", "Game Boy Advance"},
-		{"nes", "NES"},
-		{"switch", "Switch"},
-		{"psx", "PS1"},
-		{"ngc", "GameCube"},
-		{"unknown", "UNKNOWN"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.slug, func(t *testing.T) {
-			got := platformNameFromSlug(tt.slug)
-			if got != tt.want {
-				t.Errorf("platformNameFromSlug(%q) = %q, want %q", tt.slug, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGameExtensions(t *testing.T) {
-	expected := []string{".nsp", ".xci", ".nes", ".gba", ".iso", ".zip", ".exe"}
-	for _, ext := range expected {
-		if !gameExtensions[ext] {
-			t.Errorf("expected %q in gameExtensions", ext)
-		}
-	}
-
-	notExpected := []string{".txt", ".pdf", ".mp3", ".jpg"}
-	for _, ext := range notExpected {
-		if gameExtensions[ext] {
-			t.Errorf("expected %q NOT in gameExtensions", ext)
-		}
 	}
 }
