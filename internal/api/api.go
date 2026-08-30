@@ -165,8 +165,6 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// Library
 	r.Get("/api/library", s.handleLibrary)
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
-	r.Get("/api/library/sync/status", s.handleLibrarySyncStatus)
-	r.Post("/api/library/sync", requireAdmin(s.handleLibrarySync))
 	r.Get("/api/library/normalize/status", s.handleNormalizeStatus)
 	r.Get("/api/library/normalize/preview/results", requireAdmin(s.handleNormalizeResults))
 	r.Post("/api/library/normalize/preview", requireAdmin(s.handleNormalizePreview))

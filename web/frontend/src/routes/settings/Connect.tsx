@@ -1,13 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   useAddWebhook,
   useConfig,
   useDeleteWebhook,
   useSaveSetting,
   useSettings,
-  useSyncStatus,
   useTestWebhook,
-  useTriggerSync,
   useWebhooks,
 } from '../../api/queries'
 import { isForbidden } from '../../api/client'
@@ -20,10 +18,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { ConnectionTestTiles } from '../../components/ui/ConnectionTestTiles'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
-import { ShowAdvancedButton } from '../../components/ui/ShowAdvancedButton'
 import { Toggle } from '../../components/ui/Toggle'
 import { useToast } from '../../components/ui/Toast'
-import { useShowAdvanced } from '../../lib/useShowAdvanced'
 
 const WEBHOOK_TYPES = [
   { value: 'generic', label: 'Generic JSON' },
@@ -34,17 +30,12 @@ const EVENT_HINT =
   'Comma-separated events, or * for all: download_complete, download_failed, scheduler_match'
 
 export function Connect() {
-  const [showAdvanced, setShowAdvanced] = useShowAdvanced()
   return (
     <>
-      <PageHeader
-        title="Settings"
-        subtitle="Connect"
-        actions={<ShowAdvancedButton show={showAdvanced} onChange={setShowAdvanced} />}
-      />
+      <PageHeader title="Settings" subtitle="Connect" />
       <div className="space-y-6">
         <Webhooks />
-        <RomM showAdvanced={showAdvanced} />
+        <RomM />
       </div>
     </>
   )
@@ -154,22 +145,11 @@ function Webhooks() {
   )
 }
 
-function RomM({ showAdvanced }: { showAdvanced: boolean }) {
+function RomM() {
   const { data: config } = useConfig()
   const { data: settings, error: settingsError } = useSettings()
-  const { data: sync } = useSyncStatus()
   const save = useSaveSetting()
-  const trigger = useTriggerSync()
   const { toast } = useToast()
-  const [syncInterval, setSyncInterval] = useState('')
-  const [exclude, setExclude] = useState('')
-
-  useEffect(() => {
-    if (settings?.romm_sync_interval_seconds !== undefined) setSyncInterval(String(settings.romm_sync_interval_seconds))
-  }, [settings?.romm_sync_interval_seconds])
-  useEffect(() => {
-    if (settings?.romm_exclude_platforms !== undefined) setExclude(settings.romm_exclude_platforms)
-  }, [settings?.romm_exclude_platforms])
 
   const saveKey = async (patch: Record<string, unknown>) => {
     try {
@@ -180,40 +160,12 @@ function RomM({ showAdvanced }: { showAdvanced: boolean }) {
     }
   }
 
-  const saveInterval = () => {
-    const n = Number(syncInterval)
-    if (!Number.isInteger(n) || n < 60) {
-      toast('Sync interval must be a whole number of seconds ≥ 60', 'error')
-      if (settings?.romm_sync_interval_seconds !== undefined) setSyncInterval(String(settings.romm_sync_interval_seconds))
-      return
-    }
-    if (n !== settings?.romm_sync_interval_seconds) saveKey({ romm_sync_interval_seconds: n })
-  }
-
-  const syncNow = async () => {
-    try {
-      const res = await trigger.mutateAsync(false)
-      if (res?.success) toast('RomM library sync started', 'success')
-      else toast(res?.error || 'Sync failed to start', 'error')
-    } catch {
-      toast('Sync failed to start', 'error')
-    }
-  }
-
-  const syncLine = () => {
-    if (!sync) return '…'
-    if (!sync.enabled) return 'Sync disabled'
-    if (sync.running) return 'Sync running…'
-    const last = (sync.last_run ?? sync.last_sync) as string | undefined
-    return last ? `Idle · last run ${last}` : 'Idle · never run'
-  }
-
   return (
     <Card title="RomM">
       <div className="space-y-3" data-testid="cn-romm">
         <p className="text-xs text-slate-500">
-          RomM is the library of record: ownership syncs from it, and imports notify it to rescan the changed
-          platform.
+          RomM is a library peer serving its own consumers; imports notify it to rescan the changed platform.
+          What this app holds is owned by its own scanner (Library → Scan), not synced from RomM.
         </p>
         <ConnectionTestTiles
           services={[{ id: 'romm', label: 'RomM', url: config?.romm?.url ?? config?.romm_url, configured: config?.romm?.configured }]}
@@ -221,59 +173,14 @@ function RomM({ showAdvanced }: { showAdvanced: boolean }) {
         {isForbidden(settingsError) ? (
           <AdminNotice />
         ) : (
-          <div className="space-y-3">
-            <Toggle
-              checked={!!settings?.romm_connect_enabled}
-              onChange={(checked) => saveKey({ romm_connect_enabled: checked })}
-              label="Import scan notifications"
-              hint="Ask RomM to rescan a platform right after an import lands (needs RomM API credentials with tasks.run)"
-              data-testid="cn-connect-toggle"
-            />
-            <Toggle
-              checked={!!settings?.romm_sync_enabled}
-              onChange={(checked) => saveKey({ romm_sync_enabled: checked })}
-              label="Ownership sync"
-              hint="Periodic pull of RomM's library into the local ownership index; RomM owns the ROM side of the library while enabled"
-              data-testid="cn-sync-toggle"
-            />
-            {showAdvanced && (
-              <>
-                <div className="max-w-xs">
-                  <Input
-                    label="Sync interval (seconds)"
-                    type="number"
-                    min={60}
-                    value={syncInterval}
-                    onChange={(e) => setSyncInterval(e.target.value)}
-                    onBlur={saveInterval}
-                    hint="Seconds between ownership sync runs"
-                    advanced
-                    data-testid="cn-sync-interval"
-                  />
-                </div>
-                <div className="max-w-md">
-                  <Input
-                    label="Excluded platforms"
-                    value={exclude}
-                    onChange={(e) => setExclude(e.target.value)}
-                    onBlur={() => {
-                      if (exclude !== (settings?.romm_exclude_platforms ?? '')) saveKey({ romm_exclude_platforms: exclude })
-                    }}
-                    hint="Comma-separated RomM platform slugs the sync skips"
-                    advanced
-                    data-testid="cn-sync-exclude"
-                  />
-                </div>
-              </>
-            )}
-          </div>
+          <Toggle
+            checked={!!settings?.romm_connect_enabled}
+            onChange={(checked) => saveKey({ romm_connect_enabled: checked })}
+            label="Import scan notifications"
+            hint="Ask RomM to rescan a platform right after an import lands (needs RomM API credentials with tasks.run)"
+            data-testid="cn-connect-toggle"
+          />
         )}
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="secondary" onClick={syncNow} disabled={trigger.isPending || sync?.running === true} data-testid="cn-sync-now">
-            Sync now
-          </Button>
-          <span className="text-xs text-slate-500" data-testid="cn-sync-status">{syncLine()}</span>
-        </div>
       </div>
     </Card>
   )

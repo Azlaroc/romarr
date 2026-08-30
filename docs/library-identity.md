@@ -25,12 +25,12 @@ is the dump — but only the whole ROM is *this file*.
 
 ```jsonc
 {
-  "romm": {                       // RomM's, rewritten wholesale on every sync.
-    "crc": "…",                   // NEVER write here: mergeRommMetadata
-    "md5": "…",                   // replaces the whole object.
-    "sha1": "…"
+  "romm": {                       // RomM's, written while the retired sync
+    "crc": "…",                   // ran (through 2026-08). Frozen data now —
+    "md5": "…",                   // never write here, still read: the hashes
+    "sha1": "…"                   // are inner-content, same domain as ours.
   },
-  "gamarr": {                     // Ours. Survives RomM syncs.
+  "gamarr": {                     // Ours.
     "crc": "…",                   // THE ROM'S OWN BYTES — an archive's inner
     "md5": "…",                   // file, or the file itself when raw.
     "sha1": "…",                  // The entry's identity.
@@ -97,13 +97,12 @@ it is kept for the join that will want it.
 
 | writer | keys |
 |---|---|
-| `internal/romm/sync.go` | `$.romm.*` (whole object, every sync) |
 | `internal/download/library.go` `importMetadata` | `$.gamarr.release.*` at import |
 | `internal/db/libraryhash.go` `SaveLibraryHashes` | `$.gamarr.{crc,md5,sha1,unh,hashed_at}` |
 | `internal/db/setmarker.go` `SaveSetMarker` | `$.gamarr.set` |
-| `internal/db/dat.go` `SetLibraryCatalogStatus` | `$.gamarr.catalog` |
+| `internal/db/dat.go` `SetLibraryCatalogStatus[ByID]` | `$.gamarr.catalog` |
 
-Four writers share the `$.gamarr` object, so every one of them patches the
+The writers share the `$.gamarr` object, so every one of them patches the
 leaves it owns rather than replacing the object.
 
 ## One key, one meaning
@@ -124,3 +123,20 @@ trouble — a missing file, a full disk, an unreadable mount — is deliberately
 
 That distinction is what lets "rows still needing a hash" reach zero. A count
 that parks a permanent remainder reads as a stuck job.
+
+## Who owns "what is held" (reversed 2026-08)
+
+For its first year the library's ROM side was **mirrored from RomM**: a sync
+pulled RomM's catalog into `library_items`, and "RomM = ownership truth" was
+the working doctrine. That was a bootstrap-era convenience — the app had no
+scanner and RomM had already identified the back catalog — and it quietly
+made a sibling app this one's oracle.
+
+The doctrine is **reversed**. An arr owns its own inventory: *what is held*
+comes from the library scanner (`internal/libscan`) walking this app's own
+root folders into this app's own DB. RomM remains a library **peer** — it
+scans the same tree for its own consumers (shops, launchers, humans), imports
+still notify it to rescan (the Connect plane), and the `$.romm` hashes it
+wrote while the sync lived remain valid frozen data — but neither app is the
+other's system of record. The analogy that settled it: Radarr does not ask
+Plex what movies exist.

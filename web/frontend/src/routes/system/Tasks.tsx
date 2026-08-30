@@ -1,5 +1,5 @@
-import { Play, RefreshCw } from 'lucide-react'
-import { useRunScheduler, useSchedulerStatus, useSyncStatus, useTriggerSync } from '../../api/queries'
+import { Play } from 'lucide-react'
+import { useRunScheduler, useSchedulerStatus } from '../../api/queries'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -12,8 +12,6 @@ const MODE_COLOR: Record<string, 'purple' | 'slate'> = { enforce: 'purple', shad
 export function Tasks() {
   const { data: sched } = useSchedulerStatus()
   const run = useRunScheduler()
-  const { data: sync } = useSyncStatus()
-  const triggerSync = useTriggerSync()
   const { toast } = useToast()
 
   const runNow = async () => {
@@ -22,17 +20,6 @@ export function Tasks() {
       toast('Cycle started', 'success')
     } catch {
       toast('Failed to trigger scheduler', 'error')
-    }
-  }
-
-  const syncNow = async () => {
-    try {
-      const res = await triggerSync.mutateAsync(false)
-      // The backend answers 200 with success:false when sync is unconfigured/busy.
-      if (res.success) toast(res.message ?? 'Sync started', 'success')
-      else toast(res.error ?? 'Sync not started', 'error')
-    } catch {
-      toast('Failed to trigger sync', 'error')
     }
   }
 
@@ -77,29 +64,6 @@ export function Tasks() {
           )}
         </Card>
 
-        <Card
-          title="RomM library sync"
-          action={
-            <Button size="sm" variant="secondary" onClick={syncNow} disabled={triggerSync.isPending} data-testid="tasks-sync-now">
-              <RefreshCw className="h-3.5 w-3.5" /> Sync now
-            </Button>
-          }
-        >
-          <div className="space-y-2 text-sm text-slate-400" data-testid="tasks-sync">
-            {sync?.enabled ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Badge color="emerald">Configured</Badge>
-                  {sync.running === true && <Spinner label="syncing…" />}
-                </div>
-                {typeof sync.last_sync === 'string' && sync.last_sync !== '' && <div className="text-xs">Last sync: {sync.last_sync.replace('T', ' ').slice(0, 19)}</div>}
-                {typeof sync.last_error === 'string' && sync.last_error !== '' && <div className="text-xs text-red-400">{sync.last_error}</div>}
-              </>
-            ) : (
-              <p>RomM sync is not configured on this install.</p>
-            )}
-          </div>
-        </Card>
       </div>
     </>
   )

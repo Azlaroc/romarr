@@ -135,13 +135,12 @@ PROWLARR_RELEASES = [
     },
 ]
 
-
-# RomM stub: the library-ownership source the sync mirrors. Credentials must
-# match the ROMM_API_* env in the app fixture — the stub 401s without them,
-# which is exactly how a real RomM behaves.
+# RomM stub: a library peer. Serves the heartbeat + platform listing the
+# connection test and Connect notifier need. Credentials must match the
+# ROMM_API_* env in the app fixture — the stub 401s without them, which is
+# exactly how a real RomM behaves.
 ROMM_USER = "romarr-e2e"
 ROMM_PASS = "romm-stub-pw"
-ROMM_PAGE = 3  # server-side page size: forces the sync client through 2 pages
 
 # RomM Connect stub: gamarr's notifier logs in (session cookie), walks the
 # socket.io long-polling handshake and emits "scan" events; every scan payload
@@ -153,42 +152,10 @@ ROMM_PLATFORMS = [
     {"id": 41, "slug": "psx", "fs_slug": "psx", "name": "PlayStation", "rom_count": 5},
 ]
 
-
-def _romm_rom(rid: int, fs_name: str, name: str, missing: bool = False) -> dict:
-    stem = fs_name.rsplit(".", 1)[0] if "." in fs_name else fs_name
-    return {
-        "id": rid,
-        "platform_id": 41,
-        "platform_slug": "psx",
-        "platform_fs_slug": "psx",
-        "fs_name": fs_name,
-        "fs_name_no_tags": stem.split(" (")[0],
-        "fs_name_no_ext": stem,
-        "fs_path": "roms/psx",
-        "fs_size_bytes": 1_000_000 + rid,
-        "name": name,
-        "crc_hash": f"crc{rid}",
-        "md5_hash": f"md5{rid}",
-        "sha1_hash": f"sha{rid}",
-        "igdb_id": 10_000 + rid,
-        "missing_from_fs": missing,
-    }
-
-
-ROMM_ROMS = [
-    _romm_rom(101, "Castlevania - Symphony of the Night (USA).chd", "Castlevania: Symphony of the Night"),
-    _romm_rom(102, "Wipeout (USA).chd", "Wipeout"),
-    _romm_rom(103, "Ridge Racer (USA).chd", "Ridge Racer"),
-    _romm_rom(104, "Crash Bandicoot (USA).chd", "Crash Bandicoot"),
-    _romm_rom(105, "Vanished Game (USA).chd", "Vanished Game", missing=True),
-]
-
-
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
 
 def _rom_zip(name: str, ext: str = ".gb") -> bytes:
     """A small but genuine ZIP containing a fake ROM entry. Deterministic bytes
@@ -198,7 +165,6 @@ def _rom_zip(name: str, ext: str = ".gb") -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(name.replace(".zip", ext), b"GAMARR-E2E-ROM" * 64)
     return buf.getvalue()
-
 
 def _ia_metadata(item: str) -> bytes:
     """An archive.org /metadata/<item> document: one files[] entry per fixture
@@ -220,7 +186,6 @@ def _ia_metadata(item: str) -> bytes:
         {"server": "stub", "dir": f"/{item}", "files": files}
     ).encode()
 
-
 # ── DAT authorities (blaster #315 PR-B) ──────────────────────────────────────
 # Two shapes, matching the two real transports: the libretro mirror serves a
 # bare clrmamepro DAT per platform, redump.info serves a zip holding one
@@ -237,7 +202,6 @@ DAT_NAME_RE = re.compile(r"^[A-Za-z0-9 .\-]{1,80}\.dat$")
 DAT_CODE_RE = re.compile(r"^[a-z0-9-]{2,16}$")
 DAT_GAMES = 3
 
-
 def _clrmamepro_dat(name: str, games: int = DAT_GAMES, version: str = "2026.08.01") -> bytes:
     """A clrmamepro catalog, the shape the libretro No-Intro mirror serves."""
     out = [f'clrmamepro (\n\tname "{name}"\n\tversion "{version}"\n)\n']
@@ -249,7 +213,6 @@ def _clrmamepro_dat(name: str, games: int = DAT_GAMES, version: str = "2026.08.0
             f'crc {i:08x} md5 {i:032x} sha1 {sha} )\n)\n'
         )
     return "\n".join(out).encode()
-
 
 def _logiqx_dat(name: str, games: int = DAT_GAMES, version: str = "2026-08-16 18-16-58") -> bytes:
     """A logiqx catalog, the shape Redump serves (inside a zip)."""
@@ -269,14 +232,12 @@ def _logiqx_dat(name: str, games: int = DAT_GAMES, version: str = "2026-08-16 18
     rows.append("</datafile>")
     return "".join(rows).encode()
 
-
 def _redump_zip(code: str) -> bytes:
     """Redump's transport: a deflate zip carrying exactly one catalog."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"{code} - Datfile (2026-08-16 18-16-58).dat", _logiqx_dat(code))
     return buf.getvalue()
-
 
 class _StubHandler(BaseHTTPRequestHandler):
     """One handler impersonating qBittorrent + Prowlarr + archive.org + RomM."""
@@ -494,19 +455,6 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self._send(401, b"unauthorized", "text/plain")
                 return
             self._send(200, json.dumps(ROMM_PLATFORMS).encode(), "application/json")
-        elif path == "/api/roms":
-            if not self._romm_auth_ok():
-                self._send(401, b"unauthorized", "text/plain")
-                return
-            from urllib.parse import parse_qs, urlparse
-            offset = int(parse_qs(urlparse(self.path).query).get("offset", ["0"])[0])
-            body = {
-                "items": ROMM_ROMS[offset:offset + ROMM_PAGE],
-                "total": len(ROMM_ROMS),
-                "limit": ROMM_PAGE,
-                "offset": offset,
-            }
-            self._send(200, json.dumps(body).encode(), "application/json")
         # ── archive.org: metadata listing + per-file downloads ────────────
         elif path.startswith("/metadata/") and path.split("/metadata/", 1)[1] in IA_ITEMS:
             self._send(200, _ia_metadata(path.split("/metadata/", 1)[1]), "application/json")
@@ -539,7 +487,6 @@ class _StubHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep pytest output clean
         pass
 
-
 @pytest.fixture(scope="session")
 def stub_server():
     port = _free_port()
@@ -548,7 +495,6 @@ def stub_server():
     t.start()
     yield f"http://127.0.0.1:{port}"
     httpd.shutdown()
-
 
 @pytest.fixture(scope="session")
 def gamarr_binary(tmp_path_factory) -> Path:
@@ -561,7 +507,6 @@ def gamarr_binary(tmp_path_factory) -> Path:
         cwd=REPO_ROOT, check=True,
     )
     return out
-
 
 def _app_env(stub_server: str, data: Path, port: int) -> dict:
     """Environment for one gamarr instance rooted at data: injected registry
@@ -604,8 +549,8 @@ def _app_env(stub_server: str, data: Path, port: int) -> dict:
         "WATCHER_INTERVAL": "2",
         "PROWLARR_URL": stub_server,
         "PROWLARR_API_KEY": "e2e-stub-key",
-        # RomM ownership sync: boot triggers an immediate full sync against
-        # the stub, so the Library shows RomM-owned titles with no local file.
+        # RomM: the connection test and the Connect notifier talk to the
+        # stub. The library itself is owned by the scanner, not synced.
         "ROMM_URL": stub_server,
         "ROMM_API_USER": ROMM_USER,
         "ROMM_API_PASS": ROMM_PASS,
@@ -623,7 +568,6 @@ def _app_env(stub_server: str, data: Path, port: int) -> dict:
         "IGDB_API_BASE": stub_server,
         "IGDB_AUTH_BASE": stub_server,
     }
-
 
 def _boot_gamarr(gamarr_binary: Path, env: dict, data: Path):
     """Start the binary and wait for /api/health. Returns (proc, log handle);
@@ -645,7 +589,6 @@ def _boot_gamarr(gamarr_binary: Path, env: dict, data: Path):
     log.close()
     raise RuntimeError("gamarr did not become healthy within 30s")
 
-
 def _stop_gamarr(proc, log):
     proc.terminate()
     try:
@@ -653,7 +596,6 @@ def _stop_gamarr(proc, log):
     except subprocess.TimeoutExpired:
         proc.kill()
     log.close()
-
 
 @pytest.fixture(scope="session")
 def app(stub_server, gamarr_binary, tmp_path_factory):
@@ -672,7 +614,6 @@ def app(stub_server, gamarr_binary, tmp_path_factory):
     }
 
     _stop_gamarr(proc, log)
-
 
 @pytest.fixture()
 def ui(app, page):

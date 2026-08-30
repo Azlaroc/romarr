@@ -160,7 +160,7 @@ Open `http://localhost:5001` in your browser.
 
 Deploy contracts (paths, ports, credentials, client endpoints) are environment
 variables. Behavior knobs — pipeline toggles, download handling, the watcher,
-wishlist-search/scheduler settings, and the RomM sync/Connect switches — are
+wishlist-search/scheduler settings, and the RomM Connect switch — are
 editable in the Settings UI and stored in the database: their env variables
 below are the **fresh-install defaults**, consulted only until the knob is
 first edited in-app (resetting a field in the UI returns it to the env
@@ -226,9 +226,6 @@ The active indexer list (base URLs, per-platform path mappings) is loaded at sta
 | `ROMM_URL` | | RomM server URL (also the API base for the RomM integration) |
 | `ROMM_API_USER` | | RomM API username (read access; enables the RomM integration) |
 | `ROMM_API_PASS` | | RomM API password |
-| `ROMM_SYNC_ENABLED` | `true` | Let RomM own the ROM library view (requires the RomM API credentials). `GAMES_ROMS_PATH` must be the directory RomM scans as its roms folder |
-| `ROMM_SYNC_INTERVAL` | `1800` | Seconds between incremental RomM syncs (a full reconcile runs at startup and daily) |
-| `ROMM_EXCLUDE_PLATFORMS` | | Comma-separated RomM fs_slugs to skip when syncing |
 
 ### Notifications
 

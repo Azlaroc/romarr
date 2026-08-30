@@ -6,8 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"gamarr/internal/romm"
 )
 
 // writeZipT creates a real zip archive at path with a single named entry.
@@ -146,15 +144,14 @@ func TestFulfillLocalROMPathIdentityMatchesRommSync(t *testing.T) {
 		t.Fatalf("fulfillLocalROM: %v", err)
 	}
 
-	rommView := romm.LocalPath(cfg.GamesRomsPath, &romm.Rom{
-		PlatformFSSlug: "genesis-slash-megadrive",
-		FSPath:         "roms/genesis-slash-megadrive",
-		FSName:         "Sonic (USA).md",
-	})
+	// The deployment contract: imports land at <roms>/<fs_slug>/<name>, the
+	// directory every downstream cataloger (RomM) and the library scanner
+	// walk. genesis writes into its IGDB-derived alias directory.
+	rommView := filepath.Join(cfg.GamesRomsPath, "genesis-slash-megadrive", "Sonic (USA).md")
 	if finalPath != rommView {
-		t.Errorf("tracked path %q != romm.LocalPath %q", finalPath, rommView)
+		t.Errorf("tracked path %q != the RomM-shaped view %q", finalPath, rommView)
 	}
 	if !jobs.LibraryHasFilePath(rommView) {
-		t.Error("library row not findable by the RomM sync's path-collision probe")
+		t.Error("library row not findable by an exact-path probe")
 	}
 }

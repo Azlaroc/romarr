@@ -66,6 +66,11 @@ func (s *JobStore) migrateExtra() {
 	s.migrateReleaseProfiles()
 	s.migrateTags()
 	s.migrateSettings()
+	// The RomM library sync is retired (the scanner owns the ROM-tree view
+	// now); rows for its knobs would sit orphaned in every install that set
+	// them via the UI. Deleting them here — not just dropping the spec rows —
+	// keeps the settings table from accumulating keys nothing reads.
+	s.db.Exec(`DELETE FROM settings WHERE key IN ('romm_sync_enabled', 'romm_sync_interval_seconds', 'romm_exclude_platforms')`)
 	s.migrateSourceRegistry()
 	s.migrateDDLSources()
 	s.migrateIAItemMetadata()
@@ -352,6 +357,42 @@ func (s *JobStore) ListLibraryItemsUnderPath(prefix string) []LibraryItem {
 func likePrefixPattern(prefix string) string {
 	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return r.Replace(prefix) + "%"
+}
+
+// LibraryHasFilePath reports whether any library row tracks this exact path.
+func (s *JobStore) LibraryHasFilePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM library_items WHERE file_path = ?", path).Scan(&count)
+	return count > 0
+}
+
+// LibraryPlatform is one distinct non-PC platform present in the library.
+type LibraryPlatform struct {
+	Slug string
+	Name string
+}
+
+// LibraryPlatforms returns the distinct non-PC platforms present in the
+// library, for merging into the platform filter list.
+func (s *JobStore) LibraryPlatforms() []LibraryPlatform {
+	rows, err := s.db.Query(
+		"SELECT platform_slug, MAX(platform) FROM library_items WHERE is_pc = 0 AND platform_slug != '' GROUP BY platform_slug ORDER BY platform_slug",
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []LibraryPlatform
+	for rows.Next() {
+		var p LibraryPlatform
+		if rows.Scan(&p.Slug, &p.Name) == nil {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // LibraryHasSourceID checks if a source_id already exists in the library.
