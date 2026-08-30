@@ -62,8 +62,13 @@ type Row struct {
 
 	// DefaultProfileID is the quality profile new titles on this platform
 	// default to. Zero means none has been materialized yet.
-	DefaultProfileID int64  `json:"default_profile_id"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
+	DefaultProfileID int64 `json:"default_profile_id"`
+
+	// CollectionProfileID names WHAT this platform collects out of its DAT
+	// (region order, category gates — the arc). Zero means the built-in
+	// Standard profile, which reproduces the pre-profile policy exactly.
+	CollectionProfileID int64  `json:"collection_profile_id"`
+	UpdatedAt           string `json:"updated_at,omitempty"`
 }
 
 // Registry supplies the rows. Declared here, in the leaf package, so every

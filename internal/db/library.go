@@ -87,6 +87,10 @@ func (s *JobStore) migrateExtra() {
 	// platform→profile link moves the legacy mapping onto the registry.
 	s.seedProfileTemplates()
 	s.linkPlatformDefaults()
+	// After linkPlatformDefaults: the fold-in reads each platform's EFFECTIVE
+	// quality-profile tuple via ResolveProfileForItem, which walks the
+	// platform-default links that migration just wrote.
+	s.migrateCollectionProfiles()
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS library_items (
