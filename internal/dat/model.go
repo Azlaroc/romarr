@@ -71,7 +71,9 @@ func (g Game) TotalSize() int64 {
 //	1: initial.
 //	2: region is the union of the DAT's declared region and the name's,
 //	   rather than the declared one alone.
-const ParserVersion = 2
+//	3: (Aftermarket) and (Pirate) are parsed flags; both tokens are now
+//	   stripped from clean/bare titles.
+const ParserVersion = 3
 
 // Header carries the DAT's self-declared identity. Version is the snapshot
 // stamp we pin on: Redump emits "2026-08-16 18-16-58", libretro "2026.08.01".

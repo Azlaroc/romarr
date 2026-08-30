@@ -295,6 +295,8 @@ func annotate(g *Game, explicitRegion string) {
 		boolFlag(attrs.IsProto, "proto"),
 		boolFlag(attrs.IsDemo, "demo"),
 		boolFlag(attrs.IsUnlicensed, "unl"),
+		boolFlag(attrs.IsAftermarket, "aftermarket"),
+		boolFlag(attrs.IsPirate, "pirate"),
 		boolFlag(attrs.BadDump, "bad"),
 		boolFlag(attrs.VerifiedDump, "verified"),
 	)
