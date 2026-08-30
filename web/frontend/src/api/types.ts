@@ -704,6 +704,40 @@ export interface HashfillRow {
   header?: string
 }
 
+export interface LibscanStatus {
+  configured: boolean
+  running?: boolean
+  phase?: string
+  scope?: string
+  dry_run?: boolean
+  force?: boolean
+  total?: number
+  done?: number
+  created?: number
+  adopted?: number
+  missing?: number
+  unvisited?: number
+  errors?: number
+  bytes_hashed?: number
+  last_error?: string
+  counts?: Record<string, number>
+  started_at?: string
+  finished_at?: string
+  [k: string]: unknown
+}
+
+export interface LibscanRow {
+  library_id?: number
+  platform_slug?: string
+  path: string
+  name: string
+  size?: number
+  status: string // created | adopted | missing | unvisited | unknown-platform | unsorted | error
+  detail?: string
+  /** The catalog verdict recorded for this entry during the run. */
+  catalog?: string
+}
+
 export interface PrunePreviewRow {
   library_id: number
   platform_slug: string

@@ -1443,6 +1443,36 @@
         "responses": { "200": { "description": "Stopping" } }
       }
     },
+    "/api/library/scan/status": {
+      "get": {
+        "summary": "Library scan status (admin)",
+        "responses": { "200": { "description": "Phase and counters (created / adopted / missing / unvisited) for the current or last scan" } }
+      }
+    },
+    "/api/library/scan/results": {
+      "get": {
+        "summary": "The held library-scan rows (admin)",
+        "description": "One row per observation: a file adopted or created (with the catalog verdict recorded for it), a library row whose file is gone (`missing` — reported, never deleted), a present file the walk never reached (`unvisited`), an unregistered top-level directory (`unknown-platform`), or a file at the tree root (`unsorted`). After a dry run these are the rows that WOULD have been written.",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "A page of scan rows plus the total" } }
+      }
+    },
+    "/api/library/scan/run": {
+      "post": {
+        "summary": "Scan the ROM tree and reconcile it with the library (admin)",
+        "description": "Walks one platform directory (`platform_slug`, or \"all\"): a file a row already tracks is adopted (verdict filled from stored hashes when present, measured otherwise; a registry-unknown slug repaired from the directory; the row's source never changed), a file no row tracks becomes a `libscan` row, and a row whose file is gone is reported as missing — the scanner deletes nothing, ever. Platform identity comes from the top-level directory name checked against the registry; nothing is guessed from extensions. `dry_run` performs the identical pass and writes nothing. `force` re-measures rows that already carry hashes or a verdict (never downgrading a banked verdict to unknown).",
+        "responses": { "200": { "description": "Run started, or a reason it did not" } }
+      }
+    },
+    "/api/library/scan/stop": {
+      "post": {
+        "summary": "Stop the running library scan (admin)",
+        "responses": { "200": { "description": "Stopping" } }
+      }
+    },
     "/api/collection/targets": {
       "get": {
         "summary": "The gap list collection mode is working through",

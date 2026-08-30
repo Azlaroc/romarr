@@ -63,6 +63,8 @@ import type {
   PrunePreviewRow,
   HashfillStatus,
   HashfillRow,
+  LibscanStatus,
+  LibscanRow,
   CollectionTargetsResponse,
   CollectionSyncResult,
 } from './types'
@@ -102,6 +104,8 @@ export const keys = {
   pruneResults: (page: number) => ['prune-results', page] as const,
   hashStatus: ['hash-status'] as const,
   hashResults: (page: number) => ['hash-results', page] as const,
+  scanStatus: ['scan-status'] as const,
+  scanResults: (page: number) => ['scan-results', page] as const,
   syncStatus: ['sync-status'] as const,
   users: ['users'] as const,
   invites: ['invites'] as const,
@@ -873,6 +877,46 @@ export function useHashStop() {
   return useMutation({
     mutationFn: () => api.post<{ success: boolean }>('/api/library/hash/stop'),
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.hashStatus }), 500),
+  })
+}
+
+export function useScanStatus() {
+  return useQuery({
+    queryKey: keys.scanStatus,
+    queryFn: () => api.get<LibscanStatus>('/api/library/scan/status'),
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
+  })
+}
+
+export function useScanResults(page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.scanResults(page),
+    queryFn: () =>
+      api.get<{ success: boolean; items: LibscanRow[]; total: number }>(
+        `/api/library/scan/results?page=${page}&page_size=100`,
+      ),
+    enabled,
+  })
+}
+
+export function useScanRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { platformSlug: string; dryRun: boolean; force: boolean }) =>
+      api.post<{ success: boolean; error?: string }>('/api/library/scan/run', {
+        platform_slug: v.platformSlug,
+        dry_run: v.dryRun,
+        force: v.force,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.scanStatus }),
+  })
+}
+
+export function useScanStop() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ success: boolean }>('/api/library/scan/stop'),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.scanStatus }), 500),
   })
 }
 

@@ -7,14 +7,12 @@ import (
 	"gamarr/internal/db"
 )
 
-// When the RomM sync is configured it owns the ROM side: the scanner walks
-// only the vault and leaves ROM rows (romm's and legacy scan's) alone.
-func TestScanLibraryDirsRommOwned(t *testing.T) {
+// The boot scan is vault-only, unconditionally: whatever the RomM config
+// says, it never walks the ROM tree and never clears a ROM row. The legacy
+// version cleared every scan row and re-derived platform slugs from raw
+// directory names; both behaviors are pinned dead here.
+func TestScanLibraryDirsVaultOnly(t *testing.T) {
 	cfg := newTestConfig(t)
-	cfg.RomMURL = "http://romm:8080"
-	cfg.RomMAPIUser = "romarr"
-	cfg.RomMAPIPass = "pw"
-	cfg.RomMSyncEnabled = true
 	jobs := newTestJobs(t)
 	m := New(cfg, jobs, nil)
 
@@ -22,10 +20,14 @@ func TestScanLibraryDirsRommOwned(t *testing.T) {
 	snes := filepath.Join(cfg.GamesRomsPath, "snes")
 	writeFileT(t, filepath.Join(snes, "Mario World.sfc"), bigROM())
 
-	// A romm-synced row and a legacy ROM scan row both predate the rescan.
+	// Rows from every ROM-side producer predate the rescan.
 	jobs.AddLibraryItem(&db.LibraryItem{
 		Title: "Synced", PlatformSlug: "snes", Source: "romm", SourceType: "romm",
 		SourceID: "romm:1", Metadata: "{}",
+	})
+	jobs.AddLibraryItem(&db.LibraryItem{
+		Title: "Scanner Row", PlatformSlug: "snes", Source: "libscan", SourceType: "libscan",
+		SourceID: "libscan:x", Metadata: "{}",
 	})
 	jobs.AddLibraryItem(&db.LibraryItem{
 		Title: "Legacy ROM scan", PlatformSlug: "snes", Source: "scan", Metadata: "{}",
@@ -37,34 +39,30 @@ func TestScanLibraryDirsRommOwned(t *testing.T) {
 		t.Error("vault entry not scanned")
 	}
 	if jobs.LibraryHasSourceID("scan:" + filepath.Join(snes, "Mario World.sfc")) {
-		t.Error("ROM directory scanned despite RomM owning the library")
+		t.Error("boot scan walked the ROM tree")
 	}
-	if jobs.FindLibraryByTitle("Synced", "snes") == nil {
-		t.Error("romm row cleared by vault rescan")
-	}
-	// Legacy ROM scan rows are the sync's to retire (full reconcile), not the
-	// vault rescan's.
-	if jobs.FindLibraryByTitle("Legacy ROM scan", "snes") == nil {
-		t.Error("legacy ROM scan row cleared by vault-only rescan")
+	for _, title := range []string{"Synced", "Scanner Row", "Legacy ROM scan"} {
+		if jobs.FindLibraryByTitle(title, "snes") == nil {
+			t.Errorf("%s row cleared by vault-only rescan", title)
+		}
 	}
 }
 
 // A file already tracked by a download import must not be double-counted by
-// a rescan under a scan: source id.
+// a vault rescan under a scan: source id.
 func TestScanSkipsImportTrackedPath(t *testing.T) {
 	cfg := newTestConfig(t)
 	jobs := newTestJobs(t)
 	m := New(cfg, jobs, nil)
 
-	snes := filepath.Join(cfg.GamesRomsPath, "snes")
-	romPath := filepath.Join(snes, "Grabbed Game.sfc")
-	writeFileT(t, romPath, bigROM())
+	gamePath := filepath.Join(cfg.GamesVaultPath, "Grabbed Game.zip")
+	writeFileT(t, gamePath, []byte("archive"))
 
-	m.TrackInLibrary("Grabbed Game", "SNES", "snes", false, romPath, 42, "torrent", "prowlarr", "torrent:abc", "", "", "")
+	m.TrackInLibrary("Grabbed Game", "PC", "", true, gamePath, 42, "ddl", "manual", "ddl:abc", "", "", "")
 
 	m.ScanLibraryDirs()
 
-	if jobs.LibraryHasSourceID("scan:" + romPath) {
+	if jobs.LibraryHasSourceID("scan:" + gamePath) {
 		t.Error("import-tracked path re-added under scan: source id")
 	}
 	if total := jobs.LibraryTotal(); total != 1 {

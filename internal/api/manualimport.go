@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gamarr/internal/organize"
+	"gamarr/internal/romfile"
 )
 
 // scannedFile represents a file found during a manual import scan.
@@ -19,23 +20,6 @@ type scannedFile struct {
 	Platform     string `json:"platform"`
 	PlatformSlug string `json:"platform_slug"`
 	IsPC         bool   `json:"is_pc"`
-}
-
-// gameExtensions lists recognized game file extensions.
-var gameExtensions = map[string]bool{
-	".nsp": true, ".xci": true, ".nsz": true,
-	".3ds": true, ".cia": true,
-	".nds": true,
-	".gba": true, ".gb": true, ".gbc": true,
-	".n64": true, ".z64": true, ".v64": true,
-	".nes": true, ".sfc": true, ".smc": true,
-	".gcm": true, ".gcz": true,
-	".wbfs": true, ".wad": true, ".rpx": true,
-	".pbp": true, ".cso": true, ".pkg": true,
-	".gdi": true, ".cdi": true,
-	".iso": true,
-	".zip": true, ".7z": true, ".rar": true,
-	".exe": true, ".bin": true,
 }
 
 // handleScanImport handles POST /api/import/scan.
@@ -64,10 +48,13 @@ func (s *Server) handleScanImport(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if !gameExtensions[ext] {
+		if !romfile.IsGameExtension(path) {
 			return nil
 		}
 
+		// Extension guessing is acceptable HERE and nowhere else: every row
+		// this scan proposes is confirmed by an operator before import. The
+		// unattended library scanner deliberately refuses this vocabulary.
 		platform, platformSlug, isPC := organize.DetectPlatform(info.Name())
 
 		files = append(files, scannedFile{

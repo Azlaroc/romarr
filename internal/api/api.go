@@ -23,6 +23,7 @@ import (
 	"gamarr/internal/db"
 	"gamarr/internal/download"
 	"gamarr/internal/hashfill"
+	"gamarr/internal/libscan"
 	"gamarr/internal/metadata"
 	"gamarr/internal/models"
 	"gamarr/internal/platform"
@@ -53,7 +54,10 @@ type Server struct {
 	// hashfill gives hashless library rows a hash, so ownership can be
 	// decided by proof rather than by a guess at the title.
 	hashfill *hashfill.Runner
-	dat      *datsvc.Service
+	// libscan is the root-folder scanner: RomArr's own inventory over its
+	// own folders (adopt/create/report, never delete).
+	libscan *libscan.Runner
+	dat     *datsvc.Service
 	// coll answers set questions. Built here rather than threaded through
 	// NewRouter for the same reason meta is: it needs only the config and the
 	// store, and it holds no state a caller has to own.
@@ -81,6 +85,9 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// No import notifier: the backfill writes DB metadata and never touches
 	// the tree, so RomM has nothing to rescan.
 	s.hashfill = hashfill.New(cfg, mgr.Jobs())
+	// Same reasoning: the scanner reconciles rows with disk and moves no
+	// files, so there is nothing to tell RomM about.
+	s.libscan = libscan.New(cfg, mgr.Jobs())
 
 	// Rate limiter: 60-second window.
 	rl := NewRateLimiter(60, map[string]int{
@@ -181,6 +188,14 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/library/hash/results", requireAdmin(s.handleHashResults))
 	r.Post("/api/library/hash/run", requireAdmin(s.handleHashRun))
 	r.Post("/api/library/hash/stop", requireAdmin(s.handleHashStop))
+
+	// The library scanner (adopt/create/report, never delete). Same shape as
+	// the hash backfill; all four admin — its results enumerate the tree.
+	// See scan_handlers.go.
+	r.Get("/api/library/scan/status", requireAdmin(s.handleScanStatus))
+	r.Get("/api/library/scan/results", requireAdmin(s.handleScanResults))
+	r.Post("/api/library/scan/run", requireAdmin(s.handleScanRun))
+	r.Post("/api/library/scan/stop", requireAdmin(s.handleScanStop))
 
 	// Wishlist
 	r.Get("/api/wishlist", s.handleWishlist)
@@ -316,8 +331,11 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Delete("/api/release-profiles/{id}", s.handleDeleteReleaseProfile)
 
 	// Manual Import (scan + import files)
-	r.Post("/api/import/scan", s.handleScanImport)
-	r.Post("/api/import/files", s.handleImportFiles)
+	// Manual import walks operator-named directories and moves files —
+	// admin-gated like every other surface that touches the tree. (These two
+	// predate the gate convention; they were the only open write routes.)
+	r.Post("/api/import/scan", requireAdmin(s.handleScanImport))
+	r.Post("/api/import/files", requireAdmin(s.handleImportFiles))
 
 	// Tags
 	r.Get("/api/tags", s.handleGetTags)

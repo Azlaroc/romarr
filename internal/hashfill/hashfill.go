@@ -37,10 +37,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"gamarr/internal/config"
@@ -77,11 +75,6 @@ const (
 // hundreds of rows in a row perfectly legitimately; treating that as a fault
 // would abort exactly the runs that have the most to say.
 const maxConsecutiveErrors = 25
-
-// extractHeadroom is how many times the archive's own size must be free
-// before extracting it. ROMs compress well; 4x covers the ratios seen in the
-// library without being so generous it refuses ordinary work.
-const extractHeadroom = 4
 
 // workDirName is this runner's scratch dir, and it must not be the renamer's:
 // that one is os.RemoveAll'd at the start of every rename preview, which
@@ -337,10 +330,9 @@ func (r *Runner) run(ctx context.Context, scope string, opts Opts) {
 	}
 }
 
-// visit measures one library entry. It never modifies the entry: an archive's
-// inner ROM is extracted into a scratch dir that is removed before returning,
-// and a raw file is hashed in place — no staging, because nothing here
-// renames anything and a hardlink would only be work.
+// visit measures one library entry via romfile.Measure and maps its
+// classifications onto this runner's skip vocabulary. It never modifies the
+// entry — Measure hashes in place and cleans up its own extraction dir.
 func (r *Runner) visit(ctx context.Context, item db.LibraryItem, workRoot string, opts Opts) Row {
 	row := Row{
 		LibraryID:    item.ID,
@@ -349,55 +341,22 @@ func (r *Runner) visit(ctx context.Context, item db.LibraryItem, workRoot string
 		Name:         filepath.Base(item.FilePath),
 	}
 
-	fi, err := os.Stat(item.FilePath)
-	switch {
-	case os.IsNotExist(err):
-		return r.skip(row, SkipMissing, false, opts)
-	case err != nil:
-		row.Status, row.Reason = StatusError, "unreadable: "+err.Error()
-		return row
-	case fi.IsDir():
-		return r.skip(row, SkipDirectory, true, opts)
-	}
-	if strings.EqualFold(filepath.Ext(item.FilePath), ".rar") {
-		return r.skip(row, SkipRar, true, opts)
-	}
-
-	target := item.FilePath
-	if romfile.IsArchive(item.FilePath) {
-		if err := os.MkdirAll(workRoot, 0o755); err != nil {
-			row.Status, row.Reason = StatusError, "workspace: "+err.Error()
-			return row
-		}
-		itemDir, err := os.MkdirTemp(workRoot, "item-")
-		if err != nil {
-			row.Status, row.Reason = StatusError, "stage dir: "+err.Error()
-			return row
-		}
-		defer os.RemoveAll(itemDir)
-
-		// An extraction needs room for the inner ROM, which can be several
-		// times the archive. Refusing loudly beats filling the volume the
-		// library lives on and failing every remaining row.
-		if free := freeBytes(workRoot); free > 0 && uint64(fi.Size())*extractHeadroom > free {
-			return r.skip(row, SkipNoSpace, false, opts)
-		}
-
-		extracted, err := romfile.ExtractSingle(ctx, item.FilePath, itemDir)
-		if err != nil {
-			var multi *romfile.MultiFileError
-			if errors.As(err, &multi) {
-				return r.skip(row, SkipMultiFile, true, opts)
-			}
-			row.Status, row.Reason = StatusError, "extract failed: "+err.Error()
-			return row
-		}
-		target = extracted
-	}
-
-	res, err := romfile.HashPayload(target)
+	res, err := romfile.Measure(ctx, item.FilePath, workRoot)
 	if err != nil {
-		row.Status, row.Reason = StatusError, "hash failed: "+err.Error()
+		var multi *romfile.MultiFileError
+		switch {
+		case os.IsNotExist(err):
+			return r.skip(row, SkipMissing, false, opts)
+		case errors.Is(err, romfile.ErrIsDirectory):
+			return r.skip(row, SkipDirectory, true, opts)
+		case errors.Is(err, romfile.ErrRarArchive):
+			return r.skip(row, SkipRar, true, opts)
+		case errors.Is(err, romfile.ErrNoSpace):
+			return r.skip(row, SkipNoSpace, false, opts)
+		case errors.As(err, &multi):
+			return r.skip(row, SkipMultiFile, true, opts)
+		}
+		row.Status, row.Reason = StatusError, err.Error()
 		return row
 	}
 
@@ -451,19 +410,6 @@ func markerFor(reason string) string {
 		return db.HashSkipRar
 	}
 	return ""
-}
-
-// freeBytes returns the filesystem free space for the nearest existing parent
-// of path, or 0 when nothing resolves — in which case the caller proceeds, on
-// the grounds that an unmeasurable volume is not evidence of a full one.
-func freeBytes(path string) uint64 {
-	for p := path; p != "" && p != "/"; p = filepath.Dir(p) {
-		var st syscall.Statfs_t
-		if err := syscall.Statfs(p, &st); err == nil {
-			return st.Bavail * uint64(st.Bsize)
-		}
-	}
-	return 0
 }
 
 // copyCounts returns a snapshot of the verdict tally.
