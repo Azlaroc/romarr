@@ -124,7 +124,6 @@ func TestSizeNeverFilters(t *testing.T) {
 
 func TestSourceTrustSubstringMatch(t *testing.T) {
 	prof := romProfile()
-	prof.RegionPriority = nil
 	prof.FormatPreference = nil
 	prof.Prefer1G1R = false
 	prof.SourceRanking = []string{"Vimm"}

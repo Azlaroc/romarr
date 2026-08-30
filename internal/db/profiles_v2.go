@@ -28,13 +28,11 @@ import (
 var templateSeed = []QualityProfile{
 	{
 		Name: "Carts Default", IsTemplate: true, TemplateClass: "carts",
-		RegionPriority:   defaultRegionPriority,
 		FormatPreference: []string{"zip", "7z", "raw"},
 		Prefer1G1R:       true,
 	},
 	{
 		Name: "Discs Default", IsTemplate: true, TemplateClass: "discs",
-		RegionPriority:   defaultRegionPriority,
 		FormatPreference: defaultFormatPreference,
 		Prefer1G1R:       true,
 	},

@@ -114,9 +114,6 @@ func (s *Server) handleCreateQualityProfile(w http.ResponseWriter, r *http.Reque
 	if p.SourceRanking == nil {
 		p.SourceRanking = []string{}
 	}
-	if p.RegionPriority == nil {
-		p.RegionPriority = []string{}
-	}
 	if p.FormatPreference == nil {
 		p.FormatPreference = []string{}
 	}
@@ -152,9 +149,6 @@ func (s *Server) handleUpdateQualityProfile(w http.ResponseWriter, r *http.Reque
 	}
 	if p.SourceRanking == nil {
 		p.SourceRanking = []string{}
-	}
-	if p.RegionPriority == nil {
-		p.RegionPriority = []string{}
 	}
 	if p.FormatPreference == nil {
 		p.FormatPreference = []string{}

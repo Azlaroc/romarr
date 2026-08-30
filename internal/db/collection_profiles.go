@@ -21,6 +21,11 @@ import (
 // never what is on disk. Files outside the slice are surfaced, not evicted —
 // eviction stays the declutter's explicit preview→approve→archive flow.
 
+// defaultRegionPriority is the built-in keeper-choice order: US/World first.
+// It lived on the quality profiles until the catalog-side vocabulary moved
+// here wholesale.
+var defaultRegionPriority = []string{"usa", "world", "europe", "japan"}
+
 // CollectionProfile is one named slice of a catalog.
 type CollectionProfile struct {
 	ID int64 `json:"id"`
@@ -104,6 +109,17 @@ func (s *JobStore) migrateCollectionProfiles() {
 	}
 	s.seedCollectionProfiles()
 	s.foldInCollectionProfiles()
+	// The legacy catalog-side columns go ONLY after the fold above had its
+	// chance to read them — dropping them in migrateQualityProfiles would
+	// break any install that jumps several versions in one deploy. Plain
+	// defaulted columns, no index: safe for SQLite's DROP COLUMN.
+	for _, col := range []string{"region_priority", "allow_proto", "allow_demo", "allow_bios"} {
+		if s.qpColumnExists(col) {
+			if _, err := s.db.Exec("ALTER TABLE quality_profiles DROP COLUMN " + col); err != nil {
+				slog.Warn("drop retired quality column", "column", col, "error", err)
+			}
+		}
+	}
 }
 
 // seedCollectionProfiles ships the named defaults, virgin-table-guarded like
@@ -137,54 +153,172 @@ func (s *JobStore) seedCollectionProfiles() {
 }
 
 // foldInCollectionProfiles migrates the effective per-platform policy off the
-// quality profiles, once, guarded by a settings key (the linkPlatformDefaults
-// discipline: an operator later re-pointing a platform at Standard must not
-// be re-folded).
+// LEGACY quality-profile columns, once, guarded by a settings key (the
+// linkPlatformDefaults discipline: an operator later re-pointing a platform
+// at the default must not be re-folded).
 //
-// For every platform, the tuple the set builder used to scrape from
-// ResolveProfileForItem — region priority + the three allow flags — is
-// compared to Standard's. Platforms already living the default fold to
-// nothing (collection_profile_id stays 0); the rest get a "Migrated:" profile
-// carrying their exact tuple, deduped by name. 🔴 This is what keeps pc
-// honest: PC Default's empty region_priority means no region filtering today,
-// and without the fold-in the search rewire would have started filtering pc
-// under Standard's chain.
+// 🔴 It reads the RAW region_priority/allow_* columns rather than the
+// QualityProfile struct, because those fields are retired and this file
+// drops the columns immediately after the fold — reading the struct would
+// fold zeroes on any install that jumps several versions in one deploy. On a
+// fresh install the columns never exist, and the only work is preserving the
+// one semantic the old seed carried: pc searches with NO region filtering.
 func (s *JobStore) foldInCollectionProfiles() {
 	if _, ok := s.GetSetting("collection_profiles_folded"); ok {
 		return
 	}
-	std := DefaultCollectionProfile()
-	folded := 0
-	for _, row := range s.PlatformRows() {
-		prof := s.ResolveProfileForItem(0, row.Slug)
-		if prof == nil {
+	if s.qpColumnExists("region_priority") {
+		s.foldLegacyQualityTuples()
+	} else {
+		s.seedPCCollectionProfile()
+	}
+	if err := s.SetSetting("collection_profiles_folded", "1"); err != nil {
+		slog.Warn("record collection profile fold", "error", err)
+	}
+}
+
+// legacyQPTuple is one quality profile's catalog-side policy, read straight
+// off the retired columns.
+type legacyQPTuple struct {
+	id             int64
+	name           string
+	platformSlug   string
+	isDefault      bool
+	isTemplate     bool
+	regionPriority []string
+	allowProto     bool
+	allowDemo      bool
+	allowBIOS      bool
+}
+
+// foldLegacyQualityTuples resolves each platform's effective tuple the way
+// ResolveProfileForItem used to — platform default link → legacy
+// platform_slug → global default → lowest-id global — over raw rows, and
+// folds every tuple that differs from Standard into a "Migrated:" profile.
+func (s *JobStore) foldLegacyQualityTuples() {
+	rows, err := s.db.Query(`SELECT id, name, platform_slug, is_default, is_template,
+		region_priority, allow_proto, allow_demo, allow_bios FROM quality_profiles ORDER BY id`)
+	if err != nil {
+		slog.Warn("fold: read legacy quality tuples", "error", err)
+		return
+	}
+	var tuples []legacyQPTuple
+	for rows.Next() {
+		var t legacyQPTuple
+		var regions string
+		var isDefault, isTemplate, proto, demo, bios int
+		if err := rows.Scan(&t.id, &t.name, &t.platformSlug, &isDefault, &isTemplate,
+			&regions, &proto, &demo, &bios); err != nil {
 			continue
 		}
-		if equalStringSlices(prof.RegionPriority, std.RegionPriority) &&
-			!prof.AllowProto && !prof.AllowDemo && !prof.AllowBIOS {
+		t.isDefault, t.isTemplate = isDefault == 1, isTemplate == 1
+		t.allowProto, t.allowDemo, t.allowBIOS = proto == 1, demo == 1, bios == 1
+		_ = json.Unmarshal([]byte(regions), &t.regionPriority)
+		tuples = append(tuples, t)
+	}
+	rows.Close()
+
+	byID := map[int64]legacyQPTuple{}
+	for _, t := range tuples {
+		byID[t.id] = t
+	}
+	resolve := func(row platformRowLite) (legacyQPTuple, bool) {
+		if row.defaultProfileID != 0 {
+			if t, ok := byID[row.defaultProfileID]; ok && !t.isTemplate {
+				return t, true
+			}
+		}
+		for _, t := range tuples {
+			if t.platformSlug == row.slug && !t.isTemplate {
+				return t, true
+			}
+		}
+		for _, t := range tuples {
+			if t.isDefault && !t.isTemplate {
+				return t, true
+			}
+		}
+		for _, t := range tuples {
+			if t.platformSlug == "" && !t.isTemplate {
+				return t, true
+			}
+		}
+		return legacyQPTuple{}, false
+	}
+
+	std := DefaultCollectionProfile()
+	folded := 0
+	for _, row := range s.platformRowsLite() {
+		t, ok := resolve(row)
+		if !ok {
+			continue
+		}
+		if equalStringSlices(t.regionPriority, std.RegionPriority) &&
+			!t.allowProto && !t.allowDemo && !t.allowBIOS {
 			continue
 		}
 		cp := DefaultCollectionProfile()
-		cp.Name = "Migrated: " + prof.Name
-		cp.RegionPriority = append([]string(nil), prof.RegionPriority...)
-		cp.AllowProto, cp.AllowDemo, cp.AllowBIOS = prof.AllowProto, prof.AllowDemo, prof.AllowBIOS
+		cp.Name = "Migrated: " + t.name
+		cp.RegionPriority = append([]string(nil), t.regionPriority...)
+		cp.AllowProto, cp.AllowDemo, cp.AllowBIOS = t.allowProto, t.allowDemo, t.allowBIOS
 		id, err := s.findOrCreateCollectionProfile(cp)
 		if err != nil {
-			slog.Warn("fold collection profile", "platform", row.Slug, "error", err)
+			slog.Warn("fold collection profile", "platform", row.slug, "error", err)
 			continue
 		}
-		if err := s.PatchPlatform(row.Slug, PlatformPatch{CollectionProfileID: &id}); err != nil {
-			slog.Warn("link collection profile", "platform", row.Slug, "error", err)
+		if err := s.PatchPlatform(row.slug, PlatformPatch{CollectionProfileID: &id}); err != nil {
+			slog.Warn("link collection profile", "platform", row.slug, "error", err)
 			continue
 		}
 		folded++
 	}
-	if err := s.SetSetting("collection_profiles_folded", "1"); err != nil {
-		slog.Warn("record collection profile fold", "error", err)
-		return
-	}
 	if folded > 0 {
 		slog.Info("folded platform policies into collection profiles", "platforms", folded)
+	}
+}
+
+// platformRowLite is the two columns the fold needs; the full registry scan
+// would drag in every column this migration must not depend on.
+type platformRowLite struct {
+	slug             string
+	defaultProfileID int64
+}
+
+func (s *JobStore) platformRowsLite() []platformRowLite {
+	rows, err := s.db.Query(`SELECT slug, default_profile_id FROM platforms ORDER BY slug`)
+	if err != nil {
+		slog.Warn("fold: read platforms", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []platformRowLite
+	for rows.Next() {
+		var r platformRowLite
+		if err := rows.Scan(&r.slug, &r.defaultProfileID); err == nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// seedPCCollectionProfile preserves the one catalog-side semantic the legacy
+// seed carried, on installs born after the columns died: pc has no region
+// order (a PC release rarely carries No-Intro region tags, and filtering on
+// them would reject most of the catalog).
+func (s *JobStore) seedPCCollectionProfile() {
+	if row, ok := s.GetPlatformRow("pc"); !ok || row.CollectionProfileID != 0 {
+		return
+	}
+	cp := DefaultCollectionProfile()
+	cp.Name = "PC — No Region Order"
+	cp.RegionPriority = []string{}
+	id, err := s.findOrCreateCollectionProfile(cp)
+	if err != nil {
+		slog.Warn("seed pc collection profile", "error", err)
+		return
+	}
+	if err := s.PatchPlatform("pc", PlatformPatch{CollectionProfileID: &id}); err != nil {
+		slog.Warn("link pc collection profile", "error", err)
 	}
 }
 

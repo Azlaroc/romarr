@@ -35,12 +35,8 @@ type QualityProfile struct {
 	Name             string   `json:"name"`
 	PlatformSlug     string   `json:"platform_slug"`     // "" = global profile
 	IsDefault        bool     `json:"is_default"`        // the global fallback row
-	RegionPriority   []string `json:"region_priority"`   // ordered list: best first (lowered tokens)
 	FormatPreference []string `json:"format_preference"` // ordered list: best first
 	Prefer1G1R       bool     `json:"prefer_1g1r"`       // prefer verified dumps / latest revision
-	AllowProto       bool     `json:"allow_proto"`       // allow (Proto)/(Beta)/(Sample) releases
-	AllowDemo        bool     `json:"allow_demo"`        // allow (Demo) releases
-	AllowBIOS        bool     `json:"allow_bios"`        // allow [BIOS] releases
 	SourceRanking    []string `json:"source_ranking"`    // ordered list: best first
 	UpgradeAllowed   bool     `json:"upgrade_allowed"`
 	CutoffSource     string   `json:"cutoff_source"` // stop upgrading once this source is reached
@@ -48,19 +44,16 @@ type QualityProfile struct {
 	TemplateClass    string   `json:"template_class"`
 }
 
-// defaultRegionPriority / defaultFormatPreference are the built-in ROM
-// selection policy: US/World first, disc images as CHD first.
-var (
-	defaultRegionPriority   = []string{"usa", "world", "europe", "japan"}
-	defaultFormatPreference = []string{"chd", "cue", "iso", "gdi", "zip", "7z", "raw"}
-)
+// defaultFormatPreference is the built-in format policy: disc images as CHD
+// first. (defaultRegionPriority moved to the collection-profile plane with
+// the rest of the catalog-side vocabulary.)
+var defaultFormatPreference = []string{"chd", "cue", "iso", "gdi", "zip", "7z", "raw"}
 
 // DefaultQualityProfile is the hardcoded last-resort profile used when the
 // table has no usable row. Never persisted; ID 0.
 func DefaultQualityProfile() *QualityProfile {
 	return &QualityProfile{
 		Name:             "Built-in Default",
-		RegionPriority:   append([]string(nil), defaultRegionPriority...),
 		FormatPreference: append([]string(nil), defaultFormatPreference...),
 		Prefer1G1R:       true,
 		SourceRanking:    []string{},
@@ -73,12 +66,8 @@ func DefaultQualityProfile() *QualityProfile {
 var qpV2Columns = []struct{ name, def string }{
 	{"platform_slug", "TEXT NOT NULL DEFAULT ''"},
 	{"is_default", "INTEGER NOT NULL DEFAULT 0"},
-	{"region_priority", "TEXT NOT NULL DEFAULT '[]'"},
 	{"format_preference", "TEXT NOT NULL DEFAULT '[]'"},
 	{"prefer_1g1r", "INTEGER NOT NULL DEFAULT 1"},
-	{"allow_proto", "INTEGER NOT NULL DEFAULT 0"},
-	{"allow_demo", "INTEGER NOT NULL DEFAULT 0"},
-	{"allow_bios", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 func (s *JobStore) migrateQualityProfiles() {
@@ -90,12 +79,8 @@ func (s *JobStore) migrateQualityProfiles() {
 		cutoff_source TEXT NOT NULL DEFAULT '',
 		platform_slug TEXT NOT NULL DEFAULT '',
 		is_default INTEGER NOT NULL DEFAULT 0,
-		region_priority TEXT NOT NULL DEFAULT '[]',
 		format_preference TEXT NOT NULL DEFAULT '[]',
 		prefer_1g1r INTEGER NOT NULL DEFAULT 1,
-		allow_proto INTEGER NOT NULL DEFAULT 0,
-		allow_demo INTEGER NOT NULL DEFAULT 0,
-		allow_bios INTEGER NOT NULL DEFAULT 0,
 		is_template INTEGER NOT NULL DEFAULT 0,
 		template_class TEXT NOT NULL DEFAULT ''
 	)`
@@ -110,11 +95,10 @@ func (s *JobStore) migrateQualityProfiles() {
 		for _, col := range qpV2Columns {
 			s.db.Exec(fmt.Sprintf("ALTER TABLE quality_profiles ADD COLUMN %s %s", col.name, col.def))
 		}
-		regions, _ := json.Marshal(defaultRegionPriority)
 		formats, _ := json.Marshal(defaultFormatPreference)
 		s.db.Exec(
-			"UPDATE quality_profiles SET is_default = 1, region_priority = ?, format_preference = ?, prefer_1g1r = 1 WHERE name = 'ROM Default'",
-			string(regions), string(formats),
+			"UPDATE quality_profiles SET is_default = 1, format_preference = ?, prefer_1g1r = 1 WHERE name = 'ROM Default'",
+			string(formats),
 		)
 		s.db.Exec("UPDATE quality_profiles SET platform_slug = 'pc' WHERE name = 'PC Default'")
 	}
@@ -159,15 +143,14 @@ func (s *JobStore) migrateQualityProfiles() {
 		// deployments (dead scrape target), so a fresh install's ROM profile
 		// should prefer the source that actually serves.
 		romRanking, _ := json.Marshal([]string{"Internet Archive"})
-		regions, _ := json.Marshal(defaultRegionPriority)
 		formats, _ := json.Marshal(defaultFormatPreference)
 		s.db.Exec(
-			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"PC Default", string(pcRanking), 1, "FitGirl", "pc", 0, "[]", "[]", 1,
+			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			"PC Default", string(pcRanking), 1, "FitGirl", "pc", 0, "[]", 1,
 		)
 		s.db.Exec(
-			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"ROM Default", string(romRanking), 0, "Internet Archive", "", 1, string(regions), string(formats), 1,
+			"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, format_preference, prefer_1g1r) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			"ROM Default", string(romRanking), 0, "Internet Archive", "", 1, string(formats), 1,
 		)
 	}
 }
@@ -194,27 +177,23 @@ func (s *JobStore) qpColumnExists(name string) bool {
 	return false
 }
 
-const qpSelectColumns = "id, name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class"
+const qpSelectColumns = "id, name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, format_preference, prefer_1g1r, is_template, template_class"
 
 func scanQualityProfile(scan func(dest ...interface{}) error) (*QualityProfile, error) {
 	var p QualityProfile
-	var rankingJSON, regionsJSON, formatsJSON string
-	var upgradeAllowed, isDefault, prefer1g1r, allowProto, allowDemo, allowBIOS, isTemplate int
+	var rankingJSON, formatsJSON string
+	var upgradeAllowed, isDefault, prefer1g1r, isTemplate int
 	err := scan(&p.ID, &p.Name, &rankingJSON, &upgradeAllowed, &p.CutoffSource,
-		&p.PlatformSlug, &isDefault, &regionsJSON, &formatsJSON, &prefer1g1r, &allowProto, &allowDemo, &allowBIOS,
+		&p.PlatformSlug, &isDefault, &formatsJSON, &prefer1g1r,
 		&isTemplate, &p.TemplateClass)
 	if err != nil {
 		return nil, err
 	}
 	json.Unmarshal([]byte(rankingJSON), &p.SourceRanking)
-	json.Unmarshal([]byte(regionsJSON), &p.RegionPriority)
 	json.Unmarshal([]byte(formatsJSON), &p.FormatPreference)
 	p.UpgradeAllowed = upgradeAllowed != 0
 	p.IsDefault = isDefault != 0
 	p.Prefer1G1R = prefer1g1r != 0
-	p.AllowProto = allowProto != 0
-	p.AllowDemo = allowDemo != 0
-	p.AllowBIOS = allowBIOS != 0
 	p.IsTemplate = isTemplate != 0
 	return &p, nil
 }
@@ -272,13 +251,11 @@ func (s *JobStore) ResolveQualityProfile(platformSlug string) *QualityProfile {
 // AddQualityProfile inserts a new quality profile.
 func (s *JobStore) AddQualityProfile(p *QualityProfile) (int64, error) {
 	rankingJSON, _ := json.Marshal(p.SourceRanking)
-	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	result, err := s.db.Exec(
-		"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, region_priority, format_preference, prefer_1g1r, allow_proto, allow_demo, allow_bios, is_template, template_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO quality_profiles (name, source_ranking, upgrade_allowed, cutoff_source, platform_slug, is_default, format_preference, prefer_1g1r, is_template, template_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		p.Name, string(rankingJSON), boolToInt(p.UpgradeAllowed), p.CutoffSource,
-		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
-		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
+		p.PlatformSlug, boolToInt(p.IsDefault), string(formatsJSON), boolToInt(p.Prefer1G1R),
 		boolToInt(p.IsTemplate), p.TemplateClass,
 	)
 	if err != nil {
@@ -297,13 +274,11 @@ func (s *JobStore) AddQualityProfile(p *QualityProfile) (int64, error) {
 // UpdateQualityProfile updates an existing quality profile.
 func (s *JobStore) UpdateQualityProfile(p *QualityProfile) error {
 	rankingJSON, _ := json.Marshal(p.SourceRanking)
-	regionsJSON, _ := json.Marshal(p.RegionPriority)
 	formatsJSON, _ := json.Marshal(p.FormatPreference)
 	_, err := s.db.Exec(
-		"UPDATE quality_profiles SET name = ?, source_ranking = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, region_priority = ?, format_preference = ?, prefer_1g1r = ?, allow_proto = ?, allow_demo = ?, allow_bios = ?, is_template = ?, template_class = ? WHERE id = ?",
+		"UPDATE quality_profiles SET name = ?, source_ranking = ?, upgrade_allowed = ?, cutoff_source = ?, platform_slug = ?, is_default = ?, format_preference = ?, prefer_1g1r = ?, is_template = ?, template_class = ? WHERE id = ?",
 		p.Name, string(rankingJSON), boolToInt(p.UpgradeAllowed), p.CutoffSource,
-		p.PlatformSlug, boolToInt(p.IsDefault), string(regionsJSON), string(formatsJSON), boolToInt(p.Prefer1G1R),
-		boolToInt(p.AllowProto), boolToInt(p.AllowDemo), boolToInt(p.AllowBIOS),
+		p.PlatformSlug, boolToInt(p.IsDefault), string(formatsJSON), boolToInt(p.Prefer1G1R),
 		boolToInt(p.IsTemplate), p.TemplateClass, p.ID,
 	)
 	if err != nil {

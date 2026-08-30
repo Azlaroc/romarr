@@ -66,8 +66,10 @@ func TestFoldInMigratesPCAndOnlyPC(t *testing.T) {
 		if err != nil {
 			t.Fatalf("pc profile: %v", err)
 		}
-		if p.Name != "Migrated: PC Default" || len(p.RegionPriority) != 0 {
-			t.Errorf("pc folded to %+v, want empty region priority preserved", p)
+		// A fresh install has no legacy columns to fold — pc's no-region
+		// semantic arrives as the seeded profile instead.
+		if p.Name != "PC — No Region Order" || len(p.RegionPriority) != 0 {
+			t.Errorf("pc folded to %+v, want the seeded no-region profile", p)
 		}
 	}
 	if migrated != 1 {
@@ -108,14 +110,32 @@ func TestFoldInIsGuardedAndFindOrCreates(t *testing.T) {
 func TestFoldInCarriesCustomTuple(t *testing.T) {
 	store := registryStore(t)
 
-	qp := &QualityProfile{
-		Name:           "SNES Proto Hunting",
-		RegionPriority: []string{"japan", "usa"},
-		AllowProto:     true,
-	}
-	id, err := store.AddQualityProfile(qp)
+	// The fold reads the RAW legacy columns (they no longer exist on the
+	// struct), so a legacy install is simulated the way one actually looks:
+	// the columns present, carrying a customized tuple.
+	id, err := store.AddQualityProfile(&QualityProfile{Name: "SNES Proto Hunting"})
 	if err != nil {
 		t.Fatalf("add qp: %v", err)
+	}
+	for _, ddl := range []string{
+		`ALTER TABLE quality_profiles ADD COLUMN region_priority TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE quality_profiles ADD COLUMN allow_proto INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE quality_profiles ADD COLUMN allow_demo INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE quality_profiles ADD COLUMN allow_bios INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := store.DB().Exec(ddl); err != nil {
+			t.Fatalf("recreate legacy column: %v", err)
+		}
+	}
+	if _, err := store.DB().Exec(
+		`UPDATE quality_profiles SET region_priority = '["japan","usa"]', allow_proto = 1 WHERE id = ?`, id); err != nil {
+		t.Fatalf("write legacy tuple: %v", err)
+	}
+	// Every other row keeps the shipped default chain, or the fold would
+	// migrate all 40 platforms instead of just snes.
+	if _, err := store.DB().Exec(
+		`UPDATE quality_profiles SET region_priority = '["usa","world","europe","japan"]' WHERE id != ?`, id); err != nil {
+		t.Fatalf("default other tuples: %v", err)
 	}
 	if err := store.PatchPlatform("snes", PlatformPatch{DefaultProfileID: &id}); err != nil {
 		t.Fatalf("link qp: %v", err)

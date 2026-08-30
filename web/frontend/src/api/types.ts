@@ -416,12 +416,8 @@ export interface QualityProfile {
   name: string
   platform_slug: string // "" = global
   is_default: boolean
-  region_priority: string[]
   format_preference: string[]
   prefer_1g1r: boolean
-  allow_proto: boolean
-  allow_demo: boolean
-  allow_bios: boolean
   source_ranking: string[]
   upgrade_allowed: boolean // reserved — stored but not read by the selector
   cutoff_source: string // reserved — stored but not read by the selector

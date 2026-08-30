@@ -71,9 +71,6 @@ func TestQualityProfiles_LegacyMigrationBackfill(t *testing.T) {
 	if rom.PlatformSlug != "" {
 		t.Errorf("ROM Default platform_slug = %q, want global ''", rom.PlatformSlug)
 	}
-	if len(rom.RegionPriority) == 0 || rom.RegionPriority[0] != "usa" {
-		t.Errorf("ROM Default region_priority = %v, want usa-first", rom.RegionPriority)
-	}
 	if len(rom.FormatPreference) == 0 || rom.FormatPreference[0] != "chd" {
 		t.Errorf("ROM Default format_preference = %v, want chd-first", rom.FormatPreference)
 	}
@@ -155,9 +152,6 @@ func TestQualityProfiles_FreshSeedShape(t *testing.T) {
 	if !rom.IsDefault || rom.PlatformSlug != "" {
 		t.Errorf("fresh ROM Default: is_default=%v slug=%q, want default global", rom.IsDefault, rom.PlatformSlug)
 	}
-	if len(rom.RegionPriority) != 4 || rom.RegionPriority[0] != "usa" {
-		t.Errorf("fresh ROM Default region_priority = %v", rom.RegionPriority)
-	}
 	if len(rom.FormatPreference) != 7 || rom.FormatPreference[0] != "chd" {
 		t.Errorf("fresh ROM Default format_preference = %v", rom.FormatPreference)
 	}
@@ -173,9 +167,8 @@ func TestResolveQualityProfile_Precedence(t *testing.T) {
 	// Seeded state: ROM Default (global, is_default), PC Default (slug pc).
 	// 1) Exact platform override wins.
 	psxID, err := store.AddQualityProfile(&QualityProfile{
-		Name:           "PSX Override",
-		PlatformSlug:   "psx",
-		RegionPriority: []string{"japan", "usa"},
+		Name:         "PSX Override",
+		PlatformSlug: "psx",
 	})
 	if err != nil {
 		t.Fatalf("add psx override: %v", err)
@@ -214,8 +207,8 @@ func TestResolveQualityProfile_Precedence(t *testing.T) {
 	if got == nil {
 		t.Fatal("ResolveQualityProfile returned nil on empty table")
 	}
-	if got.Name != "Built-in Default" || len(got.RegionPriority) == 0 {
-		t.Errorf("empty-table fallback = %q %v", got.Name, got.RegionPriority)
+	if got.Name != "Built-in Default" || len(got.FormatPreference) == 0 {
+		t.Errorf("empty-table fallback = %q %v", got.Name, got.FormatPreference)
 	}
 }
 

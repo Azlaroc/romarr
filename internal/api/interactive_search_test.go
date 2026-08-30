@@ -14,7 +14,7 @@ import (
 func TestSearchFromWishlistRow(t *testing.T) {
 	t.Run("row supplies title, platform and profile", func(t *testing.T) {
 		env := newTestEnv(t, nil)
-		prof := &db.QualityProfile{Name: "Japan First", RegionPriority: []string{"japan", "usa"}}
+		prof := &db.QualityProfile{Name: "Japan First", SourceRanking: []string{"Vimm"}}
 		profID, err := env.jobs.AddQualityProfile(prof)
 		if err != nil {
 			t.Fatalf("create profile: %v", err)

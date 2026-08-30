@@ -15,8 +15,7 @@ import (
 var prodProfileFixture = []QualityProfile{
 	{Name: "PC Default", PlatformSlug: "pc", SourceRanking: []string{"FitGirl", "DODI", "PLAZA", "Vimm"},
 		UpgradeAllowed: true, CutoffSource: "FitGirl"},
-	{Name: "ROM Default", IsDefault: true, SourceRanking: []string{"Vimm"},
-		RegionPriority: []string{"usa", "world", "uk", "canada", "australia", "europe", "japan"}},
+	{Name: "ROM Default", IsDefault: true, SourceRanking: []string{"Vimm"}},
 	{Name: "PSX Default", PlatformSlug: "psx", SourceRanking: []string{"Vimm"}},
 	{Name: "PS2 Default", PlatformSlug: "ps2", SourceRanking: []string{"Vimm"}},
 	{Name: "PSP Default", PlatformSlug: "psp", SourceRanking: []string{"Vimm"}},
@@ -101,7 +100,7 @@ func TestPerTitleProfileOverridesThePlatformDefault(t *testing.T) {
 	store := profilesV2Store(t)
 
 	jp, err := store.AddQualityProfile(&QualityProfile{
-		Name: "PSX Japan", RegionPriority: []string{"japan", "usa"},
+		Name: "PSX Japan", FormatPreference: []string{"cue"},
 	})
 	if err != nil {
 		t.Fatalf("add: %v", err)
