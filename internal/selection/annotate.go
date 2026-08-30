@@ -17,6 +17,10 @@ import (
 //
 // The DB seams are injected so the package stays pure and testable.
 type Pipeline struct {
+	// Collection is the platform's collection profile: region order for the
+	// ranking tier. Nil falls back to the built-in Standard, whose chain
+	// equals the legacy default.
+	Collection *db.CollectionProfile
 	// Blocklisted reports whether a download URL / infohash is blocklisted
 	// (db.JobStore.IsBlocklisted). Nil disables the check.
 	Blocklisted func(downloadURL, infoHash string) bool
@@ -43,6 +47,10 @@ type Pipeline struct {
 func (pl *Pipeline) Prepare(results []*models.SearchResult, query, platformFilter string, prof *db.QualityProfile) []*models.SearchResult {
 	if prof == nil {
 		prof = db.DefaultQualityProfile()
+	}
+	cp := pl.Collection
+	if cp == nil {
+		cp = db.DefaultCollectionProfile()
 	}
 	if platformFilter == "all" {
 		platformFilter = ""
@@ -96,7 +104,7 @@ func (pl *Pipeline) Prepare(results []*models.SearchResult, query, platformFilte
 
 	qTokens := titleTokens(query)
 	sort.SliceStable(out, func(i, j int) bool {
-		return buildRankKey(out[i], prof, qTokens).less(buildRankKey(out[j], prof, qTokens))
+		return buildRankKey(out[i], prof, cp, qTokens).less(buildRankKey(out[j], prof, cp, qTokens))
 	})
 	return out
 }

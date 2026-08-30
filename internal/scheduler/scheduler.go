@@ -395,6 +395,7 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 		PlatformSlug: item.PlatformSlug,
 		MinScore:     cx.minScore,
 		Profile:      prof,
+		Collection:   s.jobs.ResolveCollectionProfile(item.PlatformSlug),
 	}
 	if cx.mode == "enforce" {
 		opts.Owned = cx.owned

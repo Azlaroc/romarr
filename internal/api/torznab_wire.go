@@ -18,11 +18,13 @@ func (s *Server) searchForTorznab(ctx context.Context, query, platformSlug strin
 		slug = ""
 	}
 	// Downstream *arr consumers do their own post-processing, but region
-	// policy is ours: a platform whose profile ranks JP must serve JP here
-	// too, or the driver silently narrows what the indexer can offer.
-	prof := s.mgr.Jobs().ResolveQualityProfile(slug)
+	// policy is ours: a platform whose collection profile ranks JP must serve
+	// JP here too, or the driver silently narrows what the indexer can offer.
+	// (This also converges torznab on the same resolution every other search
+	// path uses — it was still on the legacy quality-profile chain.)
+	cp := s.mgr.Jobs().ResolveCollectionProfile(slug)
 	allResults := search.FanOut(ctx, search.BuildSources(s.cfg), query, slug,
-		search.Opts{Regions: prof.RegionPriority})
+		search.Opts{Regions: cp.RegionPriority})
 
 	// Split + filter torrent results; pass DDL through (FilterGameResults
 	// targets torrent-only release artefacts like NFO/SFV/sample dirs).

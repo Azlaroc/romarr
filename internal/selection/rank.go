@@ -16,11 +16,15 @@ type Rejection struct {
 	Reason string `json:"reason"`
 }
 
-// filterCandidate applies the profile's hard filters to one result. It
-// returns "" to keep the candidate or the rejection reason. Ranking never
-// sees a rejected candidate: a filter is a statement that the release is
-// unusable under this profile, not merely worse.
-func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
+// filterCandidate applies the hard filters to one result. It returns "" to
+// keep the candidate or the rejection reason. Ranking never sees a rejected
+// candidate: a filter is a statement that the release is unusable under this
+// platform's collection profile, not merely worse.
+//
+// The gates and the region chain read the COLLECTION profile — what the
+// platform collects — while the quality profile keeps the release-side
+// concerns (format, source). Same split the set builder made.
+func filterCandidate(r *models.SearchResult, cp *db.CollectionProfile) string {
 	a := r.Attrs
 	if a == nil {
 		return "" // unparsed: nothing to filter on
@@ -28,20 +32,20 @@ func filterCandidate(r *models.SearchResult, prof *db.QualityProfile) string {
 	if a.BadDump {
 		return "bad dump [b]"
 	}
-	if a.IsBIOS && !prof.AllowBIOS {
-		return "BIOS release (profile disallows)"
+	if a.IsBIOS && !cp.AllowBIOS {
+		return "BIOS release (collection profile disallows)"
 	}
-	if a.IsProto && !prof.AllowProto {
-		return "proto/beta/sample release (profile disallows)"
+	if a.IsProto && !cp.AllowProto {
+		return "proto/beta/sample release (collection profile disallows)"
 	}
-	if a.IsDemo && !prof.AllowDemo {
-		return "demo release (profile disallows)"
+	if a.IsDemo && !cp.AllowDemo {
+		return "demo release (collection profile disallows)"
 	}
 	// Region: a region-tagged release must intersect the profile's priority
 	// list. An empty priority list means no region filtering at all (the
-	// seeded PC profile); region-less releases always pass and rank last in
+	// migrated PC profile); region-less releases always pass and rank last in
 	// the region tier instead.
-	if len(prof.RegionPriority) > 0 && len(a.Regions) > 0 && regionRank(a.Regions, prof.RegionPriority) == len(prof.RegionPriority) {
+	if len(cp.RegionPriority) > 0 && len(a.Regions) > 0 && regionRank(a.Regions, cp.RegionPriority) == len(cp.RegionPriority) {
 		return "region not in profile priority (" + strings.Join(a.Regions, ",") + ")"
 	}
 	// Size is deliberately NOT a filter (blaster#349): the DAT knows every
@@ -115,17 +119,17 @@ func titleSlop(r *models.SearchResult, query map[string]bool) int {
 	return len(cand) - len(query)
 }
 
-func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, query map[string]bool) rankKey {
+func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, cp *db.CollectionProfile, query map[string]bool) rankKey {
 	k := rankKey{titleSlop: titleSlop(r, query), negScore: -r.Score}
 	if r.MD5 == "" && r.SHA1 == "" {
 		k.noHash = 1
 	}
 	a := r.Attrs
-	if len(prof.RegionPriority) > 0 {
+	if len(cp.RegionPriority) > 0 {
 		if a != nil && len(a.Regions) > 0 {
-			k.regionRank = regionRank(a.Regions, prof.RegionPriority)
+			k.regionRank = regionRank(a.Regions, cp.RegionPriority)
 		} else {
-			k.regionRank = len(prof.RegionPriority) // region-less: after last priority
+			k.regionRank = len(cp.RegionPriority) // region-less: after last priority
 		}
 	}
 	if len(prof.FormatPreference) > 0 {

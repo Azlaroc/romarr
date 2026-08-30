@@ -61,10 +61,10 @@ func TestFormatTier(t *testing.T) {
 }
 
 func TestEmptyRegionPriorityMeansNoFilter(t *testing.T) {
-	prof := romProfile()
-	prof.RegionPriority = nil // the seeded PC profile shape
+	cp := db.DefaultCollectionProfile()
+	cp.RegionPriority = nil // the migrated PC profile shape
 	jap := mk("Game (Japan).zip", 80, withHash)
-	dec := Select([]*models.SearchResult{jap}, SelectOpts{Query: "Game", MinScore: 0, Profile: prof})
+	dec := Select([]*models.SearchResult{jap}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(), Collection: cp})
 	if dec.Action != ActionGrab {
 		t.Fatalf("empty region priority must not reject region-tagged results: %v (%s)", dec.Action, dec.Reason)
 	}
@@ -79,25 +79,27 @@ func TestUnprofiledRegionRejected(t *testing.T) {
 }
 
 func TestClassFilters(t *testing.T) {
-	prof := romProfile()
+	// The gates live on the COLLECTION profile now (what a platform
+	// collects); the quality profile no longer carries them.
+	cp := db.DefaultCollectionProfile()
 	cases := []struct {
 		title string
 		allow func()
 	}{
 		{"Game (USA) [b].zip", nil},
-		{"[BIOS] Console (USA).zip", func() { prof.AllowBIOS = true }},
-		{"Game (Proto).zip", func() { prof.AllowProto = true }},
-		{"Game (Demo).zip", func() { prof.AllowDemo = true }},
+		{"[BIOS] Console (USA).zip", func() { cp.AllowBIOS = true }},
+		{"Game (Proto).zip", func() { cp.AllowProto = true }},
+		{"Game (Demo).zip", func() { cp.AllowDemo = true }},
 	}
 	for _, c := range cases {
-		prof = romProfile()
-		dec := Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: prof})
+		cp = db.DefaultCollectionProfile()
+		dec := Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(), Collection: cp})
 		if dec.Action != ActionSkip {
-			t.Errorf("%q: expected rejection under default profile", c.title)
+			t.Errorf("%q: expected rejection under the standard collection profile", c.title)
 		}
 		if c.allow != nil {
 			c.allow()
-			dec = Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: prof})
+			dec = Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(), Collection: cp})
 			if dec.Action != ActionGrab {
 				t.Errorf("%q: expected grab with allow flag set, got %v (%s)", c.title, dec.Action, dec.Reason)
 			}

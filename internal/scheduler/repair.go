@@ -113,6 +113,7 @@ func (s *Scheduler) repairDegradedSets(mode string) int {
 			PlatformSlug: item.PlatformSlug,
 			MinScore:     minScore,
 			Profile:      prof,
+			Collection:   s.jobs.ResolveCollectionProfile(item.PlatformSlug),
 			Repair:       &selection.RepairSet{ID: setID, Dir: setDir, Total: mk.Total, Want: want},
 		})
 
