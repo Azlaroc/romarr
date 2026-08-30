@@ -62,11 +62,17 @@ type PolicySummary struct {
 
 // SetResult is one platform's reconciled set.
 type SetResult struct {
-	Platform  string             `json:"platform"`
-	Entries   []collection.Entry `json:"entries"`
-	Counts    collection.Counts  `json:"counts"`
-	Policy    PolicySummary      `json:"policy"`
-	CloneList *db.CloneListRow   `json:"clone_list,omitempty"`
+	Platform string             `json:"platform"`
+	Entries  []collection.Entry `json:"entries"`
+	Counts   collection.Counts  `json:"counts"`
+	// Uncatalogued counts the platform's library files the catalog has never
+	// heard of (hacks, homebrew, junk) — the hard-unmapped quadrant, distinct
+	// from surplus (catalogued, unwanted) and out-on-disk (catalogued,
+	// excluded by profile). Computed here because it needs the library
+	// complement, which only the store can answer.
+	Uncatalogued int              `json:"uncatalogued"`
+	Policy       PolicySummary    `json:"policy"`
+	CloneList    *db.CloneListRow `json:"clone_list,omitempty"`
 	// Grouping names what decided membership, so "no clone list" is a visible
 	// state rather than a silently weaker answer.
 	Grouping string `json:"grouping"`
@@ -106,6 +112,12 @@ func (c *Cycle) Set(slug string) SetResult {
 	groups := collection.Build(members, overlay, policy)
 	res.Entries = collection.Reconcile(groups, c.index(slug))
 	res.Counts = collection.Summarise(res.Entries)
+	claimed := collection.ClaimedLibraryIDs(res.Entries)
+	for _, item := range s.store.ListLibraryItemsForRename(slug) {
+		if !claimed[item.ID] {
+			res.Uncatalogued++
+		}
+	}
 	return res
 }
 
@@ -127,6 +139,7 @@ func (s *Service) policyFor(slug string) (collection.Policy, PolicySummary) {
 		NoEnglishPreference: !cp.EnglishPreferred,
 		RequireEnglish:      !cp.KeepWithoutEnglish,
 		ExcludeCategories:   cp.ExcludeCategories,
+		ReReleaseTags:       s.cfg.ReReleaseTags(),
 	}
 	sum := PolicySummary{
 		ProfileID:          cp.ID,

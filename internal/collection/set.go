@@ -89,6 +89,13 @@ type Policy struct {
 	// ExcludeCategories names clone-list categories to leave out of the set
 	// ("Applications", "Educational"). Retool's category vocabulary, not ours.
 	ExcludeCategories []string
+	// ReReleaseTags demote a dump in keeper choice when its NAME carries one
+	// — "(Virtual Console)", "(Retro-Bit Generations)": the game, but not
+	// the dump the cartridge held. A tie-break tier above the name, never an
+	// exclusion: a group with only re-release dumps still keeps one.
+	// Identification vocabulary (what IS a re-release), not per-profile
+	// taste — it ships as one settings-backed list (blaster#328).
+	ReReleaseTags []string
 }
 
 // Exclusion reasons. Stable strings: they are displayed, logged, and asserted
@@ -361,7 +368,31 @@ func less(a, b Candidate, titlePriority map[int64]int, p Policy) bool {
 	if va, vb := classify(a.Member).verified, classify(b.Member).verified; va != vb {
 		return va
 	}
+	// Re-release demotion (blaster#328): "(Retro-Bit Generations)" losing to
+	// "(USA, Europe)" must not depend on where ')' sorts against ','. An
+	// original release beats a re-release-tagged one; two re-releases fall
+	// through to the name as before.
+	if ra, rb := isReRelease(a.Name, p.ReReleaseTags), isReRelease(b.Name, p.ReReleaseTags); ra != rb {
+		return !ra
+	}
 	return a.Name < b.Name
+}
+
+// isReRelease reports whether the dump's name carries a re-release tag —
+// matched as a parenthesized token so "Collection" the tag never matches
+// "Collection" the word inside a title.
+func isReRelease(name string, tags []string) bool {
+	lower := strings.ToLower(name)
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			continue
+		}
+		if strings.Contains(lower, "("+tag+")") {
+			return true
+		}
+	}
+	return false
 }
 
 // regionRank is the member's best position in the priority list. A region the

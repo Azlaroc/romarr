@@ -321,6 +321,12 @@ type wantedItem struct {
 	// deletes the wishlist row at grab time, and a collection target has no
 	// row to delete.
 	WishlistID int64
+	// DumpName/DumpHashes carry the keeper's identity when a collection
+	// target asked (the set knows EXACTLY which dump it wants); empty for
+	// wishlist rows. The selector prefers a hash-matching candidate — a
+	// boost, never a filter.
+	DumpName   string
+	DumpHashes []string
 }
 
 func wantedOf(item db.WishlistItem) wantedItem {
@@ -396,6 +402,7 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 		MinScore:     cx.minScore,
 		Profile:      prof,
 		Collection:   s.jobs.ResolveCollectionProfile(item.PlatformSlug),
+		Want:         selection.Want{DumpName: item.DumpName, Hashes: item.DumpHashes},
 	}
 	if cx.mode == "enforce" {
 		opts.Owned = cx.owned

@@ -41,6 +41,15 @@ func filterCandidate(r *models.SearchResult, cp *db.CollectionProfile) string {
 	if a.IsDemo && !cp.AllowDemo {
 		return "demo release (collection profile disallows)"
 	}
+	if a.IsUnlicensed && !cp.AllowUnlicensed {
+		return "unlicensed release (collection profile disallows)"
+	}
+	if a.IsAftermarket && !cp.AllowAftermarket {
+		return "aftermarket release (collection profile disallows)"
+	}
+	if a.IsPirate && !cp.AllowPirate {
+		return "pirate release (collection profile disallows)"
+	}
 	// Region: a region-tagged release must intersect the profile's priority
 	// list. An empty priority list means no region filtering at all (the
 	// migrated PC profile); region-less releases always pass and rank last in
@@ -56,16 +65,43 @@ func filterCandidate(r *models.SearchResult, cp *db.CollectionProfile) string {
 	return ""
 }
 
+// Want names the exact catalogued dump a fill is trying to satisfy.
+type Want struct {
+	DumpName string
+	Hashes   []string // lowered md5/sha1 of the keeper's roms
+}
+
+// hashMatch reports whether the candidate's advertised hash IS the wanted
+// dump. Empty Want matches nothing (neutral tier for every candidate).
+func (w Want) hashMatch(r *models.SearchResult) bool {
+	if len(w.Hashes) == 0 {
+		return false
+	}
+	for _, h := range []string{strings.ToLower(r.MD5), strings.ToLower(r.SHA1)} {
+		if h == "" {
+			continue
+		}
+		for _, want := range w.Hashes {
+			if h == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // rankKey is the lexicographic comparison key: lower is better at every
 // position, compared left to right. The tier order is the selection policy:
 // title identity comes first — a release that isn't the queried game must
 // never beat one that is, whatever its hashes or revision (the "Spyro 2"
-// wishlist that grabbed "Spyro - Year of the Dragon (Rev 1)"). Then
-// verifiability (a hash-carrying release feeds the destructive-convert
-// BEFORE gate; a hashless one cannot), region, format, 1G1R quality, source
-// trust, and only then the fuzzy quality score.
+// wishlist that grabbed "Spyro - Year of the Dragon (Rev 1)"). Then fill
+// targeting (a candidate that IS the wanted dump), verifiability (a
+// hash-carrying release feeds the destructive-convert BEFORE gate; a
+// hashless one cannot), region, format, 1G1R quality, source trust, and only
+// then the fuzzy quality score.
 type rankKey struct {
 	titleSlop   int // extra clean-title tokens beyond the query; titleNoCover = query not covered
+	wantMiss    int // 0 = advertised hash IS the wanted dump (fill targeting)
 	noHash      int // 0 = has MD5/SHA1
 	regionRank  int // index into profile RegionPriority; len = region-less/unmatched
 	formatRank  int // index into profile FormatPreference; len = unknown format
@@ -119,8 +155,11 @@ func titleSlop(r *models.SearchResult, query map[string]bool) int {
 	return len(cand) - len(query)
 }
 
-func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, cp *db.CollectionProfile, query map[string]bool) rankKey {
+func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, cp *db.CollectionProfile, want Want, query map[string]bool) rankKey {
 	k := rankKey{titleSlop: titleSlop(r, query), negScore: -r.Score}
+	if len(want.Hashes) > 0 && !want.hashMatch(r) {
+		k.wantMiss = 1
+	}
 	if r.MD5 == "" && r.SHA1 == "" {
 		k.noHash = 1
 	}
@@ -157,6 +196,12 @@ func buildRankKey(r *models.SearchResult, prof *db.QualityProfile, cp *db.Collec
 func (k rankKey) less(o rankKey) bool {
 	if k.titleSlop != o.titleSlop {
 		return k.titleSlop < o.titleSlop
+	}
+	// Fill targeting outranks every quality tier below the title: a candidate
+	// that IS the wanted dump (advertised hash matches the keeper's) beats a
+	// better-scored candidate that is not. Neutral when nothing is wanted.
+	if k.wantMiss != o.wantMiss {
+		return k.wantMiss < o.wantMiss
 	}
 	if k.noHash != o.noHash {
 		return k.noHash < o.noHash

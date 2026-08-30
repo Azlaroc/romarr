@@ -104,7 +104,7 @@ func (pl *Pipeline) Prepare(results []*models.SearchResult, query, platformFilte
 
 	qTokens := titleTokens(query)
 	sort.SliceStable(out, func(i, j int) bool {
-		return buildRankKey(out[i], prof, cp, qTokens).less(buildRankKey(out[j], prof, cp, qTokens))
+		return buildRankKey(out[i], prof, cp, Want{}, qTokens).less(buildRankKey(out[j], prof, cp, Want{}, qTokens))
 	})
 	return out
 }

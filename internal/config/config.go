@@ -140,7 +140,8 @@ type Config struct {
 	SelectorSetTimeoutHours int    // disc-set degrade timeout; read via DiscSetTimeoutHours()
 
 	// DAT catalogs
-	CollectionFillPerCycle int // read via CollectionFill()
+	CollectionFillPerCycle  int
+	CollectionReReleaseTags string // read via ReReleaseTags() // read via CollectionFill()
 
 	DatAutoRefreshEnabled bool
 	DatRefreshIntervalD   int // read via DatRefreshIntervalDays()
@@ -247,6 +248,7 @@ func Load() *Config {
 
 		SchedulerEnabled:        envBool("SCHEDULER_ENABLED", false),
 		CollectionFillPerCycle:  envInt("COLLECTION_FILL_PER_CYCLE", 10),
+		CollectionReReleaseTags: envStr("COLLECTION_RERELEASE_TAGS", defaultReReleaseTags),
 		SchedulerIntervalHours:  envInt("SCHEDULER_INTERVAL_HOURS", 24),
 		SchedulerAutoDownload:   envBool("SCHEDULER_AUTO_DOWNLOAD", true),
 		SchedulerMinScore:       envInt("SCHEDULER_MIN_SCORE", 70),
@@ -526,6 +528,28 @@ func (c *Config) CollectionFill() int {
 		return 0
 	}
 	return n
+}
+
+// defaultReReleaseTags name the "the game, but not the dump the cartridge
+// held" release channels Retool itself demotes. Comma-separated; matched as
+// parenthesized name tokens in keeper choice (blaster#328). Identification
+// vocabulary, not per-profile taste — one list, settings-overridable.
+const defaultReReleaseTags = "Retro-Bit Generations,Virtual Console,Classic Mini,Switch Online,Collection,Anthology,Capcom Town"
+
+// ReReleaseTags returns the re-release demotion vocabulary, split and
+// trimmed.
+func (c *Config) ReReleaseTags() []string {
+	raw := c.CollectionReReleaseTags
+	if v, ok := c.settingStr("collection_rerelease_tags"); ok {
+		raw = v
+	}
+	var out []string
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // DefaultCloneListBase is where clone lists are fetched from: Retool's own

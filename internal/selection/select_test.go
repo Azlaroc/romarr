@@ -556,3 +556,55 @@ func TestRepairEmptyWantIsNoop(t *testing.T) {
 		t.Fatalf("empty want: %v (%s)", dec.Action, dec.Reason)
 	}
 }
+
+// Fill targeting: a candidate whose advertised hash IS the wanted dump beats
+// a better-scored, better-region candidate that is not — and nothing is
+// REJECTED for missing the hash (a boost, never a filter). Without a Want,
+// ranking is unchanged.
+func TestWantHashBoost(t *testing.T) {
+	right := mk("Game (Europe).zip", 60, func(r *models.SearchResult) { r.MD5 = "AABB01" })
+	wrong := mk("Game (USA).zip", 95, withHash)
+
+	dec := Select([]*models.SearchResult{wrong, right}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile()})
+	if dec.Grabs[0].Result != wrong {
+		t.Fatalf("without a want the USA/high-score candidate must win, got %q", dec.Grabs[0].Result.Title)
+	}
+
+	dec = Select([]*models.SearchResult{wrong, right}, SelectOpts{
+		Query: "Game", MinScore: 0, Profile: romProfile(),
+		Want: Want{DumpName: "Game (Europe)", Hashes: []string{"aabb01"}},
+	})
+	if dec.Grabs[0].Result != right {
+		t.Fatalf("want-hash candidate must outrank, got %q", dec.Grabs[0].Result.Title)
+	}
+	if len(dec.Rejected) != 0 {
+		t.Fatalf("the miss must not reject: %+v", dec.Rejected)
+	}
+}
+
+// The arc's remaining category gates reach the release side too: unlicensed,
+// aftermarket and pirate releases reject under the standard collection
+// profile and pass when allowed.
+func TestReleaseCategoryGates(t *testing.T) {
+	cases := []struct {
+		title string
+		allow func(*db.CollectionProfile)
+	}{
+		{"Game (USA) (Unl).zip", func(cp *db.CollectionProfile) { cp.AllowUnlicensed = true }},
+		{"Game (World) (Aftermarket).zip", func(cp *db.CollectionProfile) { cp.AllowAftermarket = true }},
+		{"Game (Taiwan) (Pirate).zip", func(cp *db.CollectionProfile) { cp.AllowPirate = true }},
+	}
+	for _, c := range cases {
+		cp := db.DefaultCollectionProfile()
+		cp.RegionPriority = nil // isolate the category gate from the region filter
+		dec := Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(), Collection: cp})
+		if dec.Action != ActionSkip {
+			t.Errorf("%q: expected rejection under the standard profile", c.title)
+		}
+		c.allow(cp)
+		dec = Select([]*models.SearchResult{mk(c.title, 80, withHash)}, SelectOpts{Query: "Game", MinScore: 0, Profile: romProfile(), Collection: cp})
+		if dec.Action != ActionGrab {
+			t.Errorf("%q: expected grab once allowed, got %v (%s)", c.title, dec.Action, dec.Reason)
+		}
+	}
+}

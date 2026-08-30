@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -42,12 +43,17 @@ type CollectionTarget struct {
 	Title  string `json:"title"`
 	// DumpName is the keeper's canonical DAT name — what the set actually
 	// wants, kept for display and for the import-side hash gate to recognise.
-	DumpName    string `json:"dump_name,omitempty"`
-	Status      string `json:"status"`
-	Attempts    int    `json:"attempts"`
-	LastAttempt string `json:"last_attempt,omitempty"`
-	LastReason  string `json:"last_reason,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
+	DumpName string `json:"dump_name,omitempty"`
+	// DumpHashes carries the keeper's rom md5/sha1 values (JSON array,
+	// lowered) so the selector can prefer a candidate whose advertised hash
+	// IS the wanted dump. A preference, never a filter — the post-extract
+	// trust gate stays the byte-level word.
+	DumpHashes  []string `json:"dump_hashes,omitempty"`
+	Status      string   `json:"status"`
+	Attempts    int      `json:"attempts"`
+	LastAttempt string   `json:"last_attempt,omitempty"`
+	LastReason  string   `json:"last_reason,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
 }
 
 func (s *JobStore) migrateCollectionTargets() {
@@ -58,6 +64,7 @@ func (s *JobStore) migrateCollectionTargets() {
 			set_key TEXT NOT NULL,
 			title TEXT NOT NULL,
 			dump_name TEXT NOT NULL DEFAULT '',
+			dump_hashes TEXT NOT NULL DEFAULT '[]',
 			status TEXT NOT NULL DEFAULT 'wanted',
 			attempts INTEGER NOT NULL DEFAULT 0,
 			last_attempt TEXT NOT NULL DEFAULT '',
@@ -72,13 +79,33 @@ func (s *JobStore) migrateCollectionTargets() {
 			slog.Warn("migrate collection targets", "error", err)
 		}
 	}
+	// No backfill: SyncTargets refreshes title/dump_name/dump_hashes on every
+	// cycle, so existing rows fill themselves at the next sync.
+	if !s.columnExists("collection_targets", "dump_hashes") {
+		if _, err := s.db.Exec(`ALTER TABLE collection_targets ADD COLUMN dump_hashes TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			slog.Warn("migrate collection_targets dump_hashes", "error", err)
+		}
+	}
 }
 
 // CollectionGap is one wanted entry as the sync hands it over.
 type CollectionGap struct {
-	SetKey   string
-	Title    string
-	DumpName string
+	SetKey     string
+	Title      string
+	DumpName   string
+	DumpHashes []string // keeper rom md5/sha1, lowered
+}
+
+// marshalHashes renders the hash list for storage; nil stores as "[]".
+func marshalHashes(hashes []string) string {
+	if len(hashes) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(hashes)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }
 
 // grabbedTimeout is how long a dispatched grab has to actually fill its gap.
@@ -130,8 +157,8 @@ func (s *JobStore) SyncCollectionTargets(platformSlug string, gaps []CollectionG
 			// Keep status, attempts and backoff; refresh only what the catalog
 			// can legitimately have changed.
 			if _, err := tx.Exec(
-				`UPDATE collection_targets SET title = ?, dump_name = ? WHERE platform_slug = ? AND set_key = ?`,
-				g.Title, g.DumpName, platformSlug, g.SetKey); err != nil {
+				`UPDATE collection_targets SET title = ?, dump_name = ?, dump_hashes = ? WHERE platform_slug = ? AND set_key = ?`,
+				g.Title, g.DumpName, marshalHashes(g.DumpHashes), platformSlug, g.SetKey); err != nil {
 				slog.Warn("refresh collection target", "error", err)
 			}
 			// The game is STILL wanted, so a grab that has aged out did not
@@ -150,9 +177,9 @@ func (s *JobStore) SyncCollectionTargets(platformSlug string, gaps []CollectionG
 			continue
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO collection_targets (platform_slug, set_key, title, dump_name, status)
-			 VALUES (?, ?, ?, ?, ?)`,
-			platformSlug, g.SetKey, g.Title, g.DumpName, TargetWanted); err != nil {
+			`INSERT INTO collection_targets (platform_slug, set_key, title, dump_name, dump_hashes, status)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			platformSlug, g.SetKey, g.Title, g.DumpName, marshalHashes(g.DumpHashes), TargetWanted); err != nil {
 			slog.Warn("insert collection target", "error", err)
 			continue
 		}
@@ -223,7 +250,7 @@ func (s *JobStore) ListCollectionTargets(q CollectionTargetQuery) ([]CollectionT
 		q.Offset = 0
 	}
 	rows, err := s.db.Query(
-		`SELECT id, platform_slug, set_key, title, dump_name, status, attempts, last_attempt, last_reason, created_at
+		`SELECT id, platform_slug, set_key, title, dump_name, dump_hashes, status, attempts, last_attempt, last_reason, created_at
 		   FROM collection_targets WHERE `+clause+`
 		  ORDER BY platform_slug, title LIMIT ? OFFSET ?`,
 		append(args, q.Limit, q.Offset)...)
@@ -234,10 +261,12 @@ func (s *JobStore) ListCollectionTargets(q CollectionTargetQuery) ([]CollectionT
 	var out []CollectionTarget
 	for rows.Next() {
 		var t CollectionTarget
-		if err := rows.Scan(&t.ID, &t.PlatformSlug, &t.SetKey, &t.Title, &t.DumpName,
+		var hashes string
+		if err := rows.Scan(&t.ID, &t.PlatformSlug, &t.SetKey, &t.Title, &t.DumpName, &hashes,
 			&t.Status, &t.Attempts, &t.LastAttempt, &t.LastReason, &t.CreatedAt); err != nil {
 			continue
 		}
+		_ = json.Unmarshal([]byte(hashes), &t.DumpHashes)
 		out = append(out, t)
 	}
 	return out, total
@@ -252,7 +281,7 @@ func (s *JobStore) ListCollectionTargets(q CollectionTargetQuery) ([]CollectionT
 // is the one under test.
 func (s *JobStore) DueCollectionTargets(platformSlug string, limit int, now time.Time) []CollectionTarget {
 	rows, err := s.db.Query(
-		`SELECT id, platform_slug, set_key, title, dump_name, status, attempts, last_attempt, last_reason, created_at
+		`SELECT id, platform_slug, set_key, title, dump_name, dump_hashes, status, attempts, last_attempt, last_reason, created_at
 		   FROM collection_targets
 		  WHERE platform_slug = ? AND status != ?
 		  ORDER BY last_attempt ASC, title ASC`,
@@ -265,10 +294,12 @@ func (s *JobStore) DueCollectionTargets(platformSlug string, limit int, now time
 	var out []CollectionTarget
 	for rows.Next() {
 		var t CollectionTarget
-		if err := rows.Scan(&t.ID, &t.PlatformSlug, &t.SetKey, &t.Title, &t.DumpName,
+		var hashes string
+		if err := rows.Scan(&t.ID, &t.PlatformSlug, &t.SetKey, &t.Title, &t.DumpName, &hashes,
 			&t.Status, &t.Attempts, &t.LastAttempt, &t.LastReason, &t.CreatedAt); err != nil {
 			continue
 		}
+		_ = json.Unmarshal([]byte(hashes), &t.DumpHashes)
 		if !t.due(now) {
 			continue
 		}

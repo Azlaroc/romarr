@@ -55,6 +55,7 @@ func (s *Server) handlePlatformSet(w http.ResponseWriter, r *http.Request) {
 		"page":          page,
 		"page_size":     pageSize,
 		"counts":        res.Counts,
+		"uncatalogued":  res.Uncatalogued,
 		"policy":        res.Policy,
 		"clone_list":    res.CloneList,
 		"grouping":      res.Grouping,

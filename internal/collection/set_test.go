@@ -306,3 +306,42 @@ func TestNoEnglishPreferenceDisablesTheTier(t *testing.T) {
 		t.Errorf("keeper = %d; with the tier off the name tie-break should keep the (En) name from winning on language", keeper.GameID)
 	}
 }
+
+// blaster#328: the keeper tie-break used to fall through to ASCII name order,
+// where ')' beating ',' handed 10-Yard Fight to a Retro-Bit re-release. The
+// demotion tier sits above the name: original beats re-release, and a group
+// with ONLY re-release dumps still keeps one (demotion, never exclusion).
+func TestReReleaseDemotionTier(t *testing.T) {
+	p := defaultPolicy()
+	p.ReReleaseTags = []string{"Retro-Bit Generations", "Virtual Console"}
+
+	rerelease := member(1, "10-Yard Fight (USA) (Retro-Bit Generations)", "usa")
+	original := member(2, "10-Yard Fight (USA, Europe)", "usa,europe")
+	keeper, _ := Build([]Member{rerelease, original}, nil, p)[0].Keeper()
+	if keeper.GameID != 2 {
+		t.Errorf("keeper = %d (%q), want the original cart dump", keeper.GameID, keeper.Name)
+	}
+
+	// Without the tags (the pre-#328 policy) ASCII order picks the
+	// re-release — pinned so the tier's absence is visible, not silent.
+	keeper, _ = Build([]Member{rerelease, original}, nil, defaultPolicy())[0].Keeper()
+	if keeper.GameID != 1 {
+		t.Errorf("pre-demotion keeper = %d, expected the ASCII artifact", keeper.GameID)
+	}
+
+	// A re-release-only group is still a game.
+	vc := member(3, "Lonely Game (USA) (Virtual Console)", "usa")
+	if _, ok := Build([]Member{vc}, nil, p)[0].Keeper(); !ok {
+		t.Error("re-release-only group lost its keeper — demotion must never exclude")
+	}
+
+	// The tag matches only as a parenthesized token: a game NAMED
+	// "Collection" is not a re-release.
+	p.ReReleaseTags = []string{"Collection"}
+	named := member(4, "Weird Collection (USA)", "usa")
+	tagged := member(5, "Weird Collection (USA) (Collection)", "usa")
+	keeper, _ = Build([]Member{tagged, named}, nil, p)[0].Keeper()
+	if keeper.GameID != 4 {
+		t.Errorf("keeper = %d, want the untagged dump (word-in-title must not match)", keeper.GameID)
+	}
+}

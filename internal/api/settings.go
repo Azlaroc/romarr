@@ -39,6 +39,7 @@ var settingSpecs = []settingSpec{
 	{Key: "dat_refresh_interval_days", Kind: "int", Min: 1},
 	{Key: "clonelist_fetch_base", Kind: "string"},
 	{Key: "collection_fill_per_cycle", Kind: "int", Min: 0},
+	{Key: "collection_rerelease_tags", Kind: "string"},
 }
 
 // handleGetSettings returns the merged runtime settings document: stored
@@ -66,6 +67,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"dat_refresh_interval_days":   s.cfg.DatRefreshIntervalDays(),
 		"clonelist_fetch_base":        s.cfg.CloneListFetchBase(),
 		"collection_fill_per_cycle":   s.cfg.CollectionFill(),
+		"collection_rerelease_tags":   strings.Join(s.cfg.ReReleaseTags(), ","),
 	})
 }
 

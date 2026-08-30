@@ -72,6 +72,11 @@ type SelectOpts struct {
 	// Collection is the platform's collection profile — the hard filters and
 	// the region tier. Nil uses the built-in Standard.
 	Collection *db.CollectionProfile
+	// Want names the exact catalogued dump the caller is filling (a
+	// collection target's keeper). A candidate whose advertised hash matches
+	// outranks everything below the title tier; nothing is rejected for
+	// missing it — the post-extract trust gate stays the byte-level word.
+	Want Want
 	// Owned returns the library item this title already resolves to, or nil.
 	// Nil func disables the check (PR-5 wires it on the scheduler path).
 	Owned func(title, platformSlug string) *db.LibraryItem
@@ -127,6 +132,7 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	if cp == nil {
 		cp = db.DefaultCollectionProfile()
 	}
+	want := opts.Want
 
 	repair := opts.Repair
 	if repair != nil && len(repair.wanted()) == 0 {
@@ -270,7 +276,7 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// re-rank here for correctness independent of input order.
 	qTokens := titleTokens(opts.Query)
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return buildRankKey(candidates[i].rep, prof, cp, qTokens).less(buildRankKey(candidates[j].rep, prof, cp, qTokens))
+		return buildRankKey(candidates[i].rep, prof, cp, want, qTokens).less(buildRankKey(candidates[j].rep, prof, cp, want, qTokens))
 	})
 	winner := candidates[0]
 
