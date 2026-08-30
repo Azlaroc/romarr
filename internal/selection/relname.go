@@ -120,6 +120,10 @@ func Parse(title string) models.ReleaseAttrs {
 				a.IsDemo = true
 			case tok == "Unl":
 				a.IsUnlicensed = true
+			case tok == "Aftermarket":
+				a.IsAftermarket = true
+			case tok == "Pirate":
+				a.IsPirate = true
 			default:
 				continue // unclassified: keep in CleanTitle
 			}

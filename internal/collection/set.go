@@ -253,6 +253,10 @@ func classify(m Member) flags {
 			f.demo = true
 		case "unl":
 			f.unlicensed = true
+		case "aftermarket":
+			// Folded into unlicensed until aftermarket gets its own gate;
+			// stored by parser v3 catalogs.
+			f.unlicensed = true
 		case "bad":
 			f.bad = true
 		case "verified":
@@ -267,22 +271,17 @@ func classify(m Member) flags {
 		f.unlicensed = f.unlicensed || a.IsUnlicensed
 		f.bad = f.bad || a.BadDump
 		f.verified = f.verified || a.VerifiedDump
-		// "(Aftermarket)" is a modern No-Intro tag for a homebrew cart release.
-		// It is not in the shared release parser's vocabulary — adding it there
-		// would move CleanTitle for every consumer — so the set classifies it
-		// here, next to the unlicensed tag it belongs with.
-		if hasToken(r.Name, "Aftermarket") {
-			f.unlicensed = true
-		}
+		// "(Aftermarket)" is a modern No-Intro homebrew tag, parsed
+		// first-class since parser v3; folded into unlicensed until it
+		// gets its own gate.
+		f.unlicensed = f.unlicensed || a.IsAftermarket
 	}
-	if hasToken(m.Name, "Aftermarket") {
+	if ga := selection.Parse(m.Name); ga.IsAftermarket {
+		// Live parse, not stored flags alone: catalogs imported by parser
+		// v2 lack the aftermarket token until their next refresh.
 		f.unlicensed = true
 	}
 	return f
-}
-
-func hasToken(name, token string) bool {
-	return strings.Contains(strings.ToLower(name), "("+strings.ToLower(token)+")")
 }
 
 // chooseKeeper picks the single dump the set wants and records why.

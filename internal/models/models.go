@@ -47,20 +47,22 @@ type SearchResult struct {
 // name encodes in its parenthetical and bracket tags. The selection engine
 // filters and ranks on these instead of re-deriving them from raw titles.
 type ReleaseAttrs struct {
-	CleanTitle   string   `json:"clean_title,omitempty"` // tags + extension stripped; game identity
-	SetKey       string   `json:"set_key,omitempty"`     // title minus disc token + extension, lowered — disc-set identity
-	Regions      []string `json:"regions,omitempty"`     // lowered: "usa", "world", "europe", ...
-	Languages    []string `json:"languages,omitempty"`   // from (En,Fr,De)
-	Revision     int      `json:"revision,omitempty"`    // (Rev N); 0 = base release
-	DiscIndex    int      `json:"disc_index,omitempty"`  // (Disc N); 0 = not a disc member
-	DiscTotal    int      `json:"disc_total,omitempty"`  // (Disc N of M); 0 = unknown
-	IsProto      bool     `json:"is_proto,omitempty"`    // (Proto)/(Beta)/(Sample)
-	IsDemo       bool     `json:"is_demo,omitempty"`
-	IsBIOS       bool     `json:"is_bios,omitempty"`       // [BIOS] tag or prefix
-	IsUnlicensed bool     `json:"is_unl,omitempty"`        // (Unl)
-	BadDump      bool     `json:"bad_dump,omitempty"`      // [b]
-	VerifiedDump bool     `json:"verified_dump,omitempty"` // [!]
-	FormatHint   string   `json:"format_hint,omitempty"`   // "chd","cue","iso","gdi","zip","7z","raw"
+	CleanTitle    string   `json:"clean_title,omitempty"` // tags + extension stripped; game identity
+	SetKey        string   `json:"set_key,omitempty"`     // title minus disc token + extension, lowered — disc-set identity
+	Regions       []string `json:"regions,omitempty"`     // lowered: "usa", "world", "europe", ...
+	Languages     []string `json:"languages,omitempty"`   // from (En,Fr,De)
+	Revision      int      `json:"revision,omitempty"`    // (Rev N); 0 = base release
+	DiscIndex     int      `json:"disc_index,omitempty"`  // (Disc N); 0 = not a disc member
+	DiscTotal     int      `json:"disc_total,omitempty"`  // (Disc N of M); 0 = unknown
+	IsProto       bool     `json:"is_proto,omitempty"`    // (Proto)/(Beta)/(Sample)
+	IsDemo        bool     `json:"is_demo,omitempty"`
+	IsBIOS        bool     `json:"is_bios,omitempty"`        // [BIOS] tag or prefix
+	IsUnlicensed  bool     `json:"is_unl,omitempty"`         // (Unl)
+	IsAftermarket bool     `json:"is_aftermarket,omitempty"` // (Aftermarket)
+	IsPirate      bool     `json:"is_pirate,omitempty"`      // (Pirate)
+	BadDump       bool     `json:"bad_dump,omitempty"`       // [b]
+	VerifiedDump  bool     `json:"verified_dump,omitempty"`  // [!]
+	FormatHint    string   `json:"format_hint,omitempty"`    // "chd","cue","iso","gdi","zip","7z","raw"
 }
 
 // ScoreBreakdown provides a detailed breakdown of a search result's confidence score.

@@ -122,6 +122,26 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			"1942 (World) (Aftermarket) (Unl).a78",
+			models.ReleaseAttrs{
+				CleanTitle:    "1942",
+				SetKey:        "1942 (world) (aftermarket) (unl)",
+				Regions:       []string{"world"},
+				IsUnlicensed:  true,
+				IsAftermarket: true,
+				FormatHint:    "raw",
+			},
+		},
+		{
+			"Super Mario 4 (Taiwan) (Pirate)",
+			models.ReleaseAttrs{
+				CleanTitle: "Super Mario 4",
+				SetKey:     "super mario 4 (taiwan) (pirate)",
+				Regions:    []string{"taiwan"},
+				IsPirate:   true,
+			},
+		},
+		{
 			"Some Game.chd",
 			models.ReleaseAttrs{
 				CleanTitle: "Some Game",
@@ -210,5 +230,28 @@ func TestCartLaneExtensionsAreStripped(t *testing.T) {
 		if attrs := Parse(tc.name); strings.Contains(attrs.CleanTitle, ".") {
 			t.Errorf("Parse(%q).CleanTitle = %q, still carries an extension", tc.name, attrs.CleanTitle)
 		}
+	}
+}
+
+// Parser v3 classifies (Aftermarket)/(Pirate), which strips them from
+// CleanTitle. Ownership matching must survive that shift in BOTH directions:
+// the bare key is what a tagged library file and an untagged wishlist title
+// (or DAT bare_title) meet on, and it predates v3 — so a v2-named file and a
+// v3-named file resolve to the same identity.
+func TestOwnershipKeysSurviveAftermarketClassification(t *testing.T) {
+	keys := OwnershipKeys("1942 (World) (Aftermarket) (Unl).a78")
+	found := false
+	for _, k := range keys {
+		if k == "1942" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("OwnershipKeys missing bare key %q: %v", "1942", keys)
+	}
+	// And the pirate tag likewise never blocks the bare meeting point.
+	keys = OwnershipKeys("Super Mario 4 (Taiwan) (Pirate)")
+	if keys[len(keys)-1] != "super mario 4" {
+		t.Fatalf("bare key not last for pirate-tagged title: %v", keys)
 	}
 }
