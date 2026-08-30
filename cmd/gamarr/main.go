@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,7 +21,6 @@ import (
 	"gamarr/internal/platform"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
-	"gamarr/internal/romm"
 	"gamarr/internal/rommconnect"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
@@ -237,27 +235,13 @@ func main() {
 	go mgr.RecoverOrphanedNZBDownloads()
 	go mgr.ScanLibraryDirs()
 
-	// Background loops (scheduler, torrent watcher, RomM sync, RomM Connect
-	// notifier) live under one supervisor: it boots them here and re-arms
-	// them when their runtime settings change. RomM notes: when sync is
-	// configured RomM owns the ROM side of the library and the fs scanner
-	// only walks the PC vault; the Connect notifier tells RomM which platform
-	// folders changed after imports (ROMM_API_USER needs the tasks.run scope
-	// — admin role in RomM 5.x).
+	// Background loops (scheduler, torrent watcher, RomM Connect notifier)
+	// live under one supervisor: it boots them here and re-arms them when
+	// their runtime settings change. The Connect notifier tells RomM which
+	// platform folders changed after imports (ROMM_API_USER needs the
+	// tasks.run scope — admin role in RomM 5.x).
 	sup := supervise.New(cfg, sched, datSvc, supervise.Builders{
 		Watcher: func() *download.Watcher { return download.NewWatcher(cfg, mgr) },
-		RomMSync: func() *romm.Syncer {
-			return romm.NewSyncer(
-				romm.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),
-				database,
-				romm.SyncOptions{
-					RomsRoot:         cfg.GamesRomsPath,
-					Interval:         time.Duration(cfg.RomMSyncIntervalSeconds()) * time.Second,
-					ExcludePlatforms: cfg.RomMExcludeList(),
-					StateFile:        filepath.Join(cfg.DataDir, "romm_sync.json"),
-				},
-			)
-		},
 		Connect: func() (*rommconnect.Notifier, func(string)) {
 			n := rommconnect.NewNotifier(
 				rommconnect.New(cfg.RomMURL, cfg.RomMAPIUser, cfg.RomMAPIPass),

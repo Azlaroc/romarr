@@ -10,7 +10,6 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/datsvc"
 	"gamarr/internal/db"
-	"gamarr/internal/romm"
 	"gamarr/internal/rommconnect"
 )
 
@@ -38,53 +37,6 @@ func newStore(t *testing.T) *db.JobStore {
 	}
 	t.Cleanup(func() { store.Close() })
 	return store
-}
-
-func TestApplyRomMSyncEnableDisable(t *testing.T) {
-	stub := rommStub(t)
-	store := newStore(t)
-	cfg := &config.Config{RomMURL: stub.URL, RomMAPIUser: "u", RomMAPIPass: "p"}
-	// Row-backed toggle so Apply sees runtime state (env default is false).
-	cfg.AttachSettings(store)
-
-	builds := 0
-	sup := New(cfg, nil, nil, Builders{
-		RomMSync: func() *romm.Syncer {
-			builds++
-			return romm.NewSyncer(romm.New(stub.URL, "u", "p"), store, romm.SyncOptions{
-				RomsRoot:  t.TempDir(),
-				StateFile: filepath.Join(t.TempDir(), "romm_sync.json"),
-			})
-		},
-	}, nil)
-
-	sup.StartAll() // sync disabled → no instance
-	if sup.RomMSync() != nil {
-		t.Fatal("syncer should not exist while disabled")
-	}
-
-	store.SetSetting("romm_sync_enabled", "true")
-	sup.Apply([]string{"romm_sync_enabled"})
-	if sup.RomMSync() == nil {
-		t.Fatal("syncer missing after enable")
-	}
-	if builds != 1 {
-		t.Fatalf("builds = %d, want 1", builds)
-	}
-
-	// Interval change rebuilds the instance.
-	store.SetSetting("romm_sync_interval_seconds", "3600")
-	sup.Apply([]string{"romm_sync_interval_seconds"})
-	if sup.RomMSync() == nil || builds != 2 {
-		t.Fatalf("after interval change: syncer=%v builds=%d, want live and 2", sup.RomMSync() != nil, builds)
-	}
-
-	store.SetSetting("romm_sync_enabled", "false")
-	sup.Apply([]string{"romm_sync_enabled"})
-	if sup.RomMSync() != nil {
-		t.Fatal("syncer should be gone after disable")
-	}
-	sup.StopAll()
 }
 
 func TestApplyConnectSwapsImportNotify(t *testing.T) {

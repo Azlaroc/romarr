@@ -14,17 +14,15 @@ import (
 	"gamarr/internal/config"
 	"gamarr/internal/datsvc"
 	"gamarr/internal/download"
-	"gamarr/internal/romm"
 	"gamarr/internal/rommconnect"
 	"gamarr/internal/scheduler"
 )
 
 // Builders construct fresh loop instances, capturing the wiring main() owns
-// (clients, stores, callbacks). RomMSync may return nil (unconfigured).
+// (clients, stores, callbacks).
 type Builders struct {
-	Watcher  func() *download.Watcher
-	RomMSync func() *romm.Syncer
-	Connect  func() (*rommconnect.Notifier, func(fsSlug string))
+	Watcher func() *download.Watcher
+	Connect func() (*rommconnect.Notifier, func(fsSlug string))
 }
 
 // Supervisor serializes all loop lifecycle transitions under one mutex, so
@@ -38,7 +36,6 @@ type Supervisor struct {
 	setImportNotify func(func(fsSlug string))
 
 	watcher  *download.Watcher
-	rommSync *romm.Syncer
 	notifier *rommconnect.Notifier
 }
 
@@ -59,7 +56,6 @@ func (s *Supervisor) StartAll() {
 	// goroutine, no ticker, no fetch.
 	s.dat.EnsureRunning()
 	s.startWatcherLocked()
-	s.startRomMSyncLocked()
 	s.startConnectLocked()
 }
 
@@ -69,21 +65,11 @@ func (s *Supervisor) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopConnectLocked()
-	s.stopRomMSyncLocked()
 	s.stopWatcherLocked()
 	s.dat.Stop()
 	if s.sched != nil {
 		s.sched.Stop()
 	}
-}
-
-// RomMSync returns the live syncer, or nil while sync is disabled — the API
-// reads it per request instead of holding a boot-time (possibly stale nil)
-// pointer.
-func (s *Supervisor) RomMSync() *romm.Syncer {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.rommSync
 }
 
 // Apply re-arms the loops affected by the changed settings keys. Called
@@ -114,9 +100,6 @@ func (s *Supervisor) Apply(changed []string) {
 				s.sched.StopLoop()
 				s.sched.EnsureRunning()
 			}
-		case "romm_sync_enabled", "romm_sync_interval_seconds", "romm_exclude_platforms":
-			s.stopRomMSyncLocked()
-			s.startRomMSyncLocked()
 		case "romm_connect_enabled":
 			s.stopConnectLocked()
 			s.startConnectLocked()
@@ -153,26 +136,6 @@ func (s *Supervisor) stopWatcherLocked() {
 	if s.watcher != nil {
 		s.watcher.Stop()
 		s.watcher = nil
-	}
-}
-
-func (s *Supervisor) startRomMSyncLocked() {
-	if s.rommSync != nil {
-		return
-	}
-	if !s.cfg.HasRomMAPI() || !s.cfg.RomMSyncOn() || s.b.RomMSync == nil {
-		return
-	}
-	if sy := s.b.RomMSync(); sy != nil {
-		sy.Start()
-		s.rommSync = sy
-	}
-}
-
-func (s *Supervisor) stopRomMSyncLocked() {
-	if s.rommSync != nil {
-		s.rommSync.Stop()
-		s.rommSync = nil
 	}
 }
 

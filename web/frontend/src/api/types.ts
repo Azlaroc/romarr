@@ -253,10 +253,7 @@ export interface Settings {
   scheduler_interval_hours?: number
   selector_mode?: string
   selector_set_timeout_hours?: number
-  romm_sync_enabled?: boolean
-  romm_sync_interval_seconds?: number
   romm_connect_enabled?: boolean
-  romm_exclude_platforms?: string
   dat_auto_refresh_enabled?: boolean
   dat_refresh_interval_days?: number
 }
@@ -453,14 +450,6 @@ export interface SchedulerStatus {
   last_run?: string // RFC3339; zero value = "0001-01-01T00:00:00Z"
   last_results?: number
   auto_downloads?: number
-}
-
-export interface LibrarySyncStatus {
-  enabled?: boolean
-  running?: boolean
-  last_sync?: string
-  last_error?: string
-  [k: string]: unknown
 }
 
 export interface BackupInfo {

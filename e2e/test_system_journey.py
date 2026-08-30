@@ -37,7 +37,6 @@ def test_system_tasks_scheduler(ui):
 
     # The harness boots with SELECTOR_MODE=enforce — the badge must say so.
     expect(page.get_by_test_id("tasks-selector-mode")).to_contain_text("enforce", timeout=SLOW_MS)
-    expect(page.get_by_test_id("tasks-sync")).to_be_visible(timeout=SLOW_MS)
 
     # Empty wishlist at this point in the block: the cycle is a safe no-op.
     page.get_by_test_id("tasks-run-now").click()

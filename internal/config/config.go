@@ -114,11 +114,8 @@ type Config struct {
 	IGDBAPIBase  string
 	IGDBAuthBase string
 
-	RomMAPIUser          string
-	RomMAPIPass          string
-	RomMSyncEnabled      bool
-	RomMSyncIntervalS    int
-	RomMExcludePlatforms []string
+	RomMAPIUser string
+	RomMAPIPass string
 	// RomMConnectEnabled turns on the Connect plane: after each ROM import a
 	// targeted RomM scan is triggered over socket.io. Needs a RomM account
 	// with the tasks.run scope (admin role in RomM 5.x); with lesser roles
@@ -241,9 +238,6 @@ func Load() *Config {
 
 		RomMAPIUser:           envStr("ROMM_API_USER", ""),
 		RomMAPIPass:           envStr("ROMM_API_PASS", ""),
-		RomMSyncEnabled:       envBool("ROMM_SYNC_ENABLED", true),
-		RomMSyncIntervalS:     envInt("ROMM_SYNC_INTERVAL", 1800),
-		RomMExcludePlatforms:  envStrSlice("ROMM_EXCLUDE_PLATFORMS"),
 		RomMConnectEnabled:    envBool("ROMM_CONNECT_ENABLED", true),
 		RomMConnectFlushIdleS: envInt("ROMM_CONNECT_FLUSH_IDLE", 0),
 		RomMConnectTickS:      envInt("ROMM_CONNECT_TICK", 0),
@@ -564,27 +558,6 @@ func (c *Config) SelectorModeEffective() string {
 	return m
 }
 
-// RomMSyncOn reports whether RomM owns the ROM library view (settings row
-// over ROMM_SYNC_ENABLED). Callers must still check HasRomMAPI.
-func (c *Config) RomMSyncOn() bool {
-	if v, ok := c.settingBool("romm_sync_enabled"); ok {
-		return v
-	}
-	return c.RomMSyncEnabled
-}
-
-// RomMSyncIntervalSeconds returns the RomM sync interval, floored at 60s.
-func (c *Config) RomMSyncIntervalSeconds() int {
-	n := c.RomMSyncIntervalS
-	if v, ok := c.settingInt("romm_sync_interval_seconds"); ok {
-		n = v
-	}
-	if n < 60 {
-		return 1800
-	}
-	return n
-}
-
 // RomMConnectOn reports whether the Connect notifier runs (settings row over
 // ROMM_CONNECT_ENABLED). Callers must still check HasRomMAPI.
 func (c *Config) RomMConnectOn() bool {
@@ -592,22 +565,6 @@ func (c *Config) RomMConnectOn() bool {
 		return v
 	}
 	return c.RomMConnectEnabled
-}
-
-// RomMExcludeList returns the platform slugs excluded from RomM sync — the
-// stored CSV row when present, else ROMM_EXCLUDE_PLATFORMS.
-func (c *Config) RomMExcludeList() []string {
-	if v, ok := c.settingStr("romm_exclude_platforms"); ok {
-		parts := strings.Split(v, ",")
-		out := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if p = strings.TrimSpace(p); p != "" {
-				out = append(out, p)
-			}
-		}
-		return out
-	}
-	return c.RomMExcludePlatforms
 }
 
 // DiscSetTimeoutHours returns the disc-set degrade timeout (settings row
@@ -671,21 +628,6 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return s == "true" || s == "1" || s == "yes"
-}
-
-func envStrSlice(key string) []string {
-	s := os.Getenv(key)
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
 }
 
 func envIntSlice(key string, fallback []int) []int {

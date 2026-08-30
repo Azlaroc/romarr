@@ -45,7 +45,6 @@ import type {
   AppNotification,
   AdminDashboard,
   SchedulerStatus,
-  LibrarySyncStatus,
   NormalizeStatus,
   NormalizePreviewRow,
   SafeUser,
@@ -106,7 +105,6 @@ export const keys = {
   hashResults: (page: number) => ['hash-results', page] as const,
   scanStatus: ['scan-status'] as const,
   scanResults: (page: number) => ['scan-results', page] as const,
-  syncStatus: ['sync-status'] as const,
   users: ['users'] as const,
   invites: ['invites'] as const,
   backups: ['backups'] as const,
@@ -572,7 +570,6 @@ export function useDeleteTag() {
   })
 }
 
-
 // ---------- calendar ----------
 
 export function useCalendar() {
@@ -729,22 +726,6 @@ export function useRunScheduler() {
     mutationFn: () => api.post<{ success: boolean; message?: string }>('/api/scheduler/run'),
     // Fire-and-forget on the backend — give the cycle a beat before refetching.
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.scheduler }), 2000),
-  })
-}
-
-export function useSyncStatus() {
-  return useQuery({
-    queryKey: keys.syncStatus,
-    queryFn: () => api.get<LibrarySyncStatus>('/api/library/sync/status'),
-  })
-}
-
-export function useTriggerSync() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (full: boolean) =>
-      api.post<{ success: boolean; error?: string; message?: string }>(`/api/library/sync${full ? '?full=true' : ''}`),
-    onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: keys.syncStatus }), 2000),
   })
 }
 

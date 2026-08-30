@@ -319,10 +319,8 @@ func (r *Runner) run(ctx context.Context, scope string, opts Opts) {
 		switch row.Status {
 		case StatusCreated:
 			r.created++
-			r.bytesHashed += row.Size
 		case StatusAdopted:
 			r.adopted++
-			r.bytesHashed += row.Size
 		case StatusError:
 			r.errCount++
 			r.lastErr = row.Detail
@@ -544,6 +542,7 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 			row.Detail = detail
 			measureErr = err
 		} else {
+			r.addBytes(res.Size)
 			hashes = measuredHashes(res)
 			catalog = r.doubleAsk(e.slug, filepath.Base(e.path), res.Hashes, payloadOf(res))
 			if e.size == 0 {
@@ -696,6 +695,7 @@ func (r *Runner) ensureVerdict(ctx context.Context, item *db.LibraryItem, e entr
 		r.markSkip(item.ID, err, opts)
 		return r.recordVerdict(item.ID, existing, db.CatalogUnknown, opts), d, ""
 	}
+	r.addBytes(res.Size)
 	if !opts.DryRun {
 		if err := r.store.SaveLibraryHashes(item.ID, *measuredHashes(res)); err != nil {
 			return "", "", "save hashes: " + err.Error()
@@ -789,6 +789,15 @@ func (r *Runner) reconcile(scope, root string, seen map[string]bool, scanned map
 func (r *Runner) count(key string) {
 	r.mu.Lock()
 	r.counts[key]++
+	r.mu.Unlock()
+}
+
+// addBytes records bytes actually READ by a measurement. Only measurements
+// count: an adoption that answered from stored hashes read nothing, and a
+// progress line claiming hundreds of GB for a zero-I/O pass is a lie.
+func (r *Runner) addBytes(n int64) {
+	r.mu.Lock()
+	r.bytesHashed += n
 	r.mu.Unlock()
 }
 
