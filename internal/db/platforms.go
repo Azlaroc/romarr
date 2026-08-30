@@ -35,12 +35,13 @@ import (
 // PlatformPatch is a sparse update: a nil field means "unchanged", the same
 // shape SourcePatch uses.
 type PlatformPatch struct {
-	DisplayName        *string
-	MediaClass         *string
-	ConvertsToCHD      *bool
-	AcquisitionEnabled *bool
-	CollectionMode     *bool
-	DefaultProfileID   *int64
+	DisplayName         *string
+	MediaClass          *string
+	ConvertsToCHD       *bool
+	AcquisitionEnabled  *bool
+	CollectionMode      *bool
+	DefaultProfileID    *int64
+	CollectionProfileID *int64
 }
 
 func (s *JobStore) migratePlatforms() {
@@ -60,6 +61,7 @@ func (s *JobStore) migratePlatforms() {
 			is_system INTEGER NOT NULL DEFAULT 0,
 			default_profile_id INTEGER NOT NULL DEFAULT 0,
 			collection_mode INTEGER NOT NULL DEFAULT 0,
+			collection_profile_id INTEGER NOT NULL DEFAULT 0,
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
 		// The IGDB identity is unique where it is claimed at all. Rows without
@@ -88,6 +90,15 @@ func (s *JobStore) migratePlatforms() {
 	if !s.columnExists("platforms", "collection_mode") {
 		if _, err := s.db.Exec(`ALTER TABLE platforms ADD COLUMN collection_mode INTEGER NOT NULL DEFAULT 0`); err != nil {
 			slog.Warn("migrate platforms collection_mode", "error", err)
+		}
+	}
+	// No backfill: 0 resolves to the built-in Standard collection profile,
+	// which reproduces the pre-profile policy exactly (the fold-in migration
+	// in collection_profiles.go re-points the platforms that were living a
+	// non-default quality-profile tuple).
+	if !s.columnExists("platforms", "collection_profile_id") {
+		if _, err := s.db.Exec(`ALTER TABLE platforms ADD COLUMN collection_profile_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate platforms collection_profile_id", "error", err)
 		}
 	}
 	s.seedPlatformDefaults()
@@ -220,7 +231,8 @@ func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 	var cats string
 	var chd, frozen, acq, sys, coll int
 	err := rows.Scan(&p.Slug, &p.DisplayName, &p.IGDBSlug, &p.IGDBID, &p.RommFSSlug, &cats,
-		&p.TorznabCategory, &p.MediaClass, &chd, &frozen, &acq, &sys, &p.DefaultProfileID, &coll, &p.UpdatedAt)
+		&p.TorznabCategory, &p.MediaClass, &chd, &frozen, &acq, &sys, &p.DefaultProfileID, &coll,
+		&p.CollectionProfileID, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}
@@ -235,7 +247,7 @@ func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 
 const platformCols = `slug, display_name, igdb_slug, igdb_id, romm_fs_slug, prowlarr_categories,
 	torznab_category, media_class, converts_to_chd, rename_frozen, acquisition_enabled, is_system,
-	default_profile_id, collection_mode, updated_at`
+	default_profile_id, collection_mode, collection_profile_id, updated_at`
 
 // PlatformRows implements platform.Registry.
 func (s *JobStore) PlatformRows() []platform.Row {
@@ -296,6 +308,9 @@ func (s *JobStore) PatchPlatform(slug string, p PlatformPatch) error {
 	}
 	if p.DefaultProfileID != nil {
 		sets, args = append(sets, "default_profile_id = ?"), append(args, *p.DefaultProfileID)
+	}
+	if p.CollectionProfileID != nil {
+		sets, args = append(sets, "collection_profile_id = ?"), append(args, *p.CollectionProfileID)
 	}
 	if len(sets) == 0 {
 		return nil

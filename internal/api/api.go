@@ -316,6 +316,13 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Put("/api/quality-profiles/{id}", s.handleUpdateQualityProfile)
 	r.Delete("/api/quality-profiles/{id}", s.handleDeleteQualityProfile)
 
+	// Collection Profiles (what a platform collects out of its DAT)
+	r.Get("/api/collection-profiles", s.handleGetCollectionProfiles)
+	r.Get("/api/collection-profiles/{id}", s.handleGetCollectionProfile)
+	r.Post("/api/collection-profiles", s.handleCreateCollectionProfile)
+	r.Put("/api/collection-profiles/{id}", s.handleUpdateCollectionProfile)
+	r.Delete("/api/collection-profiles/{id}", s.handleDeleteCollectionProfile)
+
 	// Blocklist
 	r.Get("/api/blocklist", s.handleGetBlocklist)
 	r.Post("/api/blocklist", s.handleAddBlocklistEntry)

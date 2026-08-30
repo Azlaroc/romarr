@@ -77,12 +77,13 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		DisplayName        *string `json:"display_name"`
-		MediaClass         *string `json:"media_class"`
-		ConvertsToCHD      *bool   `json:"converts_to_chd"`
-		AcquisitionEnabled *bool   `json:"acquisition_enabled"`
-		CollectionMode     *bool   `json:"collection_mode"`
-		DefaultProfileID   *int64  `json:"default_profile_id"`
+		DisplayName         *string `json:"display_name"`
+		MediaClass          *string `json:"media_class"`
+		ConvertsToCHD       *bool   `json:"converts_to_chd"`
+		AcquisitionEnabled  *bool   `json:"acquisition_enabled"`
+		CollectionMode      *bool   `json:"collection_mode"`
+		DefaultProfileID    *int64  `json:"default_profile_id"`
+		CollectionProfileID *int64  `json:"collection_profile_id"`
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -110,13 +111,22 @@ func (s *Server) handleUpdatePlatform(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Same shape for the collection profile: 0 means the built-in Standard,
+	// anything else must name a stored row.
+	if req.CollectionProfileID != nil && *req.CollectionProfileID != 0 {
+		if p, err := s.mgr.Jobs().GetCollectionProfile(*req.CollectionProfileID); err != nil || p == nil {
+			writeError(w, http.StatusBadRequest, "Unknown collection profile")
+			return
+		}
+	}
 	if err := s.mgr.Jobs().PatchPlatform(slug, db.PlatformPatch{
-		DisplayName:        req.DisplayName,
-		MediaClass:         req.MediaClass,
-		ConvertsToCHD:      req.ConvertsToCHD,
-		AcquisitionEnabled: req.AcquisitionEnabled,
-		CollectionMode:     req.CollectionMode,
-		DefaultProfileID:   req.DefaultProfileID,
+		DisplayName:         req.DisplayName,
+		MediaClass:          req.MediaClass,
+		ConvertsToCHD:       req.ConvertsToCHD,
+		AcquisitionEnabled:  req.AcquisitionEnabled,
+		CollectionMode:      req.CollectionMode,
+		DefaultProfileID:    req.DefaultProfileID,
+		CollectionProfileID: req.CollectionProfileID,
 	}); err != nil {
 		writeError(w, http.StatusNotFound, "Unknown platform")
 		return
