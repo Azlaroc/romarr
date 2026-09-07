@@ -69,6 +69,15 @@ type Row struct {
 	// Standard profile, which reproduces the pre-profile policy exactly.
 	CollectionProfileID int64  `json:"collection_profile_id"`
 	UpdatedAt           string `json:"updated_at,omitempty"`
+
+	// The art vocabulary (artvocab.go): curated in-code data merged onto the
+	// row at scan time, never stored in the platforms table — a re-curated
+	// accent or a corrected thumbnails-repo name ships with the binary
+	// instead of being frozen into whichever install migrated first. Not
+	// operator-editable; the per-install escape hatch is the custom-art dir.
+	AccentColor       string `json:"accent_color"`
+	ArtRef            string `json:"art_ref"`
+	LibretroThumbRepo string `json:"libretro_thumb_repo"`
 }
 
 // Registry supplies the rows. Declared here, in the leaf package, so every
