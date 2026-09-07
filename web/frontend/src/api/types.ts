@@ -247,7 +247,7 @@ export interface LibraryDetail {
     stems?: string[]
   }
   /** Ids inside are snapshot-scoped: drill into roms with them, never persist. */
-  dat_group: (DatGame & { is_current: boolean })[]
+  dat_group: (DatGame & { is_current: boolean; is_override: boolean })[]
   set: SetMarkerInfo | null
   profile: {
     id: number
@@ -256,6 +256,8 @@ export interface LibraryDetail {
     resolved_from: 'title' | 'platform'
   }
   igdb: { year?: number; genres?: string[] } | null
+  /** The "That!" pin governing this title's next grab, when one is set. */
+  override: { dump_name: string; wishlist_id: number } | null
 }
 
 /** /api/library/art/status — mint queue + backfill campaign progress. */

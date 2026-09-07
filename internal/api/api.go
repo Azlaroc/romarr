@@ -188,6 +188,9 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/library/{id}", s.handleLibraryDetail)
 	r.Patch("/api/library/{id}", s.handleUpdateLibraryItem)
 	r.Post("/api/library/{id}/verify", requireAdmin(s.handleLibraryVerify))
+	// The dump override ("That!"): open like the wishlist it writes to.
+	r.Put("/api/library/{id}/override", s.handleSetOverride)
+	r.Delete("/api/library/{id}/override", s.handleClearOverride)
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
 
 	// Title/platform art + the backfill campaign. Reads are open like the

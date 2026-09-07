@@ -69,6 +69,25 @@ func filterCandidate(r *models.SearchResult, cp *db.CollectionProfile) string {
 type Want struct {
 	DumpName string
 	Hashes   []string // lowered md5/sha1 of the keeper's roms
+	// Enforce turns the want from a boost into a gate: only a candidate
+	// that provably IS the named dump may be picked, and none matching
+	// means WAIT, never the policy fallback — a dump override the operator
+	// chose by hand must not silently become "whatever ranked first"
+	// (Radarr's analogue is a manual search that comes up empty: a wait,
+	// not a substitution). Collection targets keep Enforce off: their want
+	// is the set's preference, and any in-profile dump beats a gap.
+	Enforce bool
+}
+
+// enforceMatch reports whether a candidate provably is the wanted dump:
+// an advertised hash equal to one of the keeper's, or an exact title. A
+// hashless release can never satisfy an enforced want — targeted means
+// provable, and that is the honest cost of pinning a dump.
+func (w Want) enforceMatch(r *models.SearchResult) bool {
+	if w.hashMatch(r) {
+		return true
+	}
+	return w.DumpName != "" && strings.EqualFold(strings.TrimSpace(r.Title), w.DumpName)
 }
 
 // hashMatch reports whether the candidate's advertised hash IS the wanted

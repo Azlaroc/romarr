@@ -623,6 +623,31 @@ export function useVerifyLibraryItem() {
   })
 }
 
+/** Pin the exact dump this title's next grab must BE ("That!"). Unmet =
+ * the selector waits; it never substitutes the policy pick. */
+export function useSetDumpOverride() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, dumpName, hashes }: { id: number; dumpName: string; hashes: string[] }) =>
+      api.put(`/api/library/${id}/override`, { dump_name: dumpName, hashes }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: keys.libraryDetail(id) })
+      qc.invalidateQueries({ queryKey: keys.wishlist })
+    },
+  })
+}
+
+export function useClearDumpOverride() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/api/library/${id}/override`),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: keys.libraryDetail(id) })
+      qc.invalidateQueries({ queryKey: keys.wishlist })
+    },
+  })
+}
+
 export function useArtStatus(enabled = true) {
   return useQuery({
     queryKey: keys.artStatus,

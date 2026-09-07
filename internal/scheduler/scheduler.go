@@ -322,17 +322,23 @@ type wantedItem struct {
 	// row to delete.
 	WishlistID int64
 	// DumpName/DumpHashes carry the keeper's identity when a collection
-	// target asked (the set knows EXACTLY which dump it wants); empty for
-	// wishlist rows. The selector prefers a hash-matching candidate — a
-	// boost, never a filter.
+	// target asked (the set knows EXACTLY which dump it wants) or when a
+	// wishlist row carries a dump override. For a collection target the
+	// selector prefers a hash-matching candidate — a boost, never a filter;
+	// an operator's override sets Enforce, where unmet means WAIT.
 	DumpName   string
 	DumpHashes []string
+	Enforce    bool
 }
 
 func wantedOf(item db.WishlistItem) wantedItem {
 	return wantedItem{
 		Title: item.Title, PlatformSlug: item.PlatformSlug,
 		ProfileID: item.ProfileID, WishlistID: item.ID,
+		// The "That!" pick rides the row: enforced, so the selector waits
+		// rather than substituting the policy pick.
+		DumpName: item.OverrideDumpName, DumpHashes: item.OverrideHashes,
+		Enforce: item.OverrideDumpName != "",
 	}
 }
 
@@ -402,7 +408,7 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 		MinScore:     cx.minScore,
 		Profile:      prof,
 		Collection:   s.jobs.ResolveCollectionProfile(item.PlatformSlug),
-		Want:         selection.Want{DumpName: item.DumpName, Hashes: item.DumpHashes},
+		Want:         selection.Want{DumpName: item.DumpName, Hashes: item.DumpHashes, Enforce: item.Enforce},
 	}
 	if cx.mode == "enforce" {
 		opts.Owned = cx.owned
