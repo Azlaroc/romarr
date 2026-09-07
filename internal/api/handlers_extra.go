@@ -17,43 +17,52 @@ import (
 
 // ── Library ────────────────────────────────────────────────────────────────────
 
-func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
+// libraryQueryFromRequest parses the shared library filter params. Every
+// reader of the library (page, letters, facets) parses through here so the
+// three views can never disagree about what a filter means.
+func libraryQueryFromRequest(r *http.Request) db.LibraryQuery {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-	if pageSize < 1 {
-		pageSize = 50
+	if pageSize > 500 {
+		pageSize = 500 // the openapi contract's ceiling, now enforced
 	}
-	query := r.URL.Query().Get("q")
-	platformSlug := r.URL.Query().Get("platform")
-	tagFilter := r.URL.Query().Get("tag")
-
-	result := s.mgr.Jobs().GetLibraryPage(page, pageSize, query, platformSlug)
-
-	// Filter by tag if specified
-	if tagFilter != "" {
-		taggedIDs := s.mgr.Jobs().GetLibraryItemIDsByTag(tagFilter)
-		idSet := make(map[int64]bool, len(taggedIDs))
-		for _, id := range taggedIDs {
-			idSet[id] = true
-		}
-		var filtered []db.LibraryItem
-		for _, item := range result.Items {
-			if idSet[item.ID] {
-				filtered = append(filtered, item)
-			}
-		}
-		if filtered == nil {
-			filtered = []db.LibraryItem{}
-		}
-		result.Items = filtered
-		result.Total = len(filtered)
-		result.TotalPages = 1
+	return db.LibraryQuery{
+		Page:         page,
+		PageSize:     pageSize,
+		Q:            r.URL.Query().Get("q"),
+		PlatformSlug: r.URL.Query().Get("platform"),
+		Tag:          r.URL.Query().Get("tag"),
+		Verdict:      r.URL.Query().Get("verdict"),
+		Format:       r.URL.Query().Get("format"),
+		Sort:         r.URL.Query().Get("sort"),
 	}
+}
 
-	writeJSON(w, 200, result)
+func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
+	// The tag filter lives in the SQL WHERE now: filtering the served page
+	// after pagination made total/total_pages describe the page, not the
+	// library.
+	writeJSON(w, 200, s.mgr.Jobs().GetLibraryPage(libraryQueryFromRequest(r)))
+}
+
+func (s *Server) handleLibraryLetters(w http.ResponseWriter, r *http.Request) {
+	q := libraryQueryFromRequest(r)
+	letters, total := s.mgr.Jobs().LibraryLetters(q)
+	writeJSON(w, 200, map[string]interface{}{
+		"letters": letters,
+		"total":   total,
+	})
+}
+
+func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
+	// Facets deliberately ignore verdict/format: those ARE the chip
+	// dimensions, and a facet that filtered by its own dimension would
+	// collapse to the selected value.
+	q := libraryQueryFromRequest(r)
+	q.Verdict, q.Format = "", ""
+	writeJSON(w, 200, map[string]interface{}{
+		"facets": s.mgr.Jobs().LibraryFacets(q),
+	})
 }
 
 func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request) {

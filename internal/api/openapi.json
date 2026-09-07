@@ -777,6 +777,90 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Substring match against title OR file basename",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "description": "Tag name; totals reflect the filter",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "verdict",
+            "in": "query",
+            "description": "Catalog verdict; 'unmeasured' selects rows with no stored verdict",
+            "schema": { "type": "string", "enum": ["verified", "mismatch", "unknown", "unmeasured"] }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "File extension without the dot",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Empty = added_at DESC; 'title' = A-Z with the '#' bucket first",
+            "schema": { "type": "string", "enum": ["", "title"] }
+          }
+        ]
+      }
+    },
+    "/api/library/letters": {
+      "get": {
+        "summary": "Letter-to-offset map for the A-Z rail; offsets index into the sort=title order",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "verdict",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["verified", "mismatch", "unknown", "unmeasured"] }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": { "type": "string" }
+          }
+        ]
+      }
+    },
+    "/api/library/facets": {
+      "get": {
+        "summary": "Facet value counts (platform, verdict, format, source_type, tag); zero-count values are absent; verdict/format params are ignored — they are the chip dimensions",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": { "type": "string" }
           }
         ]
       }
