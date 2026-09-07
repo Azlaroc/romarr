@@ -29,7 +29,7 @@ func TestLibraryItem_CRUD(t *testing.T) {
 	}
 
 	// Get page
-	page := store.GetLibraryPage(1, 50, "", "")
+	page := store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 50})
 	if page.Total != 1 {
 		t.Errorf("total=%d, want 1", page.Total)
 	}
@@ -48,7 +48,7 @@ func TestLibraryItem_CRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteLibraryItem failed: %v", err)
 	}
-	page = store.GetLibraryPage(1, 50, "", "")
+	page = store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 50})
 	if page.Total != 0 {
 		t.Errorf("total=%d after delete, want 0", page.Total)
 	}
@@ -67,7 +67,7 @@ func TestLibraryPage_Pagination(t *testing.T) {
 	}
 
 	// Page 1, size 2
-	page := store.GetLibraryPage(1, 2, "", "")
+	page := store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 2})
 	if page.Total != 5 {
 		t.Errorf("total=%d, want 5", page.Total)
 	}
@@ -79,7 +79,7 @@ func TestLibraryPage_Pagination(t *testing.T) {
 	}
 
 	// Page 3
-	page3 := store.GetLibraryPage(3, 2, "", "")
+	page3 := store.GetLibraryPage(LibraryQuery{Page: 3, PageSize: 2})
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items=%d, want 1", len(page3.Items))
 	}
@@ -90,7 +90,7 @@ func TestLibraryPage_QueryFilter(t *testing.T) {
 	store.AddLibraryItem(&LibraryItem{Title: "Super Mario Bros", Platform: "NES", PlatformSlug: "nes", Metadata: "{}"})
 	store.AddLibraryItem(&LibraryItem{Title: "Zelda", Platform: "NES", PlatformSlug: "nes", Metadata: "{}"})
 
-	page := store.GetLibraryPage(1, 50, "mario", "")
+	page := store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 50, Q: "mario"})
 	if page.Total != 1 {
 		t.Errorf("query filter: total=%d, want 1", page.Total)
 	}
@@ -102,13 +102,13 @@ func TestLibraryPage_PlatformFilter(t *testing.T) {
 	store.AddLibraryItem(&LibraryItem{Title: "Halo", Platform: "PC", PlatformSlug: "", IsPC: true, Metadata: "{}"})
 
 	// Filter by nes
-	page := store.GetLibraryPage(1, 50, "", "nes")
+	page := store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 50, PlatformSlug: "nes"})
 	if page.Total != 1 {
 		t.Errorf("platform filter: total=%d, want 1", page.Total)
 	}
 
 	// Filter by pc
-	page = store.GetLibraryPage(1, 50, "", "pc")
+	page = store.GetLibraryPage(LibraryQuery{Page: 1, PageSize: 50, PlatformSlug: "pc"})
 	if page.Total != 1 {
 		t.Errorf("pc filter: total=%d, want 1", page.Total)
 	}
@@ -117,7 +117,7 @@ func TestLibraryPage_PlatformFilter(t *testing.T) {
 func TestLibraryPage_Defaults(t *testing.T) {
 	store := newTestStore(t)
 	// page < 1 and pageSize < 1 should use defaults
-	page := store.GetLibraryPage(0, 0, "", "")
+	page := store.GetLibraryPage(LibraryQuery{Page: 0, PageSize: 0})
 	if page.Page != 1 {
 		t.Errorf("page=%d, want 1", page.Page)
 	}

@@ -26,7 +26,7 @@ type exportWrapper struct {
 // handleExportLibrary handles GET /api/export/library.
 func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 	// Get all library items (large page)
-	result := s.mgr.Jobs().GetLibraryPage(1, 100000, "", "")
+	result := s.mgr.Jobs().GetLibraryPage(db.LibraryQuery{Page: 1, PageSize: 100000})
 	w.Header().Set("Content-Disposition", "attachment; filename=gamarr-library.json")
 	writeJSON(w, http.StatusOK, exportWrapper{
 		Version:    gamarrVersion,

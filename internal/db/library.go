@@ -22,7 +22,55 @@ type LibraryItem struct {
 	SourceID     string `json:"source_id"`   // dedup key (hash, url, etc.)
 	Metadata     string `json:"metadata"`    // JSON blob
 	AddedAt      string `json:"added_at"`
+
+	// Derived on read, never stored. CatalogVerdict is $.gamarr.catalog —
+	// "" means the row was never measured, which is a distinct state from
+	// CatalogUnknown and must be rendered as such. FsName is the file_path
+	// basename: the DAT-canonical name post-rename, where Title may not be.
+	CatalogVerdict string `json:"catalog_verdict"`
+	FsName         string `json:"fs_name"`
 }
+
+// LibraryQuery names the filters and ordering a library read applies. The
+// zero value lists everything, newest first.
+type LibraryQuery struct {
+	Page         int
+	PageSize     int
+	Q            string // matches title OR file_path basename
+	PlatformSlug string // "" or "all" = every platform; "pc" = is_pc rows
+	Tag          string // tag name, joined through item_tags
+	Verdict      string // "verified", "mismatch", "unknown", or "unmeasured" (= no verdict stored)
+	Format       string // file extension without the dot
+	Sort         string // "" = added_at DESC; "title" = A-Z with the "#" bucket first
+}
+
+// SQL fragments shared by the page read, the letter map and the facet
+// counts. They MUST stay identical across those readers: the A-Z rail's
+// offsets are only valid because the letter grouping and the title sort
+// order agree on where every row lands.
+const (
+	// sqlBasename extracts file_path's final component: replace() builds
+	// the set of every non-slash character in the path, rtrim strips that
+	// set from the right (stopping at the last '/'), substr takes the rest.
+	// A path with no slash is its own basename.
+	sqlBasename = "substr(file_path, length(rtrim(file_path, replace(file_path, '/', ''))) + 1)"
+
+	// sqlExt is the same trick over the basename with '.', so it finds the
+	// text after the LAST dot. Only meaningful when the basename contains a
+	// dot — callers guard with LIKE '%.%' (a directory-shaped row has no
+	// extension, not an extension equal to its own name).
+	sqlExt = "substr(" + sqlBasename + ", length(rtrim(" + sqlBasename + ", replace(" + sqlBasename + ", '.', ''))) + 1)"
+
+	// sqlCatalogVerdict reads $.gamarr.catalog defensively: json_valid
+	// guards rows whose metadata blob predates the JSON contract.
+	sqlCatalogVerdict = "json_extract(CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END, '$.gamarr.catalog')"
+
+	// sqlLetterBucket folds a title's first character to its A-Z rail
+	// bucket. Everything non-alphabetic shares '#', which sorts before 'A',
+	// so bucketed grouping and bucketed ordering agree that the '#' block
+	// is one contiguous run at the front.
+	sqlLetterBucket = "CASE WHEN upper(substr(title, 1, 1)) BETWEEN 'A' AND 'Z' THEN upper(substr(title, 1, 1)) ELSE '#' END"
+)
 
 // WishlistItem represents a game on the wishlist. ProfileID is the per-title
 // quality profile chosen at add time; 0 means "whatever this platform
@@ -195,30 +243,38 @@ func (s *JobStore) AddLibraryItem(item *LibraryItem) (int64, error) {
 }
 
 // GetLibraryPage returns a paginated library.
-func (s *JobStore) GetLibraryPage(page, pageSize int, query, platformSlug string) LibraryPage {
-	if page < 1 {
-		page = 1
+func (s *JobStore) GetLibraryPage(q LibraryQuery) LibraryPage {
+	if q.Page < 1 {
+		q.Page = 1
 	}
-	if pageSize < 1 {
-		pageSize = 50
+	if q.PageSize < 1 {
+		q.PageSize = 50
 	}
 
-	where, args := buildLibraryWhere(query, platformSlug)
+	where, args := buildLibraryWhere(q)
 
 	var total int
 	row := s.db.QueryRow("SELECT COUNT(*) FROM library_items "+where, args...)
 	row.Scan(&total)
 
-	totalPages := (total + pageSize - 1) / pageSize
-	offset := (page - 1) * pageSize
+	totalPages := (total + q.PageSize - 1) / q.PageSize
+	offset := (q.Page - 1) * q.PageSize
+
+	// The title order MUST match LibraryLetters' bucket grouping (bucket
+	// first, then title), or the rail's offsets point into the wrong rows.
+	order := " ORDER BY added_at DESC"
+	if q.Sort == "title" {
+		order = " ORDER BY " + sqlLetterBucket + ", title COLLATE NOCASE, id"
+	}
 
 	rows, err := s.db.Query(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items "+
-			where+" ORDER BY added_at DESC LIMIT ? OFFSET ?",
-		append(args, pageSize, offset)...,
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, "+
+			"COALESCE("+sqlCatalogVerdict+", ''), "+sqlBasename+" FROM library_items "+
+			where+order+" LIMIT ? OFFSET ?",
+		append(args, q.PageSize, offset)...,
 	)
 	if err != nil {
-		return LibraryPage{Page: page, PageSize: pageSize}
+		return LibraryPage{Page: q.Page, PageSize: q.PageSize}
 	}
 	defer rows.Close()
 
@@ -228,7 +284,8 @@ func (s *JobStore) GetLibraryPage(page, pageSize int, query, platformSlug string
 		var isPC int
 		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt)
+			&item.SourceID, &item.Metadata, &item.AddedAt,
+			&item.CatalogVerdict, &item.FsName)
 		item.IsPC = isPC != 0
 		items = append(items, item)
 	}
@@ -239,23 +296,124 @@ func (s *JobStore) GetLibraryPage(page, pageSize int, query, platformSlug string
 	return LibraryPage{
 		Items:      items,
 		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
+		Page:       q.Page,
+		PageSize:   q.PageSize,
 		TotalPages: totalPages,
 	}
+}
+
+// LibraryLetter is one A-Z rail stop: how many rows share the bucket and
+// where the first of them sits under Sort="title".
+type LibraryLetter struct {
+	Letter string `json:"letter"`
+	Count  int    `json:"count"`
+	Offset int    `json:"offset"`
+}
+
+// LibraryLetters returns the letter→offset map for the given filters,
+// '#' bucket first, then A-Z. Offsets are running sums over the same
+// grouping expression the title sort orders by, so offset N is exactly
+// where GetLibraryPage{Sort:"title"} serves that bucket's first row.
+func (s *JobStore) LibraryLetters(q LibraryQuery) ([]LibraryLetter, int) {
+	where, args := buildLibraryWhere(q)
+	rows, err := s.db.Query(
+		"SELECT "+sqlLetterBucket+" AS bucket, COUNT(*) FROM library_items "+
+			where+" GROUP BY bucket ORDER BY bucket",
+		args...,
+	)
+	if err != nil {
+		return []LibraryLetter{}, 0
+	}
+	defer rows.Close()
+
+	letters := []LibraryLetter{}
+	total := 0
+	for rows.Next() {
+		var l LibraryLetter
+		if err := rows.Scan(&l.Letter, &l.Count); err != nil {
+			continue
+		}
+		l.Offset = total
+		total += l.Count
+		letters = append(letters, l)
+	}
+	return letters, total
+}
+
+// FacetValue is one facet bucket with its row count. Zero-count values
+// never appear — GROUP BY only yields buckets that exist.
+type FacetValue struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// LibraryFacets counts the filterable dimensions under the base filters
+// (Q/PlatformSlug/Tag). Verdict absence is folded to "unmeasured" so the
+// never-measured majority is a first-class bucket, not a gap.
+func (s *JobStore) LibraryFacets(q LibraryQuery) map[string][]FacetValue {
+	where, args := buildLibraryWhere(q)
+
+	facets := map[string][]FacetValue{}
+	dims := []struct {
+		name string
+		expr string
+	}{
+		{"platform", "CASE WHEN is_pc = 1 THEN 'pc' ELSE platform_slug END"},
+		{"verdict", "COALESCE(NULLIF(" + sqlCatalogVerdict + ", ''), 'unmeasured')"},
+		{"format", "CASE WHEN " + sqlBasename + " LIKE '%.%' THEN lower(" + sqlExt + ") ELSE '' END"},
+		{"source_type", "source_type"},
+	}
+	for _, d := range dims {
+		facets[d.name] = s.facetCounts(
+			"SELECT "+d.expr+" AS v, COUNT(*) FROM library_items "+where+
+				" GROUP BY v ORDER BY COUNT(*) DESC, v", args)
+	}
+
+	// Tags join through item_tags; the base WHERE still applies to the
+	// library side. Aliased it2/t2 inside buildLibraryWhere's own tag
+	// condition keep the two tag references from colliding.
+	facets["tag"] = s.facetCounts(
+		"SELECT t.name AS v, COUNT(*) FROM tags t"+
+			" JOIN item_tags it ON it.tag_id = t.id"+
+			" JOIN library_items ON library_items.id = it.item_id "+where+
+			" GROUP BY v ORDER BY COUNT(*) DESC, v", args)
+
+	return facets
+}
+
+func (s *JobStore) facetCounts(query string, args []interface{}) []FacetValue {
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return []FacetValue{}
+	}
+	defer rows.Close()
+	out := []FacetValue{}
+	for rows.Next() {
+		var f FacetValue
+		if err := rows.Scan(&f.Value, &f.Count); err != nil {
+			continue
+		}
+		if f.Value == "" {
+			continue // extension-less rows: not a selectable format
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // GetLibraryItem returns a single library item by ID.
 func (s *JobStore) GetLibraryItem(id int64) (*LibraryItem, error) {
 	row := s.db.QueryRow(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE id = ?",
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, "+
+			"COALESCE("+sqlCatalogVerdict+", ''), "+sqlBasename+" FROM library_items WHERE id = ?",
 		id,
 	)
 	var item LibraryItem
 	var isPC int
 	err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-		&item.SourceID, &item.Metadata, &item.AddedAt)
+		&item.SourceID, &item.Metadata, &item.AddedAt,
+		&item.CatalogVerdict, &item.FsName)
 	if err != nil {
 		return nil, err
 	}
@@ -439,20 +597,45 @@ func (s *JobStore) ScanLibraryDir(dir, platform, platformSlug string, isPC bool)
 	return 0
 }
 
-func buildLibraryWhere(query, platformSlug string) (string, []interface{}) {
+func buildLibraryWhere(q LibraryQuery) (string, []interface{}) {
 	var conditions []string
 	var args []interface{}
-	if query != "" {
-		conditions = append(conditions, "title LIKE ?")
-		args = append(args, "%"+query+"%")
+	if q.Q != "" {
+		// Title OR basename: a row whose display name is non-Latin (テトリス)
+		// still answers to its on-disk filename. Basename only, never the
+		// whole path — q=nes must not match every row under /roms/nes/.
+		conditions = append(conditions, "(title LIKE ? OR "+sqlBasename+" LIKE ?)")
+		args = append(args, "%"+q.Q+"%", "%"+q.Q+"%")
 	}
-	if platformSlug != "" && platformSlug != "all" {
-		if platformSlug == "pc" {
+	if q.PlatformSlug != "" && q.PlatformSlug != "all" {
+		if q.PlatformSlug == "pc" {
 			conditions = append(conditions, "is_pc = 1")
 		} else {
 			conditions = append(conditions, "platform_slug = ?")
-			args = append(args, platformSlug)
+			args = append(args, q.PlatformSlug)
 		}
+	}
+	if q.Tag != "" {
+		// In the WHERE so COUNT(*) and pagination see it too — filtering
+		// the served page after the fact made total/total_pages lie.
+		conditions = append(conditions, "EXISTS (SELECT 1 FROM item_tags it2"+
+			" JOIN tags t2 ON t2.id = it2.tag_id"+
+			" WHERE it2.item_id = library_items.id AND t2.name = ?)")
+		args = append(args, q.Tag)
+	}
+	if q.Verdict != "" {
+		if q.Verdict == "unmeasured" {
+			conditions = append(conditions, "("+sqlCatalogVerdict+" IS NULL OR "+sqlCatalogVerdict+" = '')")
+		} else {
+			conditions = append(conditions, sqlCatalogVerdict+" = ?")
+			args = append(args, q.Verdict)
+		}
+	}
+	if q.Format != "" {
+		// Suffix match: ".zip" at the end of the path IS the extension
+		// test, and "%.z" cannot accidentally match ".gz".
+		conditions = append(conditions, "lower(file_path) LIKE '%.' || ?")
+		args = append(args, strings.ToLower(strings.TrimPrefix(q.Format, ".")))
 	}
 	if len(conditions) == 0 {
 		return "", nil
