@@ -46,7 +46,33 @@ func (c *Cycle) SyncTargets(slug string) SyncResult {
 		})
 	}
 	added, removed := c.svc.store.SyncCollectionTargets(slug, gaps)
+	// The reconcile just paid for these numbers — stamp them so the platform
+	// tiles can render chips without re-deriving a whole set per tile.
+	c.svc.saveRollup(slug, res)
 	return SyncResult{Platform: slug, Added: added, Removed: removed, Counts: res.Counts}
+}
+
+// saveRollup stamps one platform's set arithmetic (see db.PlatformRollup).
+func (s *Service) saveRollup(slug string, res SetResult) {
+	if err := s.store.SavePlatformRollup(db.PlatformRollup{
+		PlatformSlug: slug,
+		Owned:        res.Counts.Owned,
+		Covered:      res.Counts.Covered,
+		Gaps:         res.Counts.Gaps,
+		Out:          res.Counts.Out,
+		Uncatalogued: res.Uncatalogued,
+	}); err != nil {
+		slog.Warn("save platform rollup", "platform", slug, "error", err)
+	}
+}
+
+// WriteRollup reconciles one platform now purely to stamp its rollup — the
+// explicit path for a platform outside collection mode whose tile an
+// operator wants numbers on.
+func (s *Service) WriteRollup(slug string) SetResult {
+	res := s.NewCycle().Set(slug)
+	s.saveRollup(slug, res)
+	return res
 }
 
 // keeperHashes collects the keeper's rom md5/sha1 values, lowered — the

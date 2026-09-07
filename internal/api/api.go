@@ -177,6 +177,11 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/library", s.handleLibrary)
 	r.Get("/api/library/letters", s.handleLibraryLetters)
 	r.Get("/api/library/facets", s.handleLibraryFacets)
+	// The platform shelf (browse level 1) + the explicit per-platform rollup
+	// stamp. Writing a rollup reconciles a whole set — admin, like the
+	// collection sync it is a slice of.
+	r.Get("/api/library/platforms", s.handleLibraryPlatforms)
+	r.Post("/api/library/platforms/{slug}/rollup", requireAdmin(s.handleWriteRollup))
 	// The game-detail read plane. Detail and the profile PATCH are open like
 	// the list; verify pays real I/O (extraction + hashing), which is the
 	// hash runner's class of work, so it is admin like /api/library/hash/run.

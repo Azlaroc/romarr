@@ -929,6 +929,31 @@
         }
       }
     },
+    "/api/library/platforms": {
+      "get": {
+        "summary": "The platform shelf (browse level 1): one tile per inhabited platform — live owned/size from SQL, set quadrants from the stamped rollup (computed_at included; null when never rolled up)",
+        "responses": {
+          "200": { "description": "tiles + totals" }
+        }
+      }
+    },
+    "/api/library/platforms/{slug}/rollup": {
+      "post": {
+        "summary": "Reconcile one platform now purely to stamp its rollup (admin) — the explicit path for a platform outside collection mode",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "counts + uncatalogued" },
+          "404": { "description": "unknown platform" }
+        }
+      }
+    },
     "/api/art/title/{id}": {
       "get": {
         "summary": "A library row's cached cover image; a miss 404s immediately and enqueues a background mint (libretro-thumbnails by canonical DAT name, metadata-provider fallback)",
