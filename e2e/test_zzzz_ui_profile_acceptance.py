@@ -94,8 +94,9 @@ def test_ui_profile_drives_enforce_grab(ui, app):
     _nav(page, "activity", "Activity")
     expect(page.get_by_test_id("downloads")).to_contain_text("Wario", timeout=GRAB_MS)
 
-    # …into the library.
+    # …into the library: through the shelf's All Games tile to the grid.
     _nav(page, "library", "Library")
+    page.get_by_test_id("platform-card-all").click()
     expect(page.get_by_test_id("library-grid")).to_contain_text("Wario Land", timeout=GRAB_MS)
 
     # 5. The selector really ran for it (enforce mode logs a decision event; a

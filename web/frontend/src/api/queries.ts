@@ -223,6 +223,10 @@ export function useWishlist() {
   return useQuery({
     queryKey: keys.wishlist,
     queryFn: async () => pickArray<WishlistItem>(await api.get('/api/wishlist'), 'items'),
+    // The scheduler consumes rows out from under this screen (a fulfilled
+    // title's row is deleted by the cycle, not by a UI action) — poll like
+    // downloads/library do, or the screen shows wanted work that is done.
+    refetchInterval: 5000,
   })
 }
 
