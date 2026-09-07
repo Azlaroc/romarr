@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"gamarr/internal/artsvc"
 	"gamarr/internal/collectionsvc"
 	"gamarr/internal/config"
 	"gamarr/internal/datsvc"
@@ -71,6 +72,9 @@ type Server struct {
 	// verifying guards "Verify now": one measurement per row at a time.
 	verifyMu  sync.Mutex
 	verifying map[int64]bool
+
+	// art is the title-art plane: cache, mint queue, backfill campaign.
+	art *artsvc.Service
 }
 
 // NewRouter creates a new chi router with all routes.
@@ -83,6 +87,8 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 		metaOpts = append(metaOpts, metadata.WithIGDBBase(cfg.IGDBAPIBase, cfg.IGDBAuthBase))
 	}
 	s.meta = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret, metaOpts...)
+	// After meta: the art ladder's fallback tier is the metadata provider.
+	s.art = artsvc.New(cfg, mgr.Jobs(), s.meta)
 	s.coll = collectionsvc.New(cfg, mgr.Jobs())
 	// The same import notifier the renamer gets: a declutter changes the same
 	// tree a rename does, so it owes RomM the same rescan.
@@ -178,6 +184,14 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Patch("/api/library/{id}", s.handleUpdateLibraryItem)
 	r.Post("/api/library/{id}/verify", requireAdmin(s.handleLibraryVerify))
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
+
+	// Title/platform art + the backfill campaign. Reads are open like the
+	// library list; the campaign is bulk outbound traffic, so admin like
+	// the hash runner.
+	r.Get("/api/art/title/{id}", s.handleTitleArt)
+	r.Get("/api/art/platform/{slug}", s.handlePlatformArt)
+	r.Post("/api/library/art/backfill", requireAdmin(s.handleArtBackfill))
+	r.Get("/api/library/art/status", s.handleArtStatus)
 	r.Get("/api/library/normalize/status", s.handleNormalizeStatus)
 	r.Get("/api/library/normalize/preview/results", requireAdmin(s.handleNormalizeResults))
 	r.Post("/api/library/normalize/preview", requireAdmin(s.handleNormalizePreview))
