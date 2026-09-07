@@ -162,6 +162,122 @@ export interface LibraryItem {
   file_size?: number
   source?: string
   source_type?: string
+  source_id?: string
+  added_at?: string
+  /** Per-title quality-profile override; 0 = platform default. */
+  profile_id?: number
+  /** $.gamarr.catalog: "verified" | "mismatch" | "unknown" | "" — empty is
+   * NOT-YET-MEASURED, a distinct honest state, never rendered as a fault. */
+  catalog_verdict?: string
+  /** file_path basename — DAT-canonical post-rename, where title may not be. */
+  fs_name?: string
+}
+
+/** One A-Z rail stop from /api/library/letters: offset indexes into the
+ * sort=title order, '#' bucket (digits/symbols) first. */
+export interface LibraryLetter {
+  letter: string
+  count: number
+  offset: number
+}
+
+export interface LibraryLettersResponse {
+  letters: LibraryLetter[]
+  total: number
+}
+
+export interface FacetValue {
+  value: string
+  count: number
+}
+
+/** /api/library/facets: value counts per dimension under the base filters.
+ * Zero-count values are absent by construction. */
+export interface LibraryFacets {
+  facets: Record<'platform' | 'verdict' | 'format' | 'source_type' | 'tag', FacetValue[]>
+}
+
+/** One platform tile from /api/library/platforms. Live totals (owned,
+ * size_bytes) vs stamped set quadrants (set_counts, computed_at included;
+ * null = never rolled up — honest absence, not zeros). */
+export interface PlatformTile {
+  slug: string
+  display_name: string
+  accent_color: string
+  art_url: string
+  art_source: 'custom' | 'asset' | 'none'
+  media_class: string
+  collection_mode: boolean
+  owned: number
+  size_bytes: number
+  set_counts: PlatformRollup | null
+}
+
+export interface PlatformRollup {
+  platform_slug: string
+  owned: number
+  covered: number
+  gaps: number
+  out: number
+  uncatalogued: number
+  computed_at: string
+}
+
+export interface PlatformShelf {
+  platforms: PlatformTile[]
+  totals: { owned: number; size_bytes: number }
+}
+
+/** GET /api/library/{id} — the level-3 read. */
+export interface LibraryDetail {
+  item: LibraryItem
+  hashes: {
+    domain?: 'gamarr' | 'romm'
+    crc?: string
+    md5?: string
+    sha1?: string
+    hashed_at?: string
+    unh?: { crc?: string; md5?: string; sha1?: string; header?: string }
+    hash_skipped?: string
+  }
+  canonical: {
+    outcome: 'resolved' | 'nomatch' | 'ambiguous' | 'unhashed'
+    name?: string
+    game_name?: string
+    stems?: string[]
+  }
+  /** Ids inside are snapshot-scoped: drill into roms with them, never persist. */
+  dat_group: (DatGame & { is_current: boolean })[]
+  set: SetMarkerInfo | null
+  profile: {
+    id: number
+    resolved_id: number
+    resolved_name: string
+    resolved_from: 'title' | 'platform'
+  }
+  igdb: { year?: number; genres?: string[] } | null
+}
+
+/** /api/library/art/status — mint queue + backfill campaign progress. */
+export interface ArtStatus {
+  queue_depth: number
+  campaign_running: boolean
+  campaign_total: number
+  campaign_done: number
+  ok: number
+  notfound: number
+  errors: number
+  started_at?: string
+  last_error?: string
+}
+
+export interface SetMarkerInfo {
+  id: string
+  total: number
+  have: number[]
+  degraded: boolean
+  repair_attempts: number
+  repair_exhausted?: boolean
 }
 
 export interface NormalizeCollision {
