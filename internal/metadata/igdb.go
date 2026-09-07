@@ -100,7 +100,7 @@ func (p *IGDB) Search(ctx context.Context, query string, limit int) ([]Game, err
 	// APIcalypse: `search` ranks by relevance; the field list is explicit
 	// because IGDB returns nothing you did not ask for.
 	body := fmt.Sprintf(
-		`search %s; fields name,slug,summary,first_release_date,cover.url,platforms.name,platforms.slug,platforms.id; limit %d;`,
+		`search %s; fields name,slug,summary,first_release_date,cover.url,genres.name,platforms.name,platforms.slug,platforms.id; limit %d;`,
 		quoteAPIcalypse(query), limit)
 
 	raw, err := p.post(ctx, "/games", body)
@@ -132,6 +132,9 @@ type igdbGame struct {
 	Cover     struct {
 		URL string `json:"url"`
 	} `json:"cover"`
+	Genres []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
 	Platforms []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
@@ -149,6 +152,11 @@ func (g igdbGame) toGame() Game {
 	}
 	if g.FirstDate > 0 {
 		out.ReleaseYear = time.Unix(g.FirstDate, 0).UTC().Year()
+	}
+	for _, ge := range g.Genres {
+		if ge.Name != "" {
+			out.Genres = append(out.Genres, ge.Name)
+		}
 	}
 	for _, pl := range g.Platforms {
 		// The registry owns the vocabulary: IGDB's identity is a column on

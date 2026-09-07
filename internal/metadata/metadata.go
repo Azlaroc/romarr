@@ -20,6 +20,8 @@ type Game struct {
 	CoverURL string `json:"cover_url,omitempty"`
 	// ReleaseYear is 0 when unknown.
 	ReleaseYear int `json:"release_year,omitempty"`
+	// Genres are the authority's genre names, verbatim.
+	Genres []string `json:"genres,omitempty"`
 	// Platforms are RomArr platform slugs, resolved through the platform
 	// registry — the authority's own platform names never leave this package.
 	Platforms []string `json:"platforms,omitempty"`
