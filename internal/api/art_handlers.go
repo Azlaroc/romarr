@@ -30,6 +30,14 @@ func (s *Server) handleTitleArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "Library item not found")
 		return
 	}
+	// size=thumb serves the ~25KB grid rendition (falling back to the
+	// original while a thumb doesn't exist yet); no param = the full image.
+	if r.URL.Query().Get("size") == "thumb" {
+		if p, ok := s.art.CachedThumbPath(item); ok {
+			serveArtFile(w, r, p)
+			return
+		}
+	}
 	path, ok := s.art.CachedPath(item)
 	if !ok {
 		s.art.Enqueue(id)

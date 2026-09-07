@@ -226,8 +226,11 @@ func (s *Service) worker() {
 
 // resolveOne runs the fetch ladder for one row and records the answer.
 func (s *Service) resolveOne(ctx context.Context, item *db.LibraryItem) error {
-	if _, ok := s.CachedPath(item); ok {
-		return nil // already on disk (fetched earlier, or hand-dropped)
+	if p, ok := s.CachedPath(item); ok {
+		// Already on disk (fetched earlier, or hand-dropped): the only work
+		// left is the derived thumbnail — local CPU, no network, no pacing.
+		s.ensureThumb(p)
+		return nil
 	}
 	stem := SanitizeThumbName(s.keyStem(item))
 	key := s.cacheKey(item)
@@ -368,8 +371,60 @@ func (s *Service) bank(item *db.LibraryItem, key, source, filename string, data 
 		os.Remove(tmp)
 		return err
 	}
+	s.writeThumb(final, data)
 	rel, _ := filepath.Rel(filepath.Join(s.cfg.DataDir, "art"), final)
 	return s.store.SaveArtCache(db.ArtCacheRow{Key: key, Status: "ok", Source: source, RelPath: rel})
+}
+
+// thumbPathFor names the derived grid thumbnail beside its source file.
+func thumbPathFor(original string) string {
+	return strings.TrimSuffix(original, filepath.Ext(original)) + thumbSuffix
+}
+
+// writeThumb renders and stores the grid thumbnail; failure is logged and
+// lived with — the endpoint degrades to serving the original.
+func (s *Service) writeThumb(original string, data []byte) {
+	thumb, err := makeThumb(data)
+	if err != nil {
+		slog.Debug("art: thumb", "file", filepath.Base(original), "error", err)
+		return
+	}
+	tp := thumbPathFor(original)
+	tmp := filepath.Join(filepath.Dir(tp), "."+filepath.Base(tp)+".part")
+	if err := os.WriteFile(tmp, thumb, 0o644); err != nil {
+		return
+	}
+	if err := os.Rename(tmp, tp); err != nil {
+		os.Remove(tmp)
+	}
+}
+
+// ensureThumb backfills the thumbnail for an already-stored original — how
+// the campaign's re-walk retrofits covers minted before thumbnails existed,
+// and how a hand-dropped custom file gains one.
+func (s *Service) ensureThumb(original string) {
+	tp := thumbPathFor(original)
+	if _, err := os.Stat(tp); err == nil {
+		return
+	}
+	data, err := os.ReadFile(original)
+	if err != nil {
+		return
+	}
+	s.writeThumb(original, data)
+}
+
+// CachedThumbPath returns the grid thumbnail for a row when one exists.
+func (s *Service) CachedThumbPath(item *db.LibraryItem) (string, bool) {
+	p, ok := s.CachedPath(item)
+	if !ok {
+		return "", false
+	}
+	tp := thumbPathFor(p)
+	if fi, err := os.Stat(tp); err == nil && !fi.IsDir() {
+		return tp, true
+	}
+	return "", false
 }
 
 // PlatformOverridePath is the per-install platform-art escape hatch:
@@ -418,6 +473,22 @@ func (s *Service) runBackfill() {
 			case <-s.stop:
 				return
 			default:
+			}
+			// Interactive mints own the pacing lane: while a browse is
+			// waiting on covers, the campaign stands aside — same total
+			// politeness toward the art hosts, person first.
+			for {
+				s.queueMu.Lock()
+				waiting := len(s.queued)
+				s.queueMu.Unlock()
+				if waiting == 0 {
+					break
+				}
+				select {
+				case <-s.stop:
+					return
+				case <-time.After(200 * time.Millisecond):
+				}
 			}
 			item := &page.Items[i]
 			err := s.resolveOne(context.Background(), item)
