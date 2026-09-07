@@ -169,6 +169,11 @@ export function Library() {
               <Field label="Source" value={selected.source || selected.source_type || '—'} />
             </dl>
             <div className="flex justify-between border-t border-slate-800 pt-4">
+              <Link to={`/library/${selected.platform_slug}/${selected.id}`}>
+                <Button variant="secondary" data-testid="library-item-details">
+                  Details
+                </Button>
+              </Link>
               <Button
                 variant="secondary"
                 onClick={() => { setSearching(selected); setSelected(null) }}

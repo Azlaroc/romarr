@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import App from './App'
 import { Library } from './routes/Library'
+import { GameDetail } from './routes/library/GameDetail'
 import { LibraryDeclutter } from './routes/library/Declutter'
 import { LibraryHash } from './routes/library/Hash'
 import { LibraryRename } from './routes/library/Rename'
@@ -42,6 +43,9 @@ export const router = createBrowserRouter([
       { path: 'library/declutter', element: <LibraryDeclutter /> },
       { path: 'library/hashes', element: <LibraryHash /> },
       { path: 'library/scan', element: <LibraryScan /> },
+      // Browse level 3 — the game detail. Declared after the static
+      // library/* tools so those keep winning their segments.
+      { path: 'library/:slug/:id', element: <GameDetail /> },
       { path: 'add', element: <AddNew /> },
       { path: 'calendar', element: <Calendar /> },
       { path: 'platforms', element: <Platforms /> },

@@ -18,12 +18,15 @@ export function InteractiveSearch({
   title,
   platformSlug,
   wishlistId,
+  libraryItemId,
 }: {
   open: boolean
   onClose: () => void
   title: string
   platformSlug?: string
   wishlistId?: number
+  /** Ranks results under this library row's own profile (replace/upgrade). */
+  libraryItemId?: number
 }) {
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [tookMs, setTookMs] = useState<number | undefined>()
@@ -43,6 +46,7 @@ export function InteractiveSearch({
           q: title,
           platform: platformSlug || 'all',
           wishlistId,
+          libraryItemId,
         })
         if (cancelled) return
         setResults(res.results ?? [])
@@ -59,7 +63,7 @@ export function InteractiveSearch({
     // Re-running on every render of the parent would refire the search; the
     // identity of the row being searched is what should trigger it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, title, platformSlug, wishlistId])
+  }, [open, title, platformSlug, wishlistId, libraryItemId])
 
   return (
     <Modal open={open} onClose={onClose} title={`Search: ${title}`} size="lg">
@@ -69,7 +73,7 @@ export function InteractiveSearch({
             {results === null
               ? 'Searching every enabled source…'
               : `${results.length} releases${tookMs != null ? ` in ${tookMs}ms` : ''}${
-                  wishlistId ? ' · ranked under this title’s profile' : ''
+                  wishlistId || libraryItemId ? ' · ranked under this title’s profile' : ''
                 }`}
           </p>
           <Button size="sm" variant="secondary" onClick={onClose} data-testid="interactive-search-close">

@@ -948,3 +948,14 @@ export interface PrunePreviewRow {
   reason?: string
   archived_to?: string
 }
+
+/** One file of a catalogued dump from GET /api/dat/games/{id}/roms — a disc
+ * is several rows (cue + every track). */
+export interface DatRom {
+  name: string
+  size?: number
+  crc?: string
+  md5?: string
+  sha1?: string
+  serial?: string
+}
