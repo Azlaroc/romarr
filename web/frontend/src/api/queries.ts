@@ -41,6 +41,12 @@ import type {
   MetadataProvider,
   MetadataGame,
   DatGame,
+  PlatformShelf,
+  LibraryLettersResponse,
+  LibraryFacets,
+  LibraryDetail,
+  ActivityEntry,
+  ArtStatus,
   CalendarEntry,
   PlayHistoryEntry,
   PlayHistoryStats,
@@ -76,6 +82,12 @@ export const keys = {
   settingsEnv: ['settings-env'] as const,
   platforms: ['platforms'] as const,
   library: (p: LibraryParams) => ['library', p] as const,
+  libraryPlatforms: ['library', 'platforms'] as const,
+  libraryLetters: (p: Omit<LibraryParams, 'page' | 'page_size'>) => ['library', 'letters', p] as const,
+  libraryFacets: (platform: string, q: string, tag: string) => ['library', 'facets', platform, q, tag] as const,
+  libraryDetail: (id: number) => ['library', 'detail', id] as const,
+  itemActivity: (id: number, page: number) => ['library', 'item-activity', id, page] as const,
+  artStatus: ['library', 'art-status'] as const,
   downloads: ['downloads'] as const,
   wishlist: ['wishlist'] as const,
   sources: ['sources'] as const,
@@ -168,6 +180,11 @@ export interface LibraryParams {
   page: number
   q: string
   platform: string
+  page_size?: number
+  sort?: '' | 'title'
+  verdict?: string
+  format?: string
+  tag?: string
 }
 
 export function useLibrary(params: LibraryParams) {
@@ -175,7 +192,16 @@ export function useLibrary(params: LibraryParams) {
     queryKey: keys.library(params),
     queryFn: () =>
       api.get<LibraryPage>(
-        `/api/library${qs({ page: params.page, q: params.q, platform: params.platform })}`,
+        `/api/library${qs({
+          page: params.page,
+          q: params.q,
+          platform: params.platform,
+          page_size: params.page_size,
+          sort: params.sort,
+          verdict: params.verdict,
+          format: params.format,
+          tag: params.tag,
+        })}`,
       ),
     placeholderData: keepPreviousData,
     // No realtime backend — refetch so freshly-imported items appear without a
@@ -503,6 +529,97 @@ export function useDeleteLibraryItem() {
       qc.invalidateQueries({ queryKey: ['library'] })
       qc.invalidateQueries({ queryKey: keys.stats })
     },
+  })
+}
+
+// ── Browse planes (platform shelf → game grid → game detail) ──────────────────
+
+export function useLibraryPlatforms() {
+  return useQuery({
+    queryKey: keys.libraryPlatforms,
+    queryFn: () => api.get<PlatformShelf>('/api/library/platforms'),
+    placeholderData: keepPreviousData,
+    refetchInterval: 15_000,
+  })
+}
+
+export function useLibraryLetters(p: { q: string; platform: string; verdict?: string; format?: string; tag?: string }) {
+  return useQuery({
+    queryKey: keys.libraryLetters(p),
+    queryFn: () =>
+      api.get<LibraryLettersResponse>(
+        `/api/library/letters${qs({ q: p.q, platform: p.platform, verdict: p.verdict, format: p.format, tag: p.tag })}`,
+      ),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useLibraryFacets(platform: string, q: string, tag = '') {
+  return useQuery({
+    queryKey: keys.libraryFacets(platform, q, tag),
+    queryFn: () => api.get<LibraryFacets>(`/api/library/facets${qs({ platform, q, tag })}`),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useLibraryDetail(id: number) {
+  return useQuery({
+    queryKey: keys.libraryDetail(id),
+    queryFn: () => api.get<LibraryDetail>(`/api/library/${id}`),
+    enabled: id > 0,
+  })
+}
+
+export function useItemActivity(id: number, page = 1) {
+  return useQuery({
+    queryKey: keys.itemActivity(id, page),
+    queryFn: () =>
+      api.get<{ entries: ActivityEntry[]; total: number; page: number }>(
+        `/api/activity${qs({ library_item_id: id, page })}`,
+      ),
+    enabled: id > 0,
+  })
+}
+
+/** PATCH the per-title profile override; 0 clears back to the platform default. */
+export function useSetLibraryItemProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, profileId }: { id: number; profileId: number }) =>
+      api.patch(`/api/library/${id}`, { profile_id: profileId }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: ['library'] })
+      qc.invalidateQueries({ queryKey: keys.libraryDetail(id) })
+    },
+  })
+}
+
+/** Verify Now: 202 — the caller polls the detail read for the verdict. */
+export function useVerifyLibraryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post(`/api/library/${id}/verify`, {}),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: keys.libraryDetail(id) })
+      qc.invalidateQueries({ queryKey: keys.itemActivity(id, 1) })
+    },
+  })
+}
+
+export function useArtStatus(enabled = true) {
+  return useQuery({
+    queryKey: keys.artStatus,
+    queryFn: () => api.get<ArtStatus>('/api/library/art/status'),
+    enabled,
+    refetchInterval: 5_000,
+  })
+}
+
+export function useStartArtBackfill() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post('/api/library/art/backfill', {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.artStatus }),
   })
 }
 
