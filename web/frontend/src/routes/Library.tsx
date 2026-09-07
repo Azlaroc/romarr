@@ -34,10 +34,10 @@ export function Library() {
       }
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <ToolLink to="/library/rename" icon={Wand2} label="Rename" testId="library-tool-rename" />
-          <ToolLink to="/library/declutter" icon={Archive} label="Declutter" testId="library-tool-declutter" />
-          <ToolLink to="/library/hashes" icon={Fingerprint} label="Hashes" testId="library-tool-hashes" />
-          <ToolLink to="/library/scan" icon={FolderSearch} label="Scan" testId="library-tool-scan" />
+          <ToolLink to="/library/rename" icon={Wand2} label="Rename" testId="library-rename-link" />
+          <ToolLink to="/library/declutter" icon={Archive} label="Declutter" testId="library-declutter-link" />
+          <ToolLink to="/library/hashes" icon={Fingerprint} label="Hashes" testId="library-hash-link" />
+          <ToolLink to="/library/scan" icon={FolderSearch} label="Scan" testId="library-scan-link" />
           {config?.romm_url && (
             <a href={config.romm_url} target="_blank" rel="noreferrer">
               <Button variant="secondary" size="sm">
