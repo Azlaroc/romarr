@@ -56,6 +56,9 @@ type detailDatGame struct {
 	// IsCurrent marks the family row the stored hashes resolve to. Row ids
 	// here are snapshot-scoped — drill into roms with them, never persist.
 	IsCurrent bool `json:"is_current"`
+	// IsOverride marks the dump the operator pinned ("That!") — the one an
+	// enforced want will wait for.
+	IsOverride bool `json:"is_override"`
 }
 
 type detailProfile struct {
@@ -99,9 +102,16 @@ func (s *Server) handleLibraryDetail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	family = collapseFamilyHeaderTwins(jobs, family)
+	overrideName := ""
+	var overrideWish int64
+	if ov, ok := jobs.GetWishlistOverrideForTitle(item.Title, item.PlatformSlug); ok {
+		overrideName, overrideWish = ov.OverrideDumpName, ov.ID
+	}
 	group := make([]detailDatGame, 0, len(family))
 	for _, g := range family {
-		group = append(group, detailDatGame{DatGameRow: g, IsCurrent: g.Name == canonical.GameName})
+		group = append(group, detailDatGame{DatGameRow: g,
+			IsCurrent:  g.Name == canonical.GameName,
+			IsOverride: overrideName != "" && g.Name == overrideName})
 	}
 
 	resolved := jobs.ResolveProfileForItem(item.ProfileID, item.PlatformSlug)
@@ -122,6 +132,12 @@ func (s *Server) handleLibraryDetail(w http.ResponseWriter, r *http.Request) {
 		"profile":   profile,
 		"set":       nil,
 		"igdb":      nil,
+		"override":  nil,
+	}
+	if overrideName != "" {
+		resp["override"] = map[string]interface{}{
+			"dump_name": overrideName, "wishlist_id": overrideWish,
+		}
 	}
 	if mk, ok := db.ParseSetMarker(item.Metadata); ok {
 		resp["set"] = mk

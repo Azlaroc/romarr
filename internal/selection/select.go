@@ -73,9 +73,11 @@ type SelectOpts struct {
 	// the region tier. Nil uses the built-in Standard.
 	Collection *db.CollectionProfile
 	// Want names the exact catalogued dump the caller is filling (a
-	// collection target's keeper). A candidate whose advertised hash matches
-	// outranks everything below the title tier; nothing is rejected for
-	// missing it — the post-extract trust gate stays the byte-level word.
+	// collection target's keeper, or an operator's pinned pick). A candidate
+	// whose advertised hash matches outranks everything below the title
+	// tier; without Enforce nothing is rejected for missing it — the
+	// post-extract trust gate stays the byte-level word. With Enforce the
+	// want is a gate: see Want.
 	Want Want
 	// Owned returns the library item this title already resolves to, or nil.
 	// Nil func disables the check (PR-5 wires it on the scheduler path).
@@ -161,7 +163,19 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 			rejected = append(rejected, Rejection{Title: r.Title, Reason: reason})
 			continue
 		}
+		if want.Enforce && !want.enforceMatch(r) {
+			rejected = append(rejected, Rejection{Title: r.Title,
+				Reason: fmt.Sprintf("not the pinned dump %q", want.DumpName)})
+			continue
+		}
 		survivors = append(survivors, r)
+	}
+	// The enforced want's empty answer is a WAIT with the override named —
+	// visibly different from an ordinary dry search in the decision log.
+	if want.Enforce && len(survivors) == 0 {
+		return Decision{Action: ActionSkip,
+			Reason:   fmt.Sprintf("pinned dump %q not found — waiting, not falling back", want.DumpName),
+			Rejected: rejected}
 	}
 
 	// Disc-set grouping: multi-disc releases only compete as complete sets.

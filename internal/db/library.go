@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -89,6 +90,13 @@ type WishlistItem struct {
 	PlatformSlug string `json:"platform_slug"`
 	ProfileID    int64  `json:"profile_id"`
 	AddedAt      string `json:"added_at"`
+
+	// The dump override — the "That!" pick: the exact catalogued dump this
+	// title's next grab must BE (name + the keeper roms' lowered hashes).
+	// Empty = policy picks. An override is enforced, never a boost: unmet
+	// means wait (see selection.Want.Enforce).
+	OverrideDumpName string   `json:"override_dump_name,omitempty"`
+	OverrideHashes   []string `json:"override_hashes,omitempty"`
 }
 
 // ActivityEntry represents an activity log entry.
@@ -170,7 +178,9 @@ func (s *JobStore) migrateExtra() {
 			platform TEXT NOT NULL DEFAULT '',
 			platform_slug TEXT NOT NULL DEFAULT '',
 			profile_id INTEGER NOT NULL DEFAULT 0,
-			added_at TEXT NOT NULL DEFAULT (datetime('now'))
+			added_at TEXT NOT NULL DEFAULT (datetime('now')),
+			override_dump_name TEXT NOT NULL DEFAULT '',
+			override_hashes TEXT NOT NULL DEFAULT '[]'
 		)`,
 		`CREATE TABLE IF NOT EXISTS activity_log (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,6 +218,16 @@ func (s *JobStore) migrateExtra() {
 	if !s.columnExists("library_items", "profile_id") {
 		if _, err := s.db.Exec(`ALTER TABLE library_items ADD COLUMN profile_id INTEGER NOT NULL DEFAULT 0`); err != nil {
 			slog.Warn("migrate library profile_id", "error", err)
+		}
+	}
+	if !s.columnExists("wishlist", "override_dump_name") {
+		for _, ddl := range []string{
+			`ALTER TABLE wishlist ADD COLUMN override_dump_name TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE wishlist ADD COLUMN override_hashes TEXT NOT NULL DEFAULT '[]'`,
+		} {
+			if _, err := s.db.Exec(ddl); err != nil {
+				slog.Warn("migrate wishlist override", "error", err)
+			}
 		}
 	}
 }
@@ -705,7 +725,7 @@ func (s *JobStore) SetLibraryItemProfile(id, profileID int64) (bool, error) {
 
 // GetWishlist returns all wishlist items.
 func (s *JobStore) GetWishlist() []WishlistItem {
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, profile_id, added_at FROM wishlist ORDER BY added_at DESC")
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, profile_id, added_at, override_dump_name, override_hashes FROM wishlist ORDER BY added_at DESC")
 	if err != nil {
 		return nil
 	}
@@ -713,7 +733,10 @@ func (s *JobStore) GetWishlist() []WishlistItem {
 	var items []WishlistItem
 	for rows.Next() {
 		var item WishlistItem
-		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug, &item.ProfileID, &item.AddedAt)
+		var overrideHashes string
+		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug, &item.ProfileID, &item.AddedAt,
+			&item.OverrideDumpName, &overrideHashes)
+		item.OverrideHashes = parseHashList(overrideHashes)
 		items = append(items, item)
 	}
 	return items
@@ -725,12 +748,15 @@ func (s *JobStore) GetWishlist() []WishlistItem {
 // policy the automatic one would not have used.
 func (s *JobStore) GetWishlistItem(id int64) (WishlistItem, bool) {
 	var w WishlistItem
+	var overrideHashes string
 	err := s.db.QueryRow(
-		"SELECT id, title, platform, platform_slug, COALESCE(profile_id, 0), added_at FROM wishlist WHERE id = ?", id,
-	).Scan(&w.ID, &w.Title, &w.Platform, &w.PlatformSlug, &w.ProfileID, &w.AddedAt)
+		"SELECT id, title, platform, platform_slug, COALESCE(profile_id, 0), added_at, override_dump_name, override_hashes FROM wishlist WHERE id = ?", id,
+	).Scan(&w.ID, &w.Title, &w.Platform, &w.PlatformSlug, &w.ProfileID, &w.AddedAt,
+		&w.OverrideDumpName, &overrideHashes)
 	if err != nil {
 		return WishlistItem{}, false
 	}
+	w.OverrideHashes = parseHashList(overrideHashes)
 	return w, true
 }
 
@@ -738,6 +764,83 @@ func (s *JobStore) GetWishlistItem(id int64) (WishlistItem, bool) {
 func (s *JobStore) DeleteWishlistItem(id int64) error {
 	_, err := s.db.Exec("DELETE FROM wishlist WHERE id = ?", id)
 	return err
+}
+
+func parseHashList(raw string) []string {
+	var out []string
+	if raw == "" || raw == "[]" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// UpsertWishlistOverride records the "That!" pick for one title: an existing
+// wanted row gains the override; an owned-but-unwanted title gets a row so
+// the scheduler has work to enforce it on. The override stores the dump's
+// NAME and its roms' hashes — never a catalog row id, which is
+// snapshot-scoped and dies on every refresh.
+func (s *JobStore) UpsertWishlistOverride(title, platform, platformSlug, dumpName string, hashes []string) (int64, error) {
+	lowered := make([]string, 0, len(hashes))
+	for _, h := range hashes {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			lowered = append(lowered, h)
+		}
+	}
+	raw, err := json.Marshal(lowered)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	err = s.db.QueryRow(
+		"SELECT id FROM wishlist WHERE title = ? AND platform_slug = ? LIMIT 1", title, platformSlug,
+	).Scan(&id)
+	if err == nil {
+		_, err = s.db.Exec("UPDATE wishlist SET override_dump_name = ?, override_hashes = ? WHERE id = ?",
+			dumpName, string(raw), id)
+		return id, err
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO wishlist (title, platform, platform_slug, override_dump_name, override_hashes)
+		 VALUES (?, ?, ?, ?, ?)`,
+		title, platform, platformSlug, dumpName, string(raw))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ClearWishlistOverride removes the pick, returning the row to policy wanted
+// work. A row that only existed for the override self-cleans: the next
+// enforce cycle's Owned check fulfills and removes an owned title's row.
+func (s *JobStore) ClearWishlistOverride(title, platformSlug string) bool {
+	res, err := s.db.Exec(
+		"UPDATE wishlist SET override_dump_name = '', override_hashes = '[]' WHERE title = ? AND platform_slug = ? AND override_dump_name != ''",
+		title, platformSlug)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+// GetWishlistOverrideForTitle finds the pick governing one title, if any.
+func (s *JobStore) GetWishlistOverrideForTitle(title, platformSlug string) (WishlistItem, bool) {
+	var w WishlistItem
+	var overrideHashes string
+	err := s.db.QueryRow(
+		`SELECT id, title, platform, platform_slug, COALESCE(profile_id, 0), added_at, override_dump_name, override_hashes
+		   FROM wishlist WHERE title = ? AND platform_slug = ? AND override_dump_name != '' LIMIT 1`,
+		title, platformSlug,
+	).Scan(&w.ID, &w.Title, &w.Platform, &w.PlatformSlug, &w.ProfileID, &w.AddedAt,
+		&w.OverrideDumpName, &overrideHashes)
+	if err != nil {
+		return WishlistItem{}, false
+	}
+	w.OverrideHashes = parseHashList(overrideHashes)
+	return w, true
 }
 
 // SchedulerDownloadTitle returns the wishlist title that drove jobID's grab —

@@ -13,14 +13,18 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { InteractiveSearch } from '../../components/search/InteractiveSearch'
 import { useToast } from '../../components/ui/Toast'
 import {
+  useClearDumpOverride,
   useDatGameRoms,
   useDeleteLibraryItem,
   useItemActivity,
   useLibraryDetail,
   useQualityProfiles,
+  useSetDumpOverride,
   useSetLibraryItemProfile,
   useVerifyLibraryItem,
 } from '../../api/queries'
+import { api } from '../../api/client'
+import type { DatRom } from '../../api/types'
 import type { LibraryDetail } from '../../api/types'
 import { formatSize } from '../../lib/format'
 import { verdictChip } from '../../lib/verdict'
@@ -48,6 +52,24 @@ export function GameDetail() {
   const setProfile = useSetLibraryItemProfile()
   const verify = useVerifyLibraryItem()
   const del = useDeleteLibraryItem()
+  const setOverride = useSetDumpOverride()
+  const clearOverride = useClearDumpOverride()
+
+  // "That!": pin one catalogued dump. The pin stores the dump's NAME plus
+  // its roms' hashes (fetched at click time — a catalog row id would be
+  // snapshot-scoped and die on the next refresh).
+  const pinDump = async (gameId: number, name: string) => {
+    try {
+      const res = await api.get<{ roms: DatRom[] }>(`/api/dat/games/${gameId}/roms`)
+      const hashes = (res.roms ?? [])
+        .flatMap((r) => [r.md5, r.sha1])
+        .filter((h): h is string => !!h)
+      await setOverride.mutateAsync({ id: item.id, dumpName: name, hashes })
+      toast(`Pinned: the next grab must be ${name}`, 'success')
+    } catch {
+      toast('Failed to pin the dump', 'error')
+    }
+  }
 
   const [searching, setSearching] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -75,7 +97,7 @@ export function GameDetail() {
     )
   }
 
-  const { item, hashes, canonical, dat_group, set, profile, igdb } = data
+  const { item, hashes, canonical, dat_group, set, profile, igdb, override } = data
   const slug = item.platform_slug ?? ''
   const chip = verdictChip(verifyPolling && !item.catalog_verdict ? undefined : item.catalog_verdict)
 
@@ -229,10 +251,36 @@ export function GameDetail() {
           </div>
         </Card>
 
-        {/* ── Known dumps (the catalog's answer for this title) ─────── */}
-        <Card title="Known dumps">
+        {/* ── Known dumps (the catalog's answer for this title). The table
+            IS the dump picker: click That! on the one you want and the
+            selector hunts exactly that dump — waiting, never substituting. */}
+        <Card
+          title="Known dumps"
+          action={
+            override ? (
+              <span className="flex items-center gap-2 text-xs text-slate-400" data-testid="detail-override">
+                <Badge color="yellow">pinned: {override.dump_name}</Badge>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  data-testid="detail-override-clear"
+                  onClick={async () => {
+                    try {
+                      await clearOverride.mutateAsync(item.id)
+                      toast('Pin cleared — policy picks again', 'success')
+                    } catch {
+                      toast('Failed to clear the pin', 'error')
+                    }
+                  }}
+                >
+                  Unpin
+                </Button>
+              </span>
+            ) : undefined
+          }
+        >
           <DataTable<LibraryDetail['dat_group'][number]>
-            columns={dumpColumns(expandedDump, setExpandedDump)}
+            columns={dumpColumns(expandedDump, setExpandedDump, pinDump)}
             rows={dat_group}
             rowKey={(g) => String(g.id)}
             empty={{ icon: FileSearch, title: 'No catalogued dumps for this title on this platform' }}
@@ -285,7 +333,11 @@ function Field({ label, value, mono, hint }: { label: string; value: string; mon
   )
 }
 
-function dumpColumns(expanded: number, setExpanded: (id: number) => void): Column<LibraryDetail['dat_group'][number]>[] {
+function dumpColumns(
+  expanded: number,
+  setExpanded: (id: number) => void,
+  pinDump: (gameId: number, name: string) => void,
+): Column<LibraryDetail['dat_group'][number]>[] {
   return [
     {
       key: 'name',
@@ -309,9 +361,18 @@ function dumpColumns(expanded: number, setExpanded: (id: number) => void): Colum
       key: 'files',
       header: '',
       render: (g) => (
-        <Button size="sm" variant="secondary" onClick={() => setExpanded(expanded === g.id ? 0 : g.id)} data-testid={`detail-dump-files-${g.id}`}>
-          {expanded === g.id ? 'Hide files' : 'Files'}
-        </Button>
+        <span className="flex items-center justify-end gap-1.5">
+          {g.is_override ? (
+            <Badge color="yellow">pinned</Badge>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => pinDump(g.id, g.name)} data-testid={`detail-dump-that-${g.id}`}>
+              That!
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => setExpanded(expanded === g.id ? 0 : g.id)} data-testid={`detail-dump-files-${g.id}`}>
+            {expanded === g.id ? 'Hide files' : 'Files'}
+          </Button>
+        </span>
       ),
       align: 'right',
     },
