@@ -37,6 +37,10 @@ func (s *Server) handleTitleArt(w http.ResponseWriter, r *http.Request) {
 			serveArtFile(w, r, p)
 			return
 		}
+		// Original cached but no thumb yet: serve the original NOW and ask
+		// the worker to retrofit — local CPU, no network, so the next visit
+		// gets the small rendition without waiting for the campaign walk.
+		s.art.Enqueue(id)
 	}
 	path, ok := s.art.CachedPath(item)
 	if !ok {
