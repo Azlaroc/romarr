@@ -786,6 +786,58 @@ func (s *JobStore) BrowseDatGames(q DatGameQuery) ([]DatGameRow, int) {
 	return out, total
 }
 
+// DatGameFamily returns one game's clone family off the active snapshot:
+// the named game, its clone_of chain when the DAT carries one, and every
+// same-bare_title sibling — the regional/revision variants a standard DAT
+// expresses only through the name. Ordered by name, capped at 50. Empty when
+// the name is not in the active catalog.
+//
+// Ids in the result are snapshot-scoped (reassigned on every catalog
+// refresh): fine to drill into roms with, never to persist.
+func (s *JobStore) DatGameFamily(platformSlug, name string) []DatGameRow {
+	if platformSlug == "" || name == "" {
+		return nil
+	}
+	var bare, cloneOf string
+	err := s.db.QueryRow(
+		`SELECT g.bare_title, g.clone_of FROM dat_games g
+		   JOIN dat_snapshots s ON s.id = g.snapshot_id
+		  WHERE g.platform_slug = ? AND s.active = 1 AND g.name = ?`,
+		platformSlug, name,
+	).Scan(&bare, &cloneOf)
+	if err != nil {
+		return nil
+	}
+	parent := name
+	if cloneOf != "" {
+		parent = cloneOf
+	}
+	rows, err := s.db.Query(
+		`SELECT g.id, g.name, g.bare_title, g.region, g.languages, g.revision, g.clone_of,
+		        g.flags, g.total_size, g.rom_count
+		   FROM dat_games g JOIN dat_snapshots s ON s.id = g.snapshot_id
+		  WHERE g.platform_slug = ? AND s.active = 1
+		    AND (g.name = ? OR g.clone_of = ? OR g.bare_title = ?)
+		  ORDER BY g.name LIMIT 50`,
+		platformSlug, parent, parent, bare,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []DatGameRow
+	for rows.Next() {
+		var g DatGameRow
+		var romCount int
+		if err := rows.Scan(&g.ID, &g.Name, &g.BareTitle, &g.Region, &g.Languages,
+			&g.Revision, &g.CloneOf, &g.Flags, &g.TotalSize, &romCount); err != nil {
+			continue
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
 // DatGameRoms returns the files of one catalogued dump. A disc is several
 // rows (cue plus every track), which is why this is a separate call rather
 // than a column on the game.

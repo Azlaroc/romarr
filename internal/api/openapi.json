@@ -865,6 +865,70 @@
         ]
       }
     },
+    "/api/library/{id}": {
+      "get": {
+        "summary": "Game detail: the row, stored hashes (gamarr/romm domain), canonical DAT resolution, clone family (dat_group ids are snapshot-scoped — never persist), set marker, resolved profile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "detail" },
+          "404": { "description": "no such item" }
+        }
+      },
+      "patch": {
+        "summary": "Set or clear (0) the row's quality-profile override; templates are refused",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["profile_id"],
+                "properties": {
+                  "profile_id": { "type": "integer", "format": "int64" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "updated" },
+          "400": { "description": "unknown or template profile" },
+          "404": { "description": "no such item" }
+        }
+      }
+    },
+    "/api/library/{id}/verify": {
+      "post": {
+        "summary": "Measure this one file now (admin): bank hashes, ask the catalog, log the verdict — the explicit payment for a row the zero-I/O scan left unmeasured",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          }
+        ],
+        "responses": {
+          "202": { "description": "measurement started; poll the detail read for the verdict" },
+          "409": { "description": "row is marked unhashable, or a verify is already running" }
+        }
+      }
+    },
     "/api/wishlist": {
       "get": {
         "summary": "List wishlist items"

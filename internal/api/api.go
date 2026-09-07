@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -66,13 +67,17 @@ type Server struct {
 	// than threaded through NewRouter: it needs nothing but credentials, and
 	// an unconfigured one is a valid state the settings screen reports.
 	meta metadata.Provider
+
+	// verifying guards "Verify now": one measurement per row at a time.
+	verifyMu  sync.Mutex
+	verifying map[int64]bool
 }
 
 // NewRouter creates a new chi router with all routes.
 func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, sched *scheduler.Scheduler, sup *supervise.Supervisor, ren *renamer.Runner, dat *datsvc.Service) http.Handler {
 	sessions := NewSessionStore()
 	oidcHandler := NewOIDCHandler(cfg, mgr.Jobs(), sessions)
-	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren, dat: dat}
+	s := &Server{cfg: cfg, mgr: mgr, sab: sab, sessions: sessions, scheduler: sched, oidc: oidcHandler, sup: sup, renamer: ren, dat: dat, verifying: map[int64]bool{}}
 	var metaOpts []metadata.IGDBOption
 	if cfg.IGDBAPIBase != "" || cfg.IGDBAuthBase != "" {
 		metaOpts = append(metaOpts, metadata.WithIGDBBase(cfg.IGDBAPIBase, cfg.IGDBAuthBase))
@@ -166,6 +171,12 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Get("/api/library", s.handleLibrary)
 	r.Get("/api/library/letters", s.handleLibraryLetters)
 	r.Get("/api/library/facets", s.handleLibraryFacets)
+	// The game-detail read plane. Detail and the profile PATCH are open like
+	// the list; verify pays real I/O (extraction + hashing), which is the
+	// hash runner's class of work, so it is admin like /api/library/hash/run.
+	r.Get("/api/library/{id}", s.handleLibraryDetail)
+	r.Patch("/api/library/{id}", s.handleUpdateLibraryItem)
+	r.Post("/api/library/{id}/verify", requireAdmin(s.handleLibraryVerify))
 	r.Delete("/api/library/{id}", s.handleDeleteLibraryItem)
 	r.Get("/api/library/normalize/status", s.handleNormalizeStatus)
 	r.Get("/api/library/normalize/preview/results", requireAdmin(s.handleNormalizeResults))
@@ -543,6 +554,31 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			platformFilter = item.PlatformSlug
 		}
 		profileID = item.ProfileID
+	}
+
+	// The same manual search launched from a library row (replace/upgrade
+	// this file): the row supplies title, platform and its own profile
+	// override, exactly as a wishlist row does.
+	if raw := r.URL.Query().Get("library_item_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			writeError(w, http.StatusBadRequest, "Invalid library_item_id")
+			return
+		}
+		item, err := s.mgr.Jobs().GetLibraryItem(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "Library item not found")
+			return
+		}
+		if query == "" {
+			query = item.Title
+		}
+		if platformFilter == "" {
+			platformFilter = item.PlatformSlug
+		}
+		if profileID == 0 {
+			profileID = item.ProfileID
+		}
 	}
 
 	if query == "" {
