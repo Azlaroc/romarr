@@ -111,7 +111,10 @@ type Config struct {
 	// Host overrides so the metadata plane can be pointed at a stub (the e2e
 	// harness impersonates every external service) or a mirror. Same shape as
 	// the DAT authorities' fetch_base.
-	IGDBAPIBase  string
+	IGDBAPIBase string
+	// ArtThumbBase overrides the libretro-thumbnails host — exists so the
+	// e2e harness can impersonate it, like IGDB_API_BASE.
+	ArtThumbBase string
 	IGDBAuthBase string
 
 	RomMAPIUser string
@@ -235,6 +238,7 @@ func Load() *Config {
 		IGDBClientID:     envStr("IGDB_CLIENT_ID", ""),
 		IGDBClientSecret: envStr("IGDB_CLIENT_SECRET", ""),
 		IGDBAPIBase:      envStr("IGDB_API_BASE", ""),
+		ArtThumbBase:     envStr("ART_THUMB_BASE", ""),
 		IGDBAuthBase:     envStr("IGDB_AUTH_BASE", ""),
 
 		RomMAPIUser:           envStr("ROMM_API_USER", ""),

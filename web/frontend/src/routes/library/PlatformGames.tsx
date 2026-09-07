@@ -167,7 +167,7 @@ export function PlatformGames() {
             rowHeight={318}
             onRangeChange={onRangeChange}
             registerScrollToOffset={registerScrollToOffset}
-            testId="game-grid"
+            testId="library-grid"
             emptyState={
               <EmptyState
                 icon={Gamepad2}

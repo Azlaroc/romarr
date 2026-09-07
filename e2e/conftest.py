@@ -566,6 +566,9 @@ def _app_env(stub_server: str, data: Path, port: int) -> dict:
         "IGDB_CLIENT_ID": "e2e-client",
         "IGDB_CLIENT_SECRET": "e2e-secret",
         "IGDB_API_BASE": stub_server,
+        # Art mints must stay on loopback: thumbnails 404 at the stub and the
+        # ladder falls through to the stubbed IGDB cover.
+        "ART_THUMB_BASE": stub_server,
         "IGDB_AUTH_BASE": stub_server,
     }
 

@@ -103,6 +103,9 @@ func New(cfg *config.Config, store *db.JobStore, meta metadata.Provider) *Servic
 		ch:         make(chan int64, queueDepth),
 		stop:       make(chan struct{}),
 	}
+	if cfg.ArtThumbBase != "" {
+		s.rawBase = cfg.ArtThumbBase
+	}
 	go s.worker()
 	return s
 }

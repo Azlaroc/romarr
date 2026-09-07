@@ -141,8 +141,10 @@ def test_ddl_download_pipeline_to_library(ui, app):
     rom_files = list(app["roms_dir"].rglob("*Tetris*"))
     assert rom_files, f"no Tetris file under {app['roms_dir']}"
 
-    # And the library shows it.
+    # And the library shows it: the landing is the platform shelf now, so
+    # click through the All Games tile to the grid the title lives in.
     _nav(page, "library", "Library")
+    page.get_by_test_id("platform-card-all").click()
     expect(page.get_by_test_id("library-grid")).to_contain_text("Tetris", timeout=SLOW_MS)
 
     # The import consumes the wishlist row it came from; if it has not yet,
