@@ -45,6 +45,7 @@ import type {
   LibraryLettersResponse,
   LibraryFacets,
   LibraryDetail,
+  DatRom,
   ActivityEntry,
   ArtStatus,
   CalendarEntry,
@@ -486,13 +487,25 @@ export function useMetadataProviders() {
   })
 }
 
+export function useDatGameRoms(gameId: number, enabled = true) {
+  return useQuery({
+    // gameId is snapshot-scoped (reassigned on catalog refresh) — fine to
+    // key a query on, never to persist anywhere.
+    queryKey: ['dat', 'game-roms', gameId],
+    queryFn: () => api.get<{ roms: DatRom[] }>(`/api/dat/games/${gameId}/roms`),
+    enabled: enabled && gameId > 0,
+  })
+}
+
 export function useSearch() {
   return useMutation({
     // wishlistId turns a search into an interactive search for that row: the
     // backend resolves the row's own quality profile instead of the
     // platform's, so a manual pick is ranked like an automatic one.
-    mutationFn: ({ q, platform, wishlistId }: { q: string; platform: string; wishlistId?: number }) =>
-      api.get<SearchResponse>(`/api/search${qs({ q, platform, wishlist_id: wishlistId })}`),
+    // libraryItemId does the same for a library row: replace/upgrade THIS
+    // file, ranked under the row's own profile override.
+    mutationFn: ({ q, platform, wishlistId, libraryItemId }: { q: string; platform: string; wishlistId?: number; libraryItemId?: number }) =>
+      api.get<SearchResponse>(`/api/search${qs({ q, platform, wishlist_id: wishlistId, library_item_id: libraryItemId })}`),
   })
 }
 
