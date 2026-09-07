@@ -185,7 +185,7 @@ export function PlatformGames() {
                 <PosterCard
                   variant="poster"
                   title={item.title}
-                  artSources={[`/api/art/title/${item.id}`]}
+                  artSources={[`/api/art/title/${item.id}?size=thumb`]}
                   subtitle={slug === 'all' ? item.platform || item.platform_slug : undefined}
                   chips={
                     <>

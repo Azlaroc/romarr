@@ -81,15 +81,16 @@ func addArtItem(t *testing.T, store *db.JobStore, title, slug, path string) *db.
 	return item
 }
 
-// png is a 1x1 transparent PNG — enough for the fetch path.
-var png = []byte("\x89PNG\r\n\x1a\n fake body")
+// fakeImg is not decodable — enough for the fetch path, and a deliberate
+// proof that a broken thumb never blocks a mint.
+var fakeImg = []byte("\x89PNG\r\n\x1a\n fake body")
 
 func TestResolveLadderLibretroHit(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		if strings.Contains(r.URL.Path, "Named_Boxarts") {
-			w.Write(png)
+			w.Write(fakeImg)
 			return
 		}
 		http.NotFound(w, r)
@@ -123,7 +124,7 @@ func TestResolveLadderLibretroHit(t *testing.T) {
 func TestResolveLadderIGDBFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "cover") {
-			w.Write(png)
+			w.Write(fakeImg)
 			return
 		}
 		http.NotFound(w, r) // every libretro ask misses
@@ -205,7 +206,7 @@ func TestCustomDropInWins(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "Handmade (World).jpg"), png, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "Handmade (World).jpg"), fakeImg, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := s.CachedPath(item); !ok {
