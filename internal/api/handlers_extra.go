@@ -220,7 +220,18 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	if pageSize > 500 {
 		pageSize = 500
 	}
-	entries, total := s.mgr.Jobs().GetActivity(page, pageSize)
+	var entries []db.ActivityEntry
+	var total int
+	if raw := r.URL.Query().Get("library_item_id"); raw != "" {
+		itemID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || itemID <= 0 {
+			writeError(w, 400, "Invalid library_item_id")
+			return
+		}
+		entries, total = s.mgr.Jobs().GetActivityFiltered(itemID, page, pageSize)
+	} else {
+		entries, total = s.mgr.Jobs().GetActivity(page, pageSize)
+	}
 	if entries == nil {
 		entries = []db.ActivityEntry{}
 	}

@@ -23,6 +23,12 @@ type LibraryItem struct {
 	Metadata     string `json:"metadata"`    // JSON blob
 	AddedAt      string `json:"added_at"`
 
+	// ProfileID is the per-title quality-profile override, wishlist
+	// semantics: 0 means "whatever this platform defaults to". Populated by
+	// GetLibraryPage/GetLibraryItem (the API surface); internal tree/hash
+	// readers leave it zero.
+	ProfileID int64 `json:"profile_id"`
+
 	// Derived on read, never stored. CatalogVerdict is $.gamarr.catalog —
 	// "" means the row was never measured, which is a distinct state from
 	// CatalogUnknown and must be rendered as such. FsName is the file_path
@@ -153,7 +159,8 @@ func (s *JobStore) migrateExtra() {
 			source_type TEXT NOT NULL DEFAULT '',
 			source_id TEXT NOT NULL DEFAULT '',
 			metadata TEXT NOT NULL DEFAULT '{}',
-			added_at TEXT NOT NULL DEFAULT (datetime('now'))
+			added_at TEXT NOT NULL DEFAULT (datetime('now')),
+			profile_id INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS wishlist (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,6 +183,7 @@ func (s *JobStore) migrateExtra() {
 		`CREATE INDEX IF NOT EXISTS idx_library_source_id ON library_items(source_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_library_file_path ON library_items(file_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_activity_library_item ON activity_log(library_item_id)`,
 	}
 	for _, ddl := range tables {
 		if _, err := s.db.Exec(ddl); err != nil {
@@ -193,6 +201,11 @@ func (s *JobStore) migrateExtra() {
 	if !s.columnExists("wishlist", "profile_id") {
 		if _, err := s.db.Exec(`ALTER TABLE wishlist ADD COLUMN profile_id INTEGER NOT NULL DEFAULT 0`); err != nil {
 			slog.Warn("migrate wishlist profile_id", "error", err)
+		}
+	}
+	if !s.columnExists("library_items", "profile_id") {
+		if _, err := s.db.Exec(`ALTER TABLE library_items ADD COLUMN profile_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			slog.Warn("migrate library profile_id", "error", err)
 		}
 	}
 }
@@ -268,7 +281,7 @@ func (s *JobStore) GetLibraryPage(q LibraryQuery) LibraryPage {
 	}
 
 	rows, err := s.db.Query(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, "+
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, profile_id, "+
 			"COALESCE("+sqlCatalogVerdict+", ''), "+sqlBasename+" FROM library_items "+
 			where+order+" LIMIT ? OFFSET ?",
 		append(args, q.PageSize, offset)...,
@@ -284,7 +297,7 @@ func (s *JobStore) GetLibraryPage(q LibraryQuery) LibraryPage {
 		var isPC int
 		rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt,
+			&item.SourceID, &item.Metadata, &item.AddedAt, &item.ProfileID,
 			&item.CatalogVerdict, &item.FsName)
 		item.IsPC = isPC != 0
 		items = append(items, item)
@@ -404,7 +417,7 @@ func (s *JobStore) facetCounts(query string, args []interface{}) []FacetValue {
 // GetLibraryItem returns a single library item by ID.
 func (s *JobStore) GetLibraryItem(id int64) (*LibraryItem, error) {
 	row := s.db.QueryRow(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, "+
+		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, profile_id, "+
 			"COALESCE("+sqlCatalogVerdict+", ''), "+sqlBasename+" FROM library_items WHERE id = ?",
 		id,
 	)
@@ -412,7 +425,7 @@ func (s *JobStore) GetLibraryItem(id int64) (*LibraryItem, error) {
 	var isPC int
 	err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-		&item.SourceID, &item.Metadata, &item.AddedAt,
+		&item.SourceID, &item.Metadata, &item.AddedAt, &item.ProfileID,
 		&item.CatalogVerdict, &item.FsName)
 	if err != nil {
 		return nil, err
@@ -676,6 +689,18 @@ func (s *JobStore) SetWishlistProfile(id, profileID int64) (bool, error) {
 	return n > 0, nil
 }
 
+// SetLibraryItemProfile changes a library row's profile override — the same
+// contract as SetWishlistProfile: 0 clears, returning the title to its
+// platform default.
+func (s *JobStore) SetLibraryItemProfile(id, profileID int64) (bool, error) {
+	res, err := s.db.Exec("UPDATE library_items SET profile_id = ? WHERE id = ?", profileID, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // GetWishlist returns all wishlist items.
 func (s *JobStore) GetWishlist() []WishlistItem {
 	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, profile_id, added_at FROM wishlist ORDER BY added_at DESC")
@@ -772,19 +797,36 @@ func (s *JobStore) LogActivity(eventType, title, detail, jobID string, libraryIt
 
 // GetActivity returns recent activity with pagination.
 func (s *JobStore) GetActivity(page, pageSize int) ([]ActivityEntry, int) {
+	return s.getActivity(page, pageSize, 0)
+}
+
+// GetActivityFiltered is GetActivity scoped to one library item — the
+// game-detail screen's history (idx_activity_library_item backed).
+func (s *JobStore) GetActivityFiltered(libraryItemID int64, page, pageSize int) ([]ActivityEntry, int) {
+	return s.getActivity(page, pageSize, libraryItemID)
+}
+
+func (s *JobStore) getActivity(page, pageSize int, libraryItemID int64) ([]ActivityEntry, int) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 {
 		pageSize = 50
 	}
+	where := ""
+	var whereArgs []interface{}
+	if libraryItemID > 0 {
+		where = " WHERE library_item_id = ?"
+		whereArgs = append(whereArgs, libraryItemID)
+	}
 	var total int
-	s.db.QueryRow("SELECT COUNT(*) FROM activity_log").Scan(&total)
+	s.db.QueryRow("SELECT COUNT(*) FROM activity_log"+where, whereArgs...).Scan(&total)
 
 	offset := (page - 1) * pageSize
 	rows, err := s.db.Query(
-		"SELECT id, event_type, title, detail, library_item_id, job_id, timestamp FROM activity_log ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-		pageSize, offset,
+		"SELECT id, event_type, title, detail, library_item_id, job_id, timestamp FROM activity_log"+
+			where+" ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+		append(whereArgs, pageSize, offset)...,
 	)
 	if err != nil {
 		return nil, total
