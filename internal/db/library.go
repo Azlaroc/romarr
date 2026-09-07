@@ -132,6 +132,7 @@ func (s *JobStore) migrateExtra() {
 	// After migrateDat: the locator column hangs off dat_platforms.
 	s.migrateCloneLists()
 	s.migrateArtCache()
+	s.migrateRollups()
 	// The per-platform size-definition plane is retired — its readers went
 	// first (selection judges nothing on size), the table goes here. The
 	// SizeStats percentiles on dat_snapshots stay: measurement, not knobs.
