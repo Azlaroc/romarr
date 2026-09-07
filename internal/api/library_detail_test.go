@@ -168,3 +168,58 @@ func TestActivityFilteredEndpoint(t *testing.T) {
 	rr = env.do("GET", "/api/activity?library_item_id=bogus", "")
 	wantStatus(t, rr, 400)
 }
+
+// The nes catalog shape: every game is a headered/headerless twin pair —
+// two same-named games, one .nes rom, one .unh rom. The detail must show
+// ONE family row per name with exactly one current flag, and the canonical
+// name must never carry the .unh hash-domain pseudo-extension. (Caught on
+// the prod shadow: 8 family rows, 2 flagged current, name "….unh".)
+func TestLibraryDetailHeaderTwins(t *testing.T) {
+	env := newTestEnv(t, nil)
+	if _, err := env.jobs.InsertDatSnapshot(
+		db.DatSnapshotMeta{Authority: "no-intro", PlatformSlug: "nes", Version: "2026.09.01"},
+		[]db.DatGameRow{
+			{Name: "10-Yard Fight (USA, Europe)", BareTitle: "10-Yard Fight", TotalSize: 40976,
+				Roms: []db.DatRomRow{{Name: "10-Yard Fight (USA, Europe).nes", Size: 40976, CRC: "aaaa1111"}}},
+			{Name: "10-Yard Fight (USA, Europe)", BareTitle: "10-Yard Fight", TotalSize: 40960,
+				Roms: []db.DatRomRow{{Name: "10-Yard Fight (USA, Europe).unh", Size: 40960, CRC: "bbbb2222"}}},
+			{Name: "10-Yard Fight (Japan)", BareTitle: "10-Yard Fight", TotalSize: 40976,
+				Roms: []db.DatRomRow{{Name: "10-Yard Fight (Japan).nes", Size: 40976, CRC: "cccc3333"}}},
+		},
+	); err != nil {
+		t.Fatalf("InsertDatSnapshot: %v", err)
+	}
+
+	id := addDetailItem(t, env, "10-Yard Fight", "nes", "/roms/nes/10-Yard Fight (USA, Europe).7z", "")
+	// Stored the way a payload-hashed row lands: whole-file hash matching
+	// the .unh twin (the shadow's real shape).
+	if err := env.jobs.SaveLibraryHashes(id, db.LibraryHashes{CRC: "bbbb2222"}); err != nil {
+		t.Fatalf("SaveLibraryHashes: %v", err)
+	}
+
+	rr := env.do("GET", fmt.Sprintf("/api/library/%d", id), "")
+	wantStatus(t, rr, 200)
+	body := decodeMap(t, rr)
+
+	canonical := body["canonical"].(map[string]interface{})
+	if canonical["name"] != "10-Yard Fight (USA, Europe)" {
+		t.Fatalf("canonical name=%q — .unh must never surface", canonical["name"])
+	}
+
+	group := body["dat_group"].([]interface{})
+	names := map[string]int{}
+	currents := 0
+	for _, raw := range group {
+		g := raw.(map[string]interface{})
+		names[g["name"].(string)]++
+		if g["is_current"].(bool) {
+			currents++
+		}
+	}
+	if names["10-Yard Fight (USA, Europe)"] != 1 {
+		t.Fatalf("twin not collapsed: %v", names)
+	}
+	if len(group) != 2 || currents != 1 {
+		t.Fatalf("group len=%d currents=%d, want 2 rows / 1 current", len(group), currents)
+	}
+}

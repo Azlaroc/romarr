@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -97,6 +98,7 @@ func (s *Server) handleLibraryDetail(w http.ResponseWriter, r *http.Request) {
 			PlatformSlug: item.PlatformSlug, Text: item.Title, Limit: 50,
 		})
 	}
+	family = collapseFamilyHeaderTwins(jobs, family)
 	group := make([]detailDatGame, 0, len(family))
 	for _, g := range family {
 		group = append(group, detailDatGame{DatGameRow: g, IsCurrent: g.Name == canonical.GameName})
@@ -181,11 +183,60 @@ func (s *Server) resolveCanonical(item *db.LibraryItem) (detailCanonical, []db.D
 	res := datname.Resolve(cands)
 	switch res.Outcome {
 	case datname.Resolved:
-		return detailCanonical{Outcome: "resolved", Name: res.Stem + res.Ext, GameName: res.GameName}, matches
+		name := res.Stem + res.Ext
+		if res.Ext == ".unh" {
+			// .unh names a hash domain, not a file format — it must never
+			// surface as a name. The stem alone IS the canonical name.
+			name = res.Stem
+		}
+		return detailCanonical{Outcome: "resolved", Name: name, GameName: res.GameName}, matches
 	case datname.Ambiguous:
 		return detailCanonical{Outcome: "ambiguous", Stems: res.Stems}, matches
 	}
 	return detailCanonical{Outcome: "nomatch"}, matches
+}
+
+// collapseFamilyHeaderTwins drops the catalog's headered/headerless twin
+// artifact from a display family: two games sharing one name where exactly
+// one is a single-rom .unh entry are ONE dump, and showing both makes the
+// "current" flag ambiguous (nes: every game appears twice). Same narrowness
+// as collectionsvc's twin collapse — exactly two same-named rows, the .unh
+// side single-rom; anything else is a real tie and stays visible.
+func collapseFamilyHeaderTwins(jobs *db.JobStore, family []db.DatGameRow) []db.DatGameRow {
+	byName := map[string][]int{}
+	for i, g := range family {
+		byName[g.Name] = append(byName[g.Name], i)
+	}
+	drop := map[int]bool{}
+	for _, idxs := range byName {
+		if len(idxs) != 2 {
+			continue
+		}
+		unh := -1
+		for _, i := range idxs {
+			roms := jobs.DatGameRoms(family[i].ID)
+			if len(roms) == 1 && strings.HasSuffix(strings.ToLower(roms[0].Name), ".unh") {
+				if unh != -1 {
+					unh = -1 // both .unh: not the twin shape, leave alone
+					break
+				}
+				unh = i
+			}
+		}
+		if unh >= 0 {
+			drop[unh] = true
+		}
+	}
+	if len(drop) == 0 {
+		return family
+	}
+	out := family[:0]
+	for i, g := range family {
+		if !drop[i] {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 func parseIGDBMeta(metadata string) *detailIGDB {
