@@ -242,6 +242,9 @@ func scanPlatformRow(rows *sql.Rows) (platform.Row, error) {
 	if cats != "" {
 		_ = json.Unmarshal([]byte(cats), &p.ProwlarrCategories)
 	}
+	// Accent/art/thumb-repo are curated in-code data, not columns — merged
+	// here so every reader of the registry sees them (see platform/artvocab.go).
+	platform.ApplyArtVocab(&p)
 	return p, nil
 }
 

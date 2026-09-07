@@ -33,6 +33,13 @@ export interface PlatformRow {
   updated_at?: string
   dat_authority?: string
   dat_code?: string
+  /** Curated art identity (shipped with the binary, not operator-editable):
+   * accent tints gradients/glyphs/chips; art_ref ("asset:<file>") names a
+   * committed hardware photo; libretro_thumb_repo backs per-title box art.
+   * All may be empty — absence is honest and the render ladder handles it. */
+  accent_color: string
+  art_ref: string
+  libretro_thumb_repo: string
 }
 
 /** What a platform collects out of its DAT — region order, language
