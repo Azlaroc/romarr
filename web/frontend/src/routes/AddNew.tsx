@@ -272,6 +272,43 @@ function BrowseDoor({ onPick }: { onPick: (v: { title: string; platforms: string
 }
 
 /**
+ * One platform choice with its honest availability: how many catalogued
+ * dumps match this title there. Zero coverage is NOT a blocker — a wishlist
+ * row is intent, and intent may wait for a source that can fulfill it — but
+ * it must be visible before the pick, not after it in the fine print.
+ */
+function PlatformChoice({
+  slug,
+  title,
+  chosen,
+  onPick,
+}: {
+  slug: string
+  title: string
+  chosen: boolean
+  onPick: () => void
+}) {
+  const platformName = usePlatformName()
+  const dumps = useDatGames(slug, title, 1, true)
+  const n = dumps.data?.total
+  return (
+    <Button
+      size="sm"
+      variant={chosen ? 'primary' : 'secondary'}
+      onClick={onPick}
+      data-testid={`add-platform-${slug}`}
+    >
+      {platformName(slug)}
+      {n !== undefined && (
+        <span className={n > 0 ? 'text-xs text-emerald-300/90' : 'text-xs text-amber-300/90'}>
+          {n > 0 ? `${n} in catalog` : 'will wait'}
+        </span>
+      )}
+    </Button>
+  )
+}
+
+/**
  * The add dialog: pick the platform, pick the profile, see what the catalog
  * knows before committing. "No known dumps" is said HERE rather than
  * discovered weeks later as a wishlist row that never fills.
@@ -291,12 +328,23 @@ function AddDialog({
   const add = useAddWishlist()
   const { toast } = useToast()
 
-  const chosen = platform || picked?.platforms?.[0] || ''
+  // Auto-pick only an unambiguous platform. The metadata authority lists
+  // every system a game ever shipped on (digital re-releases included) in no
+  // meaningful order — silently pre-choosing the first steered the row to
+  // whatever happened to be listed first, not to what the operator wants.
+  const chosen = platform || (picked && picked.platforms.length === 1 ? picked.platforms[0] : '')
   const dumps = useDatGames(chosen, picked?.title ?? '', 1, !!picked && !!chosen)
   const selectable = (profiles ?? []).filter((p) => !p.is_template)
 
   const known = dumps.data?.total
   const autoPick = dumps.data?.games?.[0]?.name
+
+  // A picked platform must not leak into the next game's dialog.
+  const close = () => {
+    setPlatform('')
+    setProfileID(0)
+    onClose()
+  }
 
   const defaultProfileName = (): string => {
     const row = (platformRows ?? []).find((p) => p.slug === chosen)
@@ -317,33 +365,31 @@ function AddDialog({
         ...(profileID ? { profile_id: profileID } : {}),
       })
       toast(`Added ${picked.title}`, 'success')
-      setPlatform('')
-      setProfileID(0)
-      onClose()
+      close()
     } catch {
       toast('Failed to add', 'error')
     }
   }
 
   return (
-    <Modal open={picked !== null} onClose={onClose} title={picked?.title}>
+    <Modal open={picked !== null} onClose={close} title={picked?.title}>
       <div className="space-y-4" data-testid="add-dialog">
         <div>
           <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Platform</div>
           {picked && picked.platforms.length > 0 ? (
-            <div className="flex flex-wrap gap-2" data-testid="add-platforms">
-              {picked.platforms.map((p) => (
-                <Button
-                  key={p}
-                  size="sm"
-                  variant={chosen === p ? 'primary' : 'secondary'}
-                  onClick={() => setPlatform(p)}
-                  data-testid={`add-platform-${p}`}
-                >
-                  {platformName(p)}
-                </Button>
-              ))}
-            </div>
+            <>
+              <div className="flex flex-wrap gap-2" data-testid="add-platforms">
+                {picked.platforms.map((p) => (
+                  <PlatformChoice key={p} slug={p} title={picked.title} chosen={chosen === p} onPick={() => setPlatform(p)} />
+                ))}
+              </div>
+              {picked.platforms.length > 1 && !chosen && (
+                <p className="mt-2 text-xs text-slate-500" data-testid="add-platform-hint">
+                  Pick the system you want this release for. A platform with nothing in its catalog can still be
+                  wishlisted — the row will wait until a source can fulfill it.
+                </p>
+              )}
+            </>
           ) : (
             <PlatformSelect value={chosen} onChange={setPlatform} includeAll={false} testid="add-platform-select" />
           )}
@@ -386,7 +432,7 @@ function AddDialog({
         )}
 
         <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">
-          <Button variant="secondary" onClick={onClose} data-testid="add-cancel">
+          <Button variant="secondary" onClick={close} data-testid="add-cancel">
             Cancel
           </Button>
           <Button onClick={submit} disabled={!chosen || add.isPending} data-testid="add-confirm">
