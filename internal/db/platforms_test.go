@@ -3,6 +3,7 @@ package db
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"testing"
 
 	"gamarr/internal/platform"
@@ -146,30 +147,43 @@ func TestRommFSSlugRoundTripUnchanged(t *testing.T) {
 	}
 }
 
-func TestPlatformCategoryMappingsUnchanged(t *testing.T) {
+// The registry may answer MORE than the pre-registry maps — the standard
+// Newznab category and its root ride along now, because the customs alone
+// exist on at most one tracker's private list and matched nothing on most
+// indexers (the whole Prowlarr lane silently returned empty) — but it must
+// never LOSE an answer the old maps had.
+func TestPlatformCategoryMappings(t *testing.T) {
 	registryStore(t)
 
 	for slug, want := range preRegistryProwlarr {
 		got := platform.GetCategoriesForPlatform(slug)
-		sort.Ints(got)
-		sorted := append([]int(nil), want...)
-		sort.Ints(sorted)
-		if len(got) != len(sorted) {
-			t.Errorf("GetCategoriesForPlatform(%q) = %v, want %v", slug, got, sorted)
-			continue
+		have := map[int]bool{}
+		for _, c := range got {
+			have[c] = true
 		}
-		for i := range got {
-			if got[i] != sorted[i] {
-				t.Errorf("GetCategoriesForPlatform(%q) = %v, want %v", slug, got, sorted)
-				break
+		for _, c := range want {
+			if !have[c] {
+				t.Errorf("GetCategoriesForPlatform(%q) = %v, lost pre-registry category %d", slug, got, c)
 			}
+		}
+		// The standard lane is present: the torznab category and its root.
+		std, err := strconv.Atoi(platform.TorznabCategory(slug))
+		if err != nil {
+			t.Fatalf("TorznabCategory(%q) is not numeric", slug)
+		}
+		if !have[std] || !have[(std/1000)*1000] {
+			t.Errorf("GetCategoriesForPlatform(%q) = %v, missing standard cat %d or its root", slug, got, std)
 		}
 	}
 
-	// A platform with no categories of its own still searches everything —
-	// that fallback is what lets an unmapped slug return results at all.
-	if got := platform.GetCategoriesForPlatform("atari2600"); len(got) != len(platform.AllGameCategories()) {
-		t.Errorf("unmapped platform searched %d categories, want all %d", got, len(platform.AllGameCategories()))
+	// A platform with no customs of its own searches its standard categories
+	// — NOT every other platform's customs, which is what the old fallback
+	// did: wrong-platform releases could pass while right-platform ones
+	// (tagged with standard cats) were dropped.
+	got := platform.GetCategoriesForPlatform("atari2600")
+	sort.Ints(got)
+	if len(got) != 2 || got[0] != 1000 || got[1] != 1090 {
+		t.Errorf("no-customs platform = %v, want [1000 1090]", got)
 	}
 
 	for _, r := range platformSeed {
