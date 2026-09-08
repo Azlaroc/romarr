@@ -105,8 +105,12 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 		"login":    20,
 		"search":   120,
 		"download": 60,
-		"api":      300,
-		"default":  600,
+		// The poster grid fires one /api/art request per card, so a fast
+		// scroll through a large platform is hundreds of thumb fetches in
+		// seconds — art needs its own bucket, far above the JSON "api" rule.
+		"art":     3000,
+		"api":     300,
+		"default": 600,
 	})
 
 	r := chi.NewRouter()

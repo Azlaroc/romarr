@@ -10,7 +10,7 @@ import (
 
 func TestRateLimiterRuleForPath(t *testing.T) {
 	rl := NewRateLimiter(60, map[string]int{
-		"login": 1, "search": 2, "download": 3, "api": 4, "default": 5,
+		"login": 1, "search": 2, "download": 3, "art": 4, "api": 5, "default": 6,
 	})
 	cases := []struct {
 		path string
@@ -21,6 +21,9 @@ func TestRateLimiterRuleForPath(t *testing.T) {
 		{"/api/search/advanced", "search"},
 		{"/api/download", "download"},
 		{"/api/downloads", "download"},
+		{"/api/art/title/42", "art"},
+		{"/api/art/platform/snes", "art"},
+		{"/api/artifacts", "api"},
 		{"/api/wishlist", "api"},
 		{"/torznab/api", "default"},
 		{"/", "default"},
