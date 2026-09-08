@@ -24,6 +24,12 @@ import { InteractiveSearch } from '../../components/search/InteractiveSearch'
 const inputCls =
   'w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-white placeholder-slate-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500'
 
+// Not inputCls + a width override: inputCls carries w-full, which compiles
+// later in the sheet than any stacked w-* and therefore wins, blowing the
+// select up to the row's full width. Row controls own their width outright.
+const rowSelectCls =
+  'w-44 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500'
+
 const SELECTOR_EVENTS = ['selector_decision', 'scheduler_download', 'wishlist_fulfilled']
 
 interface ChipState {
@@ -158,7 +164,8 @@ export function Wishlist() {
                 </div>
                 <div className="mt-0.5 text-xs text-slate-500">
                   {(w.platform || w.platform_slug || '—')}
-                  {w.added_at ? ` · ${w.added_at.split('T')[0]}` : ''}
+                  {/* The API serializes "YYYY-MM-DD HH:MM:SS" (space, not 'T'). */}
+                  {w.added_at ? ` · ${w.added_at.split(/[T ]/)[0]}` : ''}
                   {` · auto-search runs under: ${profileFor(w)}`}
                   {w.profile_id ? ' (chosen for this title)' : ''}
                 </div>
@@ -167,7 +174,7 @@ export function Wishlist() {
               <select
                 value={w.profile_id ?? 0}
                 onChange={(e) => setProfile.mutate({ id: w.id, profile_id: Number(e.target.value) })}
-                className={`${inputCls} w-44 text-xs`}
+                className={rowSelectCls}
                 aria-label={`Quality profile for ${w.title}`}
                 data-testid={`wish-row-profile-${w.id}`}
               >
