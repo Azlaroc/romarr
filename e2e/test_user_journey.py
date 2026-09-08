@@ -28,8 +28,10 @@ def _nav(page, section: str, title: str):
 def test_boot_shell_and_nav(ui):
     page = ui["page"]
     expect(page).to_have_title("RomArr")
-    # Every sidebar section navigates and renders its page header.
-    _nav(page, "add-new", "Add New")
+    # Every sidebar section navigates and renders its page header. Add New is
+    # a child of the Library section (arr-style), visible while it is active —
+    # and the boot page IS the Library, so the child link is clickable here.
+    _nav(page, "library-add-new", "Add New")
     _nav(page, "activity", "Activity")
     _nav(page, "wanted", "Wanted")
     _nav(page, "settings", "Settings")

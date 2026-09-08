@@ -33,7 +33,9 @@ export function Sidebar({ mobileOpen, onNavigate }: { mobileOpen: boolean; onNav
           {NAV.map((item) => {
             const Icon = item.icon
             const badge = item.badge === 'downloads' && activeCount > 0 ? activeCount : null
-            const sectionActive = item.end ? pathname === item.to : pathname.startsWith(item.to)
+            const sectionActive =
+              (item.end ? pathname === item.to : pathname.startsWith(item.to)) ||
+              (item.match?.some((prefix) => pathname.startsWith(prefix)) ?? false)
             return (
               <div key={item.to} className={item.divider ? 'mt-3 border-t border-slate-800 pt-3' : undefined}>
                 <NavLink
@@ -43,7 +45,9 @@ export function Sidebar({ mobileOpen, onNavigate }: { mobileOpen: boolean; onNav
                   data-testid={`nav-${slugify(item.label)}`}
                   className={({ isActive }) =>
                     `flex items-center gap-2 border-l-[3px] py-3 pl-5 pr-4 text-sm transition-colors ${
-                      isActive
+                      // sectionActive keeps the parent lit on child pages that
+                      // live off its own path (Library at /add, /library/*).
+                      isActive || sectionActive
                         ? 'border-accent-500 bg-slate-800 text-accent-fg'
                         : 'border-transparent text-slate-200 hover:text-accent-fg'
                     }`

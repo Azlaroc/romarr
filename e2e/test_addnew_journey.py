@@ -35,7 +35,9 @@ def _nav(page, section: str, title: str):
 def test_add_new_two_doors(ui, app):
     page, base = ui["page"], app["base"]
 
-    _nav(page, "add-new", "Add New")
+    # Child of the Library section; the fixture boots on the Library page, so
+    # the section is active and its child links are rendered.
+    _nav(page, "library-add-new", "Add New")
 
     # ── Door 2 first: it needs no provider, and the catalog is empty this
     # early in the run, so it proves the honest empty state rather than a
