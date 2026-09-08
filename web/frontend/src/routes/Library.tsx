@@ -32,6 +32,7 @@ export function Library() {
       subtitle={
         totals ? `${totals.owned.toLocaleString()} games · ${formatSize(totals.size_bytes)}` : undefined
       }
+      stickyToolbar
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <ToolLink to="/library/rename" icon={Wand2} label="Rename" testId="library-rename-link" />

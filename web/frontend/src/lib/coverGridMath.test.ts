@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { columnsFor, itemRange, pagesForRange, rowCount, rowOfOffset } from './coverGridMath'
+import { columnsFor, itemRange, jumpScrollOffset, pagesForRange, rowCount, rowOfOffset } from './coverGridMath'
 
 describe('coverGridMath', () => {
   it('columns respond to width with a floor of 2', () => {
@@ -27,6 +27,15 @@ describe('coverGridMath', () => {
       expect(offset).toBeGreaterThanOrEqual(first)
       expect(offset).toBeLessThanOrEqual(last)
     }
+  })
+
+  it('rail jumps clear the frozen chrome instead of landing under it', () => {
+    // Row 113 at prod geometry, 124px of topbar+toolbar above the grid.
+    expect(jumpScrollOffset(200, 113, 318, 124)).toBe(200 + 113 * 318 - 124)
+    // Without frozen chrome this is exactly the row's start (old behavior).
+    expect(jumpScrollOffset(200, 113, 318, 0)).toBe(200 + 113 * 318)
+    // Rows near the top never ask the window for a negative scroll.
+    expect(jumpScrollOffset(60, 0, 318, 124)).toBe(0)
   })
 
   it('item ranges clamp to the collection', () => {

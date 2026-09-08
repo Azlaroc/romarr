@@ -21,8 +21,25 @@ describe('PageShell', () => {
         <p>body</p>
       </PageShell>,
     )
-    expect(screen.getByTestId('page-toolbar')).toBeInTheDocument()
+    const toolbar = screen.getByTestId('page-toolbar')
+    expect(toolbar).toBeInTheDocument()
+    expect(toolbar.className).not.toContain('sticky')
     expect(screen.getByTestId('page-toolbar-actions')).toHaveTextContent('Refresh')
     expect(screen.getByTestId('page-toolbar-tools')).toHaveTextContent('Show Advanced')
+  })
+
+  it('freezes the toolbar below the topbar when a browse screen asks for it', () => {
+    render(
+      <PageShell title="Library" stickyToolbar actions={<button>Back</button>}>
+        <p>body</p>
+      </PageShell>,
+    )
+    const toolbar = screen.getByTestId('page-toolbar')
+    expect(toolbar.className).toContain('sticky')
+    // The stop must clear the 60px topbar, and the bar must be opaque so the
+    // grid does not scroll through it.
+    expect(toolbar.className).toContain('top-[60px]')
+    expect(toolbar.className).toContain('bg-slate-950')
+    expect(screen.getByTestId('page-toolbar-actions')).toHaveTextContent('Back')
   })
 })
