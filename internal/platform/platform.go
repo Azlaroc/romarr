@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -75,17 +76,22 @@ func DetectPlatform(categories []interface{}) PlatformInfo {
 	return PlatformInfo{Name: "Unknown"}
 }
 
-// GetCategoriesForPlatform returns all Prowlarr category IDs matching a
-// platform slug, from the registry. A platform with no categories of its own
-// searches every category, exactly as before — the fallback is what lets a
-// slug the search taxonomy has never heard of still return results.
+// GetCategoriesForPlatform returns the Prowlarr category IDs that identify a
+// platform's releases: the registry's tracker-specific custom categories PLUS
+// the platform's standard Newznab category and its root. The customs alone
+// used to be the whole answer, and they exist on at most one tracker's
+// private list — on every other indexer they match nothing, so the platform's
+// Prowlarr lane silently returned empty while Prowlarr itself had results.
+// The standard category is what indexers actually normalize releases to.
 func GetCategoriesForPlatform(slug string) []int {
-	if cats := CategoriesFor(slug); len(cats) > 0 {
-		return cats
+	if _, ok := Lookup(slug); ok {
+		return unionCategories(CategoriesFor(slug), standardCategories(TorznabCategory(slug)))
 	}
 	// No registry (unit tests, any binary that wires none) or no row: fall
 	// back to the map the registry was seeded from, so this package still
-	// answers correctly on its own, then to every category.
+	// answers correctly on its own, then to every category — the fallback
+	// that lets a slug the search taxonomy has never heard of still return
+	// results.
 	if slug == "pc" {
 		return []int{4000, 100010}
 	}
@@ -99,6 +105,37 @@ func GetCategoriesForPlatform(slug string) []int {
 		return matches
 	}
 	return AllGameCategories()
+}
+
+// standardCategories expands a Newznab category string ("1090") to the ids a
+// release may legitimately carry: the category itself and its x000 root —
+// indexers tag console releases with a specific subcategory, the root, or
+// both, and the root is the only umbrella the whole console tree shares.
+func standardCategories(cat string) []int {
+	n, err := strconv.Atoi(strings.TrimSpace(cat))
+	if err != nil || n <= 0 {
+		return nil
+	}
+	out := []int{n}
+	if root := (n / 1000) * 1000; root != n && root > 0 {
+		out = append(out, root)
+	}
+	return out
+}
+
+// unionCategories merges category sets preserving first-seen order.
+func unionCategories(sets ...[]int) []int {
+	seen := map[int]bool{}
+	var out []int
+	for _, set := range sets {
+		for _, c := range set {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+			}
+		}
+	}
+	return out
 }
 
 // metadataPlatformMap maps metadata platform names to PlatformInfo.
@@ -200,6 +237,19 @@ var titleHints = []struct {
 	{regexp.MustCompile(`(?i)\bgenesis\b|mega\s*drive`), PlatformInfo{Name: "Sega Genesis", Slug: "genesis"}},
 }
 
+// DetectPlatformFromTitle reports the platform a release title names, via the
+// same hint patterns the download-content detector uses. Deliberately silent:
+// callers run it per search result, where a log line per title is noise.
+func DetectPlatformFromTitle(title string) (PlatformInfo, bool) {
+	titleLower := strings.ToLower(title)
+	for _, hint := range titleHints {
+		if hint.Pattern.MatchString(titleLower) {
+			return hint.Info, true
+		}
+	}
+	return PlatformInfo{}, false
+}
+
 // DetectPlatformFromFiles detects platform from file extensions and title keywords.
 func DetectPlatformFromFiles(contentPath, title string) (PlatformInfo, bool) {
 	exts := collectExtensions(contentPath)
@@ -209,12 +259,9 @@ func DetectPlatformFromFiles(contentPath, title string) (PlatformInfo, bool) {
 			return info, true
 		}
 	}
-	titleLower := strings.ToLower(title)
-	for _, hint := range titleHints {
-		if hint.Pattern.MatchString(titleLower) {
-			slog.Info("platform detected from title keyword", "pattern", hint.Pattern.String())
-			return hint.Info, true
-		}
+	if info, ok := DetectPlatformFromTitle(title); ok {
+		slog.Info("platform detected from title keyword", "slug", info.Slug)
+		return info, true
 	}
 	return PlatformInfo{}, false
 }
