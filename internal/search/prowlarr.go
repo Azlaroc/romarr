@@ -100,7 +100,11 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 			}
 		}
 
-		// Category filter
+		// Platform filter: keep a release that carries one of the platform's
+		// categories, or one whose TITLE names the platform — trackers
+		// routinely misfile console releases under a sibling category (a PS2
+		// package under Console/PS3), and for ROMs the title is the stronger
+		// signal of what is actually in the archive.
 		if filterCategories != nil {
 			catIDs := extractCatIDs(cats)
 			matched := false
@@ -111,7 +115,18 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 				}
 			}
 			if !matched {
+				if hint, ok := platform.DetectPlatformFromTitle(jsonStr(item, "title")); ok && hint.Slug == platformSlug {
+					matched = true
+					detected = hint
+				}
+			}
+			if !matched {
 				continue
+			}
+			// The release passed this platform's filter; a category the
+			// inbound map does not know must not leave it labelled Unknown.
+			if detected.Name == "Unknown" {
+				detected = platform.PlatformInfo{Name: platform.DisplayName(platformSlug), Slug: platformSlug}
 			}
 		}
 
