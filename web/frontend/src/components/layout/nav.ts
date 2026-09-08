@@ -1,4 +1,4 @@
-import { Gamepad2, Plus, CalendarDays, Activity, Heart, Joystick, MonitorSmartphone, Settings, Wrench, type LucideIcon } from 'lucide-react'
+import { Gamepad2, CalendarDays, Activity, Heart, Joystick, MonitorSmartphone, Settings, Wrench, type LucideIcon } from 'lucide-react'
 
 export interface NavChild {
   to: string
@@ -16,12 +16,31 @@ export interface NavItem {
   children?: NavChild[]
   /** Visual divider above this entry (System sits apart, arr-style). */
   divider?: boolean
+  /**
+   * Extra path prefixes that count as inside this section, for sections whose
+   * pages live off the entry's own path (Library owns /library/* and /add).
+   */
+  match?: string[]
 }
 
 // The full arr information architecture (PR-A shell + PR-C..G sections).
 export const NAV: NavItem[] = [
-  { to: '/', label: 'Library', icon: Gamepad2, end: true },
-  { to: '/add', label: 'Add New', icon: Plus },
+  {
+    to: '/',
+    label: 'Library',
+    icon: Gamepad2,
+    end: true,
+    match: ['/library', '/add'],
+    // Radarr nests Add New under the library section; the tool pages follow
+    // in the Library toolbar's order.
+    children: [
+      { to: '/add', label: 'Add New' },
+      { to: '/library/rename', label: 'Rename' },
+      { to: '/library/declutter', label: 'Declutter' },
+      { to: '/library/hashes', label: 'Hashes' },
+      { to: '/library/scan', label: 'Scan' },
+    ],
+  },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   {
     to: '/activity',
