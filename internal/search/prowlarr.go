@@ -114,17 +114,22 @@ func SearchProwlarr(cfg *config.Config, query string, platformSlug string) []*mo
 					break
 				}
 			}
-			if !matched {
-				if hint, ok := platform.DetectPlatformFromTitle(jsonStr(item, "title")); ok && hint.Slug == platformSlug {
-					matched = true
-					detected = hint
-				}
+			hint, hintOK := platform.DetectPlatformFromTitle(jsonStr(item, "title"))
+			if !matched && hintOK && hint.Slug == platformSlug {
+				matched = true
+			}
+			// The generic console categories let cross-platform releases
+			// through; a release whose title names a DIFFERENT platform is a
+			// mismatch, not a candidate — a ps2 search must not show an XBOX
+			// rip, and must never relabel one as ps2.
+			if matched && hintOK && hint.Slug != platformSlug {
+				continue
 			}
 			if !matched {
 				continue
 			}
-			// The release passed this platform's filter; a category the
-			// inbound map does not know must not leave it labelled Unknown.
+			// Passed with no contrary evidence; a category the inbound map
+			// does not know must not leave the release labelled Unknown.
 			if detected.Name == "Unknown" {
 				detected = platform.PlatformInfo{Name: platform.DisplayName(platformSlug), Slug: platformSlug}
 			}
