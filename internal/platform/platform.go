@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -212,34 +211,9 @@ var extPlatformMap = map[string]PlatformInfo{
 	".gdi": {Name: "Dreamcast", Slug: "dc"}, ".cdi": {Name: "Dreamcast", Slug: "dc"},
 }
 
-var titleHints = []struct {
-	Pattern *regexp.Regexp
-	Info    PlatformInfo
-}{
-	{regexp.MustCompile(`(?i)\[nsp\]|\bnsp\b|switch`), PlatformInfo{Name: "Switch", Slug: "switch"}},
-	{regexp.MustCompile(`(?i)\[xci\]|\bxci\b`), PlatformInfo{Name: "Switch", Slug: "switch"}},
-	{regexp.MustCompile(`(?i)\bwiiu\b|wii\s*u`), PlatformInfo{Name: "Wii U", Slug: "wiiu"}},
-	{regexp.MustCompile(`(?i)\bwii\b`), PlatformInfo{Name: "Wii", Slug: "wii"}},
-	{regexp.MustCompile(`(?i)\bgamecube\b|\bngc\b|\bgcn\b`), PlatformInfo{Name: "GameCube", Slug: "ngc"}},
-	{regexp.MustCompile(`(?i)\b3ds\b`), PlatformInfo{Name: "3DS", Slug: "3ds"}},
-	{regexp.MustCompile(`(?i)\bnds\b|\bnintendo\s*ds\b`), PlatformInfo{Name: "DS", Slug: "nds"}},
-	{regexp.MustCompile(`(?i)\bgba\b`), PlatformInfo{Name: "Game Boy Advance", Slug: "gba"}},
-	{regexp.MustCompile(`(?i)\bps3\b|playstation\s*3`), PlatformInfo{Name: "PS3", Slug: "ps3"}},
-	{regexp.MustCompile(`(?i)\bps2\b|playstation\s*2`), PlatformInfo{Name: "PS2", Slug: "ps2"}},
-	{regexp.MustCompile(`(?i)\bps1\b|\bpsx\b`), PlatformInfo{Name: "PS1", Slug: "psx"}},
-	{regexp.MustCompile(`(?i)\bpsp\b`), PlatformInfo{Name: "PSP", Slug: "psp"}},
-	{regexp.MustCompile(`(?i)\bxbox\s*360`), PlatformInfo{Name: "Xbox 360", Slug: "xbox360"}},
-	{regexp.MustCompile(`(?i)\bxbox\b`), PlatformInfo{Name: "Xbox", Slug: "xbox"}},
-	{regexp.MustCompile(`(?i)\bdreamcast\b`), PlatformInfo{Name: "Dreamcast", Slug: "dc"}},
-	{regexp.MustCompile(`(?i)\bn64\b|nintendo\s*64`), PlatformInfo{Name: "Nintendo 64", Slug: "n64"}},
-	{regexp.MustCompile(`(?i)\bsnes\b|super\s*nintendo`), PlatformInfo{Name: "SNES", Slug: "snes"}},
-	{regexp.MustCompile(`(?i)\bnes\b`), PlatformInfo{Name: "NES", Slug: "nes"}},
-	{regexp.MustCompile(`(?i)\bgenesis\b|mega\s*drive`), PlatformInfo{Name: "Sega Genesis", Slug: "genesis"}},
-}
-
 // DetectPlatformFromTitle reports the platform a release title names, via the
-// same hint patterns the download-content detector uses. Deliberately silent:
-// callers run it per search result, where a log line per title is noise.
+// hint patterns in hints.go. Deliberately silent: callers run it per search
+// result, where a log line per title is noise.
 func DetectPlatformFromTitle(title string) (PlatformInfo, bool) {
 	titleLower := strings.ToLower(title)
 	for _, hint := range titleHints {
@@ -292,10 +266,10 @@ func collectExtensions(path string) map[string]bool {
 	return exts
 }
 
-// ParserSlugs returns every platform slug the detection parsers in this file
-// can emit — the extension map, the metadata-name aliases and the title
-// hints. They stay in code because they are parsers, turning a string into a
-// slug, rather than vocabulary; what the registry owns is what a platform IS.
+// ParserSlugs returns every platform slug the detection parsers can emit —
+// the extension map, the metadata-name aliases and the title hints. They
+// stay in code because they are parsers, turning a string into a slug,
+// rather than vocabulary; what the registry owns is what a platform IS.
 //
 // The boundary only holds if a detection can never succeed into a platform
 // the app cannot then describe, so a test asserts every slug here names a
