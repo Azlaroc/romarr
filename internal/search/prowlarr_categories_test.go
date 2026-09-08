@@ -13,8 +13,10 @@ import (
 // A ps2 release on a general indexer carries the standard Newznab category
 // (or a sibling console category plus a platform-naming title) — never the
 // registry's tracker-specific customs. The filter must keep both shapes,
-// label them as the requested platform, and still drop unrelated releases.
-// The customs-only filter silently emptied every Prowlarr search for ps2.
+// label them as the requested platform, and still drop unrelated releases —
+// including cross-platform releases the generic console categories let
+// through, whose titles name a DIFFERENT platform: an XBOX rip must neither
+// show in a ps2 search nor be relabelled ps2.
 func TestSearchProwlarr_StandardCatsAndTitleRescue(t *testing.T) {
 	platform.SetRegistry(platform.StaticRegistry{
 		{Slug: "ps2", DisplayName: "PS2", ProwlarrCategories: []int{100011}, TorznabCategory: "1090"},
@@ -22,7 +24,7 @@ func TestSearchProwlarr_StandardCatsAndTitleRescue(t *testing.T) {
 	t.Cleanup(func() { platform.SetRegistry(nil) })
 
 	items := []map[string]interface{}{
-		{ // standard Console/Other tag — kept via the standard category
+		{ // standard Console/Other tag, no contrary title — kept, labelled ps2
 			"title":      "Grand Theft Auto - Vice City (USA) DVD",
 			"size":       float64(4_000_000_000),
 			"categories": []interface{}{map[string]interface{}{"id": float64(1090)}},
@@ -36,6 +38,21 @@ func TestSearchProwlarr_StandardCatsAndTitleRescue(t *testing.T) {
 			"title":      "Grand Theft Auto Vice City Definitive Edition Update",
 			"size":       float64(9_000_000_000),
 			"categories": []interface{}{map[string]interface{}{"id": float64(4020)}},
+		},
+		{ // generic category let it through, title says XBOX — dropped
+			"title":      "Grand.Theft.Auto.Vice.City.XBOX-WAM",
+			"size":       float64(1_100_000_000),
+			"categories": []interface{}{map[string]interface{}{"id": float64(1090)}},
+		},
+		{ // Console root tag, title says PSP — dropped
+			"title":      "Grand Theft Auto Vice City Stories EUR PSP-pSyPSP",
+			"size":       float64(805_000_000),
+			"categories": []interface{}{map[string]interface{}{"id": float64(1000)}},
+		},
+		{ // remaster for another platform, named by scene tag — dropped
+			"title":      "Grand.Theft.Auto.Vice.City.The.Definitive.Edition.PS4-DUPLEX",
+			"size":       float64(11_700_000_000),
+			"categories": []interface{}{map[string]interface{}{"id": float64(1090)}},
 		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
