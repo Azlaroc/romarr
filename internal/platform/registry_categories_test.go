@@ -81,6 +81,12 @@ func TestDetectPlatformFromTitle(t *testing.T) {
 		{"Grand Theft Auto Vice City v1 02 USA PS2-PS4 -PSN", "ps2", true},
 		{"Gran Turismo PS3", "ps3", true},
 		{"Zelda [NSP] Switch", "switch", true},
+		// The vocabularies that used to pass as evidence-free: remaster
+		// platforms and the NSW scene tag.
+		{"Grand.Theft.Auto.Vice.City.The.Definitive.Edition.PS4-DUPLEX", "ps4", true},
+		{"Grand Theft Auto Vice City The Definitive Edition Update v1 0 8 NSW-VENOM", "switch", true},
+		{"Persona 4 Golden PS Vita", "psvita", true},
+		{"Grand.Theft.Auto.Vice.City.XBOX-WAM", "xbox", true},
 		{"just some text file", "", false},
 	}
 	for _, c := range cases {
