@@ -66,6 +66,9 @@ func (rl *RateLimiter) ruleForPath(path string) string {
 	if strings.HasPrefix(path, "/api/download") {
 		return "download"
 	}
+	if strings.HasPrefix(path, "/api/art/") {
+		return "art"
+	}
 	if strings.HasPrefix(path, "/api/") {
 		return "api"
 	}
