@@ -18,7 +18,7 @@ chrome.** The pieces and what each is for:
 
 | Import | Use it for |
 |---|---|
-| `components/layout/PageShell` | The page frame: heading, then a toolbar with page actions on the left and view controls (Show Advanced) on the right. |
+| `components/layout/PageShell` | The page frame: heading, then a toolbar with page actions on the left and view controls (Show Advanced) on the right. Long browse screens pass `stickyToolbar` to freeze the toolbar below the topbar so back links and filters stay reachable at any scroll depth. |
 | `components/ui/FormGroup` | A fieldset section of a form. Wraps `FormRow` children (label, control, hint, advanced flag). |
 | `components/ui/DataTable` | Tabular data. Sortable headers, right-aligned row actions, with loading / empty / paged states already wired to `Skeleton`, `EmptyState` and `Pagination`. |
 | `components/ui/SaveBar` + `UnsavedChangesPrompt` | Screens that batch edits: a sticky bar that appears when dirty, plus the navigation and tab-close guard. |

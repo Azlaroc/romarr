@@ -7,17 +7,21 @@ export function JumpRail({
   letters,
   onJump,
   activeLetter,
+  topClass = 'top-20',
   testId = 'jump-rail',
 }: {
   letters: LibraryLetter[]
   onJump: (offset: number) => void
   activeLetter?: string
+  /** Sticky offset — screens with a frozen toolbar pass a lower stop so the
+   * rail starts below it. Must be a full class name for the Tailwind scanner. */
+  topClass?: string
   testId?: string
 }) {
   if (letters.length <= 1) return null
   return (
     <nav
-      className="sticky top-20 flex max-h-[70vh] flex-col items-center gap-0.5 overflow-y-auto px-1"
+      className={`sticky ${topClass} flex max-h-[70vh] flex-col items-center gap-0.5 overflow-y-auto px-1`}
       aria-label="Jump to letter"
       data-testid={testId}
     >

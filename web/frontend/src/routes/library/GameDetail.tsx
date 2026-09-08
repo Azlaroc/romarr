@@ -105,6 +105,7 @@ export function GameDetail() {
     <PageShell
       title="Library"
       subtitle={item.title}
+      stickyToolbar
       actions={
         <Link to={`/library/${slug}`}>
           <Button variant="secondary" size="sm" data-testid="detail-back">

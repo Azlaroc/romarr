@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-import { columnsFor, itemRange, rowCount, rowOfOffset } from '../../lib/coverGridMath'
+import { columnsFor, itemRange, jumpScrollOffset, rowCount, rowOfOffset } from '../../lib/coverGridMath'
 
 // The windowed grid behind every browse level — the survey law this app
 // builds under: virtualize from day one (the reference implementation that
@@ -19,6 +19,7 @@ export function CoverGrid({
   gap = 16,
   onRangeChange,
   registerScrollToOffset,
+  scrollPaddingTop = 0,
   testId,
   emptyState,
 }: {
@@ -32,6 +33,9 @@ export function CoverGrid({
   onRangeChange?: (first: number, last: number) => void
   /** Hands the caller a scroll function for the A-Z rail's offsets. */
   registerScrollToOffset?: (fn: (offset: number) => void) => void
+  /** Px of frozen chrome above the grid (sticky topbar + toolbar) that rail
+   * jumps must clear so the target row is not hidden underneath it. */
+  scrollPaddingTop?: number
   testId: string
   emptyState?: ReactNode
 }) {
@@ -67,9 +71,10 @@ export function CoverGrid({
 
   useEffect(() => {
     registerScrollToOffset?.((offset: number) => {
-      virtualizer.scrollToIndex(rowOfOffset(offset, columns), { align: 'start' })
+      const row = rowOfOffset(offset, columns)
+      virtualizer.scrollToOffset(jumpScrollOffset(virtualizer.options.scrollMargin, row, rowHeight, scrollPaddingTop))
     })
-  }, [registerScrollToOffset, virtualizer, columns])
+  }, [registerScrollToOffset, virtualizer, columns, rowHeight, scrollPaddingTop])
 
   if (total === 0) {
     return (

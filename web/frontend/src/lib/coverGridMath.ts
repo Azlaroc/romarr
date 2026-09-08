@@ -30,6 +30,14 @@ export function itemRange(firstRow: number, lastRow: number, columns: number, to
   return [first, Math.max(first, last)]
 }
 
+/** Window scroll offset for a rail jump: the row's top, minus the frozen
+ * chrome above the grid (sticky topbar + toolbar), so the jumped-to row
+ * lands below the bar instead of underneath it. Row starts are exact
+ * arithmetic here because CoverGrid sizes every row by the same estimate. */
+export function jumpScrollOffset(scrollMargin: number, row: number, rowHeight: number, padding: number): number {
+  return Math.max(0, scrollMargin + Math.max(0, row) * rowHeight - Math.max(0, padding))
+}
+
 /** Server pages that cover a flat item range (1-based page numbers). */
 export function pagesForRange(first: number, last: number, pageSize: number): number[] {
   if (pageSize <= 0 || last < first) return []

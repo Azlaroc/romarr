@@ -24,6 +24,9 @@ const PAGE_SIZE = 100
 // Pages kept mounted as react-query subscriptions. Old pages fall out of the
 // window but stay in the query cache, so scrolling back is instant.
 const PAGE_WINDOW = 8
+// Bottom edge of the frozen chrome: 60px topbar + ~55px sticky toolbar, plus
+// breathing room. The rail sticks here and rail jumps land rows just below.
+const FROZEN_BAR_CLEARANCE = 124
 
 export function PlatformGames() {
   const params = useParams()
@@ -125,12 +128,20 @@ export function PlatformGames() {
     <PageShell
       title={displayName}
       subtitle={total ? `${total.toLocaleString()} games` : undefined}
+      stickyToolbar
       actions={
-        <Link to="/">
-          <Button variant="secondary" size="sm" data-testid="games-back">
-            <ArrowLeft className="h-3.5 w-3.5" /> Library
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link to="/">
+            <Button variant="secondary" size="sm" data-testid="games-back">
+              <ArrowLeft className="h-3.5 w-3.5" /> Library
+            </Button>
+          </Link>
+          {/* Context for when the big heading has scrolled away. */}
+          <span className="text-sm text-slate-400">
+            {displayName}
+            {total > 0 && <span className="text-slate-600"> · {total.toLocaleString()}</span>}
+          </span>
+        </div>
       }
       tools={
         <form
@@ -167,6 +178,7 @@ export function PlatformGames() {
             rowHeight={318}
             onRangeChange={onRangeChange}
             registerScrollToOffset={registerScrollToOffset}
+            scrollPaddingTop={FROZEN_BAR_CLEARANCE}
             testId="library-grid"
             emptyState={
               <EmptyState
@@ -203,6 +215,7 @@ export function PlatformGames() {
         <JumpRail
           letters={letters.data?.letters ?? []}
           onJump={(offset) => scrollToRef.current(offset)}
+          topClass="top-[124px]"
           testId="games-rail"
         />
       </div>
