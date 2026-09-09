@@ -57,6 +57,12 @@ type Decision struct {
 	Grabs    []Grab
 	Reason   string
 	Rejected []Rejection
+	// OwnedBy names the library item that satisfied an owned skip. It is the
+	// caller's fulfillment signal — a wishlist row's life ends iff this is
+	// set — and the answer to "owned by WHAT" in every owned verdict. The
+	// reason string is presentation; this field is the contract. Nil on every
+	// non-owned decision, including an enforced pin's "waiting" skip.
+	OwnedBy *db.LibraryItem
 }
 
 // SelectOpts carries the per-item context Select ranks against.
@@ -86,11 +92,18 @@ type SelectOpts struct {
 	// title. Nil func disables the check (PR-5 wires it).
 	ActiveGrab func(title, platformSlug string) bool
 	// OwnedByHash returns the library item whose stored hash identity matches
-	// the given release hashes, or nil. Consulted for the ranked winner only:
+	// the given release hashes, or nil. Consulted for the ranked winner —
 	// a winner byte-identical to a library item means the item is already
-	// fulfilled, regardless of how the titles compare. Nil func disables the
+	// fulfilled, regardless of how the titles compare — and for an enforced
+	// want's pin hashes (do I own the pinned dump). Nil func disables the
 	// check (wired on the scheduler's enforce path).
 	OwnedByHash func(md5, sha1 string) *db.LibraryItem
+	// OwnedByName returns the library item whose on-disk file name matches
+	// the given dump name on the platform, or nil. Consulted only for an
+	// enforced want carrying no hashes — the fulfilled check a hashless pin
+	// needs so a satisfied pin row is consumed rather than re-grabbed every
+	// cycle. Nil func disables the check.
+	OwnedByName func(dumpName, platformSlug string) *db.LibraryItem
 	// Repair, when non-nil, puts Select in disc-set repair mode: instead of
 	// minting a new set it emits grabs ONLY for the Want indices, stamped
 	// with the existing set's identity. Ownership/in-flight checks are
@@ -145,9 +158,23 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// callers passing nil funcs: the degraded set's own library row would
 	// otherwise short-circuit every repair as "owned".
 	if repair == nil {
-		if opts.Owned != nil {
+		if want.Enforce {
+			// An operator's pin usually exists BECAUSE a variant of the title
+			// is already owned — the pin row is an upgrade request — so the
+			// ownership question changes from "do I own this game" to "do I
+			// own the PINNED DUMP". A mere title match must not consume the
+			// row: that would delete the pin before its gate below ever ran
+			// (the Tetris regression, blaster#385).
+			if item := ownedByPin(want, opts); item != nil {
+				return Decision{Action: ActionSkip,
+					Reason:  fmt.Sprintf("owned: pinned dump present as %s (#%d)", item.Title, item.ID),
+					OwnedBy: item}
+			}
+		} else if opts.Owned != nil {
 			if item := opts.Owned(opts.Query, opts.PlatformSlug); item != nil {
-				return Decision{Action: ActionSkip, Reason: "owned"}
+				return Decision{Action: ActionSkip,
+					Reason:  fmt.Sprintf("owned: %s (#%d)", item.Title, item.ID),
+					OwnedBy: item}
 			}
 		}
 		if opts.ActiveGrab != nil && opts.ActiveGrab(opts.Query, opts.PlatformSlug) {
@@ -301,7 +328,9 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 	// are represented by disc 1 (sets carry no hashes today anyway).
 	if repair == nil && opts.OwnedByHash != nil && (winner.rep.MD5 != "" || winner.rep.SHA1 != "") {
 		if item := opts.OwnedByHash(winner.rep.MD5, winner.rep.SHA1); item != nil {
-			return Decision{Action: ActionSkip, Reason: "owned", Rejected: rejected}
+			return Decision{Action: ActionSkip,
+				Reason:  fmt.Sprintf("owned: byte-identical to %s (#%d)", item.Title, item.ID),
+				OwnedBy: item, Rejected: rejected}
 		}
 	}
 
@@ -363,6 +392,33 @@ func Select(cands []*models.SearchResult, opts SelectOpts) Decision {
 		Reason:   fmt.Sprintf("best release (disc set of %d)", total),
 		Rejected: rejected,
 	}
+}
+
+// ownedByPin returns the library item that already IS the pinned dump: by
+// stored hash identity when the pin carries hashes, by on-disk name when it
+// does not. Nil means the pin is unmet in the library — the enforce gate in
+// Select then decides whether a candidate can meet it. A hash-carrying pin
+// deliberately never falls back to the name check: hashes are the stronger
+// identity, and a name-only hit against a byte-different file would declare
+// an upgrade fulfilled that never happened.
+func ownedByPin(want Want, opts SelectOpts) *db.LibraryItem {
+	if len(want.Hashes) > 0 {
+		if opts.OwnedByHash == nil {
+			return nil
+		}
+		for _, h := range want.Hashes {
+			// Both hash namespaces are probed with the same value; md5 (32)
+			// and sha1 (40) hex lengths cannot collide across them.
+			if item := opts.OwnedByHash(h, h); item != nil {
+				return item
+			}
+		}
+		return nil
+	}
+	if opts.OwnedByName != nil {
+		return opts.OwnedByName(want.DumpName, opts.PlatformSlug)
+	}
+	return nil
 }
 
 func minDiscIndex(discs map[int]*models.SearchResult) int {

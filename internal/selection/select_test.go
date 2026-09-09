@@ -201,8 +201,8 @@ func TestOwnedAndActiveGrabSkip(t *testing.T) {
 		Query: "Game", MinScore: 0, Profile: romProfile(),
 		Owned: func(title, slug string) *db.LibraryItem { return &db.LibraryItem{} },
 	})
-	if dec.Action != ActionSkip || dec.Reason != "owned" {
-		t.Fatalf("owned skip: %v (%s)", dec.Action, dec.Reason)
+	if dec.Action != ActionSkip || !strings.HasPrefix(dec.Reason, "owned") || dec.OwnedBy == nil {
+		t.Fatalf("owned skip: %v OwnedBy=%v (%s)", dec.Action, dec.OwnedBy, dec.Reason)
 	}
 	dec = Select([]*models.SearchResult{r}, SelectOpts{
 		Query: "Game", MinScore: 0, Profile: romProfile(),
@@ -347,7 +347,7 @@ func TestOwnedByHashWinnerSkips(t *testing.T) {
 			}
 			return nil
 		}})
-	if dec.Action != ActionSkip || dec.Reason != "owned" {
+	if dec.Action != ActionSkip || !strings.HasPrefix(dec.Reason, "owned") || dec.OwnedBy == nil {
 		t.Fatalf("dec = %+v, want skip/owned", dec)
 	}
 }

@@ -233,6 +233,7 @@ func (s *Scheduler) run() {
 
 	var owned func(title, platformSlug string) *db.LibraryItem
 	var ownedByHash func(md5, sha1 string) *db.LibraryItem
+	var ownedByName func(dumpName, platformSlug string) *db.LibraryItem
 	// Guarded by "is there anything to measure": removing the empty-wishlist
 	// early return would otherwise parse a 20k-title library every cycle on an
 	// install with nothing wanted at all.
@@ -242,9 +243,18 @@ func (s *Scheduler) run() {
 		// imported titles are caught by the ActiveGrab jobs check instead.
 		owned = s.buildOwnedIndex()
 		ownedByHash = s.buildHashIndex()
+		for _, item := range wishlist {
+			// A hashless pin needs the name-based fulfilled check. Wired
+			// lazily as a per-call platform scan — pins are rare, and an
+			// index built every cycle would cost what one row needs once.
+			if item.OverrideDumpName != "" && len(item.OverrideHashes) == 0 {
+				ownedByName = s.jobs.FindLibraryByFsName
+				break
+			}
+		}
 	}
 
-	cx := &cycleCtx{mode: mode, minScore: minScore, owned: owned, ownedByHash: ownedByHash}
+	cx := &cycleCtx{mode: mode, minScore: minScore, owned: owned, ownedByHash: ownedByHash, ownedByName: ownedByName}
 
 	for i, item := range wishlist {
 		// Check for stop signal between items, and rate-limit before every
@@ -280,10 +290,16 @@ func (s *Scheduler) run() {
 		autoDownloads += out.Grabs
 		if out.Fulfilled {
 			// Owned means fulfilled — this is where a wishlist row's life ends
-			// under enforce (not at grab time).
+			// under enforce (not at grab time). The detail names the item that
+			// satisfied it: "owned" without "by what" is the verdict that sent
+			// an operator hunting a katakana-titled card through the library.
+			detail := "In library — removed from wishlist"
+			if out.OwnedBy != nil {
+				detail = fmt.Sprintf("In library as %s (#%d) — removed from wishlist",
+					out.OwnedBy.Title, out.OwnedBy.ID)
+			}
 			s.jobs.DeleteWishlistItem(item.ID)
-			s.jobs.LogActivity("wishlist_fulfilled", item.Title,
-				"In library — removed from wishlist", "", nil)
+			s.jobs.LogActivity("wishlist_fulfilled", item.Title, detail, "", nil)
 		}
 	}
 
@@ -351,8 +367,12 @@ func wantedOf(item db.WishlistItem) wantedItem {
 type wantedOutcome struct {
 	Results int
 	Grabs   int
-	// Fulfilled is true when the title turned out to be owned already.
+	// Fulfilled is true when the title turned out to be owned already;
+	// OwnedBy names the library item that satisfied it. Derived from the
+	// selector's structured OwnedBy field, never from reason-string matching
+	// — an enforced pin skips with reasons that are NOT fulfillment.
 	Fulfilled bool
+	OwnedBy   *db.LibraryItem
 	// Reason is the selector's verdict, or why nothing happened. It is what a
 	// collection target records as its last attempt's result.
 	Reason string
@@ -364,6 +384,7 @@ type cycleCtx struct {
 	minScore    int
 	owned       func(title, platformSlug string) *db.LibraryItem
 	ownedByHash func(md5, sha1 string) *db.LibraryItem
+	ownedByName func(dumpName, platformSlug string) *db.LibraryItem
 }
 
 // processWanted runs one title through search, selection and grabbing.
@@ -414,6 +435,7 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 		opts.Owned = cx.owned
 		opts.ActiveGrab = s.activeGrab
 		opts.OwnedByHash = cx.ownedByHash
+		opts.OwnedByName = cx.ownedByName
 	}
 	dec := selection.Select(results, opts)
 	out.Reason = dec.Reason
@@ -452,8 +474,11 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 	switch dec.Action {
 	case selection.ActionSkip:
 		// Owned is the one skip the caller acts on: a wishlist row is
-		// fulfilled, a collection target is no longer a gap.
-		out.Fulfilled = dec.Reason == "owned"
+		// fulfilled, a collection target is no longer a gap. The structured
+		// OwnedBy field is the signal — a reason-string test here once
+		// deleted pinned rows whose reason happened to read "owned".
+		out.Fulfilled = dec.OwnedBy != nil
+		out.OwnedBy = dec.OwnedBy
 	case selection.ActionGrab, selection.ActionGrabSet:
 		if !s.cfg.AutoDownload() {
 			out.Reason = "auto-download off"
@@ -562,9 +587,9 @@ func (s *Scheduler) buildOwnedIndex() func(title, platformSlug string) *db.Libra
 }
 
 // buildHashIndex snapshots the library's stored hash identities once per
-// cycle for the selector's OwnedByHash seam. The Decision reason stays the
-// title-check's "owned" (same wishlist-fulfilled handling); the log line is
-// what distinguishes a hash skip from a title skip.
+// cycle for the selector's OwnedByHash seam — the winner-identity check and
+// the pinned-dump ownership check both probe it. Owned skips of either kind
+// carry Decision.OwnedBy; the reason string names which check fired.
 func (s *Scheduler) buildHashIndex() func(md5, sha1 string) *db.LibraryItem {
 	idx := s.jobs.LibraryHashIndex()
 	return func(md5, sha1 string) *db.LibraryItem {
