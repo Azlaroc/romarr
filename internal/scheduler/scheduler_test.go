@@ -714,3 +714,106 @@ func TestAcquisitionOffSkipsThePlatform(t *testing.T) {
 		t.Error("a skipped platform's wishlist row must survive the cycle")
 	}
 }
+
+// TestEnforcePinnedRowSurvivesOwnedTitle is the scheduler half of the Tetris
+// regression (blaster#385): a pinned wishlist row whose bare title is owned
+// must SURVIVE an enforce cycle whose search returns candidates not matching
+// the pin. Before the fix, the row was deleted as "owned" before the enforce
+// gate ran — the pin was destroyed and no upgrade was ever attempted.
+func TestEnforcePinnedRowSurvivesOwnedTitle(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Tetris (Japan) (En)", Platform: "GB", PlatformSlug: "gb",
+		FilePath: "/roms/gb/Tetris (Japan) (En).zip", Source: "romm", SourceType: "romm",
+		SourceID: "romm:5211", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The pin flow mints the row with the LIBRARY row's own title — the exact
+	// shape that made the owned-index hit guaranteed.
+	if _, err := store.UpsertWishlistOverride("Tetris (Japan) (En)", "GB", "gb",
+		"Tetris (World) (Rev 1)", []string{"00112233445566778899aabbccddeeff"}); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		// ≥1 result, none of them the pinned dump: the precondition under
+		// which the old code deleted the row.
+		return prep(90, "ddl", "Tetris (Japan) (En).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (pin unmet = wait)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 1 {
+		t.Fatalf("wishlist has %d items, want 1 (pinned row must survive the owned title)", len(items))
+	}
+	if w := store.GetWishlist()[0]; w.OverrideDumpName != "Tetris (World) (Rev 1)" {
+		t.Errorf("surviving row lost its pin: %+v", w)
+	}
+}
+
+// A pinned row whose pin hash IS in the library is genuinely fulfilled: the
+// pinned dump is on disk, so the row is consumed.
+func TestEnforcePinnedRowFulfillsWhenPinHashOwned(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Tetris (World) (Rev 1)", Platform: "GB", PlatformSlug: "gb",
+		FilePath: "/roms/gb/Tetris (World) (Rev 1).zip", Source: "romm", SourceType: "romm",
+		SourceID: "romm:5300",
+		Metadata: `{"romm":{"md5":"00112233445566778899aabbccddeeff"}}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertWishlistOverride("Tetris (World) (Rev 1)", "GB", "gb",
+		"Tetris (World) (Rev 1)", []string{"00112233445566778899aabbccddeeff"}); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		return prep(90, "ddl", "Tetris (Japan) (En).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (pin already owned)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (pin-hash-owned consumes the row)", len(items))
+	}
+}
+
+// A hashless pin (only reachable by direct DB writes today, but a state the
+// selector must still handle) resolves through the on-disk name check.
+func TestEnforceHashlessPinnedRowFulfillsByName(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Game", Platform: "GB", PlatformSlug: "gb",
+		FilePath: "/roms/gb/Game (Europe).zip", Source: "romm", SourceType: "romm",
+		SourceID: "romm:5400", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertWishlistOverride("Game", "GB", "gb", "Game (Europe)", nil); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		return prep(90, "ddl", "Game (USA).zip")
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (hashless pin on disk)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (on-disk name fulfills the hashless pin)", len(items))
+	}
+}

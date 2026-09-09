@@ -843,6 +843,20 @@ func (s *JobStore) GetWishlistOverrideForTitle(title, platformSlug string) (Wish
 	return w, true
 }
 
+// FindLibraryByFsName returns the library item whose on-disk file name
+// matches the given name on the platform, or nil. The name is matched under
+// the same keys LibraryNameIndex mints (lowered basename, with and without
+// extension), so a DAT dump name — which carries no extension — meets a
+// row's ext-stripped key. This is the hashless That!-pin's fulfilled check:
+// "is the pinned dump already on disk under its own name".
+func (s *JobStore) FindLibraryByFsName(name, platformSlug string) *LibraryItem {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return nil
+	}
+	return s.LibraryNameIndex(platformSlug)[key]
+}
+
 // SchedulerDownloadTitle returns the wishlist title that drove jobID's grab —
 // the scheduler_download activity row logged at dispatch — or "" when the job
 // was not a scheduler grab (manual downloads, request searches).
