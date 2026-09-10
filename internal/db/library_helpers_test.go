@@ -1,7 +1,6 @@
 package db
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -56,20 +55,21 @@ func TestClearVaultScanEntries(t *testing.T) {
 	}
 }
 
-func TestFindLibraryByTitleSearchKeyFallback(t *testing.T) {
+func TestFindLibraryByTitleFsNameFallback(t *testing.T) {
 	store := newTestStore(t)
-	meta, _ := json.Marshal(map[string]interface{}{"romm": map[string]interface{}{
-		"rom_id": 1, "search_key": "castlevania - symphony of the night (usa)",
-	}})
+	// No $.romm.search_key: the fallback keys off file_path, which every row
+	// has — the retired sync's stash only existed on rows it had touched.
 	store.AddLibraryItem(&LibraryItem{
 		Title: "Castlevania: Symphony of the Night", PlatformSlug: "psx",
-		Source: "romm", SourceID: "romm:1", Metadata: string(meta),
+		FilePath: "/roms/psx/Castlevania - Symphony of the Night (USA).chd",
+		Source:   "romm", SourceID: "romm:1", Metadata: "{}",
 	})
 
-	// Release-name shaped input: fs name + archive extension.
+	// Release-name shaped input: fs name + a DIFFERENT archive extension than
+	// the on-disk file carries.
 	item := store.FindLibraryByTitle("Castlevania - Symphony of the Night (USA).zip", "psx")
 	if item == nil {
-		t.Fatal("search-key fallback found nothing")
+		t.Fatal("fs-name fallback found nothing")
 	}
 	if item.Title != "Castlevania: Symphony of the Night" {
 		t.Errorf("wrong item: %+v", item)
@@ -81,22 +81,25 @@ func TestFindLibraryByTitleSearchKeyFallback(t *testing.T) {
 	}
 }
 
-func TestGetAllLibraryTitlesSearchKeys(t *testing.T) {
+func TestGetAllLibraryTitlesIsTitlePure(t *testing.T) {
 	store := newTestStore(t)
-	meta, _ := json.Marshal(map[string]interface{}{"romm": map[string]interface{}{
-		"rom_id": 1, "search_key": "tetris plus (usa)",
-	}})
 	store.AddLibraryItem(&LibraryItem{
 		Title: "Tetris Plus", PlatformSlug: "psx",
-		Source: "romm", SourceID: "romm:1", Metadata: string(meta),
+		FilePath: "/roms/psx/Tetris Plus (USA).zip",
+		Source:   "romm", SourceID: "romm:1", Metadata: "{}",
 	})
 
 	titles := store.GetAllLibraryTitles()
 	if _, ok := titles["tetris plus|psx"]; !ok {
 		t.Error("title key missing")
 	}
-	if _, ok := titles["tetris plus (usa)|psx"]; !ok {
-		t.Error("search_key key missing")
+	// File names must NOT appear here: the set engine consumes this map as
+	// its TITLE tier, and a file name's claim there outranks its real
+	// precedence (a hack named like a game would cover the game's set slot).
+	// Release-name ownership lives in the scheduler's owned index and the
+	// name index instead.
+	if _, ok := titles["tetris plus (usa)|psx"]; ok {
+		t.Error("fs-name key leaked into the title map")
 	}
 }
 

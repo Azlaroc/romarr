@@ -494,7 +494,7 @@ func (s *JobStore) LibraryItemByFilePath(path string) *LibraryItem {
 
 // AddLibraryItemUnlessPathTracked inserts the item only if no row tracks its
 // file_path, in one statement, and reports whether a row was created. The
-// scanner runs beside a live RomM sync: a check-then-insert would leave a
+// scanner runs beside the import pipeline: a check-then-insert would leave a
 // window where both create a row for the same arriving file, and the
 // duplicate would outlive the race.
 func (s *JobStore) AddLibraryItemUnlessPathTracked(item *LibraryItem) (int64, bool, error) {
@@ -1011,32 +1011,13 @@ func (s *JobStore) FindLibraryByTitle(title, platformSlug string) *LibraryItem {
 		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
 		&item.SourceID, &item.Metadata, &item.AddedAt)
 	if err != nil {
-		// Fallback: match on the RomM filesystem name (release names carry the
-		// on-disk name, not the IGDB display title the row is titled with).
+		// Fallback: match on the on-disk file name (release names carry the
+		// file name, not the IGDB display title the row is titled with).
+		// Keyed off file_path, which every row has — the retired RomM sync's
+		// $.romm.search_key stash only existed on rows that sync had touched.
 		if platformSlug != "" && platformSlug != "all" && platformSlug != "pc" {
-			return s.findLibraryBySearchKey(NormalizeTitleKey(title), platformSlug)
+			return s.FindLibraryByFsName(NormalizeTitleKey(title), platformSlug)
 		}
-		return nil
-	}
-	item.IsPC = isPC != 0
-	return &item
-}
-
-// findLibraryBySearchKey matches against the pre-lowered fs-name key the RomM
-// sync stashes at metadata $.romm.search_key.
-func (s *JobStore) findLibraryBySearchKey(key, platformSlug string) *LibraryItem {
-	if key == "" {
-		return nil
-	}
-	row := s.db.QueryRow(
-		"SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items WHERE json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') = ? AND platform_slug = ? LIMIT 1",
-		key, platformSlug,
-	)
-	var item LibraryItem
-	var isPC int
-	if err := row.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
-		&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-		&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
 		return nil
 	}
 	item.IsPC = isPC != 0
@@ -1258,7 +1239,8 @@ func (s *JobStore) LibraryHashIndex() map[string]*LibraryItem {
 }
 
 // NormalizeTitleKey lowercases, trims and strips one trailing file extension
-// from a title, matching how the RomM sync builds search keys from fs names.
+// from a title, matching the fs-name keys GetAllLibraryTitles derives from
+// file paths.
 func NormalizeTitleKey(title string) string {
 	key := strings.ToLower(strings.TrimSpace(title))
 	if dot := strings.LastIndexByte(key, '.'); dot > 0 && dot < len(key)-1 {
@@ -1270,13 +1252,18 @@ func NormalizeTitleKey(title string) string {
 	return strings.TrimSpace(key)
 }
 
-// GetAllLibraryTitles returns a map of normalized "title|platform_slug" to LibraryItem for bulk lookups.
-// RomM-synced rows are additionally keyed by their fs-name search key.
+// GetAllLibraryTitles returns a map of normalized "title|platform_slug" to
+// LibraryItem for bulk lookups. Title keys ONLY: the retired RomM sync used
+// to stash a second fs-name key per row ($.romm.search_key), and feeding
+// file names into consumers' TITLE tiers let a hack's file name claim a
+// game's set slot at the wrong precedence — file names belong to the name
+// index (LibraryNameIndexByPlatform) and to the scheduler's owned index,
+// which derives them from file_path itself.
 func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
 	// ORDER BY id + first-writer-wins below: on a contested key the lowest
 	// library id wins, matching LibraryHashIndex and the cycle's title index.
 	// An unordered scan left the winner to SQLite's whim.
-	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at, json_extract(COALESCE(NULLIF(metadata, ''), '{}'), '$.romm.search_key') FROM library_items ORDER BY id")
+	rows, err := s.db.Query("SELECT id, title, platform, platform_slug, is_pc, file_path, file_size, source, source_type, source_id, metadata, added_at FROM library_items ORDER BY id")
 	if err != nil {
 		return nil
 	}
@@ -1286,10 +1273,9 @@ func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
 	for rows.Next() {
 		var item LibraryItem
 		var isPC int
-		var searchKey sql.NullString
 		if err := rows.Scan(&item.ID, &item.Title, &item.Platform, &item.PlatformSlug,
 			&isPC, &item.FilePath, &item.FileSize, &item.Source, &item.SourceType,
-			&item.SourceID, &item.Metadata, &item.AddedAt, &searchKey); err != nil {
+			&item.SourceID, &item.Metadata, &item.AddedAt); err != nil {
 			continue
 		}
 		item.IsPC = isPC != 0
@@ -1297,12 +1283,6 @@ func (s *JobStore) GetAllLibraryTitles() map[string]*LibraryItem {
 		cp := item
 		if _, dup := result[key]; !dup {
 			result[key] = &cp
-		}
-		// Second key on the RomM fs-name so release-name lookups hit too.
-		if searchKey.Valid && searchKey.String != "" {
-			if _, dup := result[searchKey.String+"|"+item.PlatformSlug]; !dup {
-				result[searchKey.String+"|"+item.PlatformSlug] = &cp
-			}
 		}
 	}
 	return result

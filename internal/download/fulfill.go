@@ -13,10 +13,10 @@ import (
 
 // romDestDir returns the library directory a platform's imports land in. It is
 // the single place that computes this path: every import source must produce
-// the exact layout the RomM sync reports back (romm.LocalPath), or the sync's
-// adopt-on-path-collision check misses and the same file gets a duplicate
-// library row. platSlug arrives from a download request; keep the fs_slug a
-// single path component so it cannot climb out of the ROM library root.
+// the same fs_slug layout RomM scans, or the same file ends up known under
+// two paths and gets a duplicate library row. platSlug arrives from a
+// download request; keep the fs_slug a single path component so it cannot
+// climb out of the ROM library root.
 func (m *Manager) romDestDir(platSlug string) string {
 	return filepath.Join(m.cfg.GamesRomsPath, sanitizeFilename(platform.ToRommFSSlug(platSlug)))
 }

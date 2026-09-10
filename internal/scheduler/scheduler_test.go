@@ -788,6 +788,120 @@ func TestEnforcePinnedRowFulfillsWhenPinHashOwned(t *testing.T) {
 	}
 }
 
+// An enforced pin searches by the pinned dump's name, never the row title:
+// the title is display identity, and a pin minted from a non-Latin-titled
+// row (the katakana テトリス pin, blaster#388) finds nothing under it, forever.
+func TestEnforcedPinSearchesByDumpName(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.UpsertWishlistOverride("テトリス", "GB", "gb",
+		"Tetris (World) (Rev 1)", []string{"00112233445566778899aabbccddeeff"}); err != nil {
+		t.Fatal(err)
+	}
+	var queries []string
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		queries = append(queries, q)
+		return nil
+	}, func(g selection.Grab) (string, error) { return "job", nil }, nil)
+	s.run()
+
+	if len(queries) != 1 || queries[0] != "Tetris (World) (Rev 1)" {
+		t.Fatalf("searched %v, want exactly one query for the pinned dump's name", queries)
+	}
+}
+
+// An owned pin fulfills even when its search finds nothing: ownership is not
+// gated on search success (blaster#388). This is prod row 119's exact shape —
+// katakana title, pin recovered into the library, every search empty.
+func TestEnforceOwnedPinFulfillsOnEmptySearch(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Tetris (World) (Rev 1)", Platform: "GB", PlatformSlug: "gb",
+		FilePath: "/roms/gb/Tetris (World) (Rev 1).zip", Source: "romm", SourceType: "romm",
+		SourceID: "romm:17184",
+		Metadata: `{"romm":{"md5":"00112233445566778899aabbccddeeff"}}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertWishlistOverride("テトリス", "GB", "gb",
+		"Tetris (World) (Rev 1)", []string{"00112233445566778899aabbccddeeff"}); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		return nil
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (pin already owned)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (owned pin fulfills without search results)", len(items))
+	}
+}
+
+// The owned index carries each row's on-disk file name alongside its stored
+// title — derived from file_path, so it covers rows the retired RomM sync
+// never touched. A wishlist row titled like the FILE (release-name shaped)
+// must resolve to the item whose display title says something else.
+func TestOwnedIndexCarriesFsNameKeys(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "テトリスプラス", Platform: "PS1", PlatformSlug: "psx",
+		FilePath: "/roms/psx/Tetris Plus (USA).zip", Source: "libscan", SourceType: "scan",
+		SourceID: "libscan:1", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		return nil
+	}, func(g selection.Grab) (string, error) { return "job", nil }, nil)
+
+	owned := s.buildOwnedIndex()
+	if it := owned("Tetris Plus (USA)", "psx"); it == nil || it.ID == 0 {
+		t.Fatal("release-name lookup missed the row whose file carries that name")
+	}
+	if it := owned("Tetris Plus (USA)", "gb"); it != nil {
+		t.Error("fs-name key leaked across platforms")
+	}
+}
+
+// A plain owned row fulfills on an empty search too — Select runs its
+// ownership checks before ever looking at candidates.
+func TestEnforceOwnedTitleFulfillsOnEmptySearch(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	if _, err := store.AddLibraryItem(&db.LibraryItem{
+		Title: "Kirby's Dream Land 2 (USA, Europe) (SGB Enhanced)", Platform: "GB",
+		PlatformSlug: "gb", FilePath: "/roms/gb/kdl2", Source: "romm", SourceType: "romm",
+		SourceID: "romm:999", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddWishlistItem("Kirby's Dream Land 2", "GB", "gb"); err != nil {
+		t.Fatal(err)
+	}
+	var grabs int
+	cfg := &config.Config{SchedulerAutoDownload: true, SchedulerMinScore: 70, SelectorMode: "enforce"}
+	s := New(cfg, store, func(q, p string, _ *db.QualityProfile) []*models.SearchResult {
+		return nil
+	}, func(g selection.Grab) (string, error) { grabs++; return "job", nil }, nil)
+	s.run()
+
+	if grabs != 0 {
+		t.Errorf("downloadFn called %d times, want 0 (owned)", grabs)
+	}
+	if items := store.GetWishlist(); len(items) != 0 {
+		t.Errorf("wishlist has %d items, want 0 (owned deletes the row without search results)", len(items))
+	}
+}
+
 // A hashless pin (only reachable by direct DB writes today, but a state the
 // selector must still handle) resolves through the on-disk name check.
 func TestEnforceHashlessPinnedRowFulfillsByName(t *testing.T) {

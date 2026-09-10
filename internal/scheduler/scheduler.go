@@ -394,8 +394,24 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 	// One resolution per item, honouring the row's own profile override.
 	prof := s.jobs.ResolveProfileForItem(item.ProfileID, item.PlatformSlug)
 
-	results := s.searchFn(item.Title, item.PlatformSlug, prof)
-	if len(results) == 0 {
+	// An enforced want searches by the pinned dump's name, never the row
+	// title: the title is display identity — a pin minted from the katakana
+	// テトリス row searched for that and found nothing, forever — while the
+	// dump name is the DAT-canonical string release names actually resemble
+	// (blaster#388). The same value feeds ranking and the in-flight check,
+	// so a pinned grab is recognized as active under the name it was
+	// grabbed by.
+	query := item.Title
+	if item.Enforce && item.DumpName != "" {
+		query = item.DumpName
+	}
+
+	results := s.searchFn(query, item.PlatformSlug, prof)
+	if len(results) == 0 && cx.mode != "enforce" {
+		// Enforce mode passes the empty answer through: ownership is not
+		// gated on search success — an owned pin (or an owned title) must
+		// fulfill even when its search finds nothing, and Select runs its
+		// ownership checks before ever looking at candidates (blaster#388).
 		out.Reason = "no results"
 		return out
 	}
@@ -424,7 +440,7 @@ func (s *Scheduler) processWanted(item wantedItem, cx *cycleCtx) wantedOutcome {
 	}
 
 	opts := selection.SelectOpts{
-		Query:        item.Title,
+		Query:        query,
 		PlatformSlug: item.PlatformSlug,
 		MinScore:     cx.minScore,
 		Profile:      prof,
@@ -560,20 +576,53 @@ func (s *Scheduler) legacyGrab(item wantedItem, results []*models.SearchResult, 
 }
 
 // buildOwnedIndex snapshots the library into an ownership lookup. It indexes
-// the GetAllLibraryTitles map KEYS — which carry both the stored titles and
-// the RomM search_keys — under all OwnershipKeys variants, so lookups match
-// regardless of which side carries the No-Intro/Vimm tags.
+// each row's stored title AND its on-disk file name (derived from file_path —
+// the retired RomM sync's $.romm.search_key stash only existed on rows that
+// sync had touched, leaving fresh imports invisible to release-name lookups)
+// under all OwnershipKeys variants, so lookups match regardless of which side
+// carries the No-Intro/Vimm tags. File names stay OUT of GetAllLibraryTitles
+// itself: the set engine consumes that map as a title tier, where a file
+// name's claim would outrank its real precedence.
 func (s *Scheduler) buildOwnedIndex() func(title, platformSlug string) *db.LibraryItem {
 	all := s.jobs.GetAllLibraryTitles()
-	idx := make(map[string]*db.LibraryItem, len(all)*2)
-	for key, it := range all {
+	// Deterministic assembly (the set engine's lesson): two keys routinely
+	// expand to the same ownership key, and iterating the map directly let
+	// Go's randomized order pick the winner. Lowest library id wins.
+	keys := make([]string, 0, len(all))
+	for key := range all {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := all[keys[i]], all[keys[j]]
+		if a.ID != b.ID {
+			return a.ID < b.ID
+		}
+		return keys[i] < keys[j]
+	})
+	idx := make(map[string]*db.LibraryItem, len(all)*4)
+	add := func(titleish, slug string, it *db.LibraryItem) {
+		for _, k := range selection.OwnershipKeys(titleish) {
+			if _, dup := idx[k+"|"+slug]; !dup {
+				idx[k+"|"+slug] = it
+			}
+		}
+	}
+	for _, key := range keys {
+		it := all[key]
 		cut := strings.LastIndex(key, "|")
 		if cut < 0 {
 			continue
 		}
-		titleish, slugSuffix := key[:cut], key[cut:]
-		for _, k := range selection.OwnershipKeys(titleish) {
-			idx[k+slugSuffix] = it
+		add(key[:cut], key[cut+1:], it)
+	}
+	for _, key := range keys {
+		it := all[key]
+		base := it.FilePath
+		if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
+			base = base[i+1:]
+		}
+		if fsKey := db.NormalizeTitleKey(base); fsKey != "" {
+			add(fsKey, it.PlatformSlug, it)
 		}
 	}
 	return func(title, platformSlug string) *db.LibraryItem {

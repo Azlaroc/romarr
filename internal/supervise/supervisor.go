@@ -1,5 +1,5 @@
 // Package supervise owns the restartable background loops (scheduler,
-// torrent watcher, RomM sync, RomM Connect notifier, DAT refresh cadence)
+// torrent watcher, RomM Connect notifier, DAT refresh cadence)
 // and re-arms them when runtime settings change. Most of the underlying
 // loops do not support restart — their stop channels close once — so every
 // re-arm constructs a fresh instance via the Builders. The scheduler and the
@@ -74,8 +74,8 @@ func (s *Supervisor) StopAll() {
 
 // Apply re-arms the loops affected by the changed settings keys. Called
 // synchronously from the settings PUT after rows persist: when the request
-// returns, the new state is live (e.g. flipping RomM sync on must have a
-// syncer running before the fs scanner cedes ROM ownership to it).
+// returns, the new state is live (e.g. flipping the watcher on must have
+// it polling before the PUT answers).
 func (s *Supervisor) Apply(changed []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -642,21 +642,27 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		results = []*models.SearchResult{}
 	}
 
-	// Cross-reference with library for duplicate detection
+	// Cross-reference with library for duplicate detection: stored titles
+	// first, then on-disk file names (release names carry file names, not
+	// display titles). The name index is built once for the searched
+	// platform, not per result.
 	libraryMap := s.mgr.Jobs().GetAllLibraryTitles()
-	if libraryMap != nil {
-		for _, r := range results {
-			key := strings.ToLower(strings.TrimSpace(r.Title)) + "|" + r.PlatformSlug
-			if _, found := libraryMap[key]; found {
+	nameIdx := s.mgr.Jobs().LibraryNameIndex(slug)
+	for _, r := range results {
+		key := strings.ToLower(strings.TrimSpace(r.Title)) + "|" + r.PlatformSlug
+		if _, found := libraryMap[key]; found {
+			r.InLibrary = true
+			continue
+		}
+		// Release names usually carry a file extension the library titles do
+		// not — retry against the name index with it stripped.
+		if stripped := db.NormalizeTitleKey(r.Title); stripped != "" {
+			if _, found := libraryMap[stripped+"|"+r.PlatformSlug]; found {
 				r.InLibrary = true
 				continue
 			}
-			// Release names usually carry a file extension the library
-			// titles/search keys do not — retry with it stripped.
-			if stripped := db.NormalizeTitleKey(r.Title); stripped != "" {
-				if _, found := libraryMap[stripped+"|"+r.PlatformSlug]; found {
-					r.InLibrary = true
-				}
+			if nameIdx[stripped] != nil {
+				r.InLibrary = true
 			}
 		}
 	}
