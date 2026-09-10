@@ -38,7 +38,7 @@ type fakeProvider struct {
 
 func (f *fakeProvider) Name() string     { return "fake" }
 func (f *fakeProvider) Configured() bool { return true }
-func (f *fakeProvider) Search(_ context.Context, _ string, _ int) ([]metadata.Game, error) {
+func (f *fakeProvider) Search(_ context.Context, _ string, _, _ int) ([]metadata.Game, error) {
 	f.calls++
 	return f.games, nil
 }

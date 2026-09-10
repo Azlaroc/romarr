@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -45,13 +46,22 @@ func (s *Server) handleMetadataSearch(w http.ResponseWriter, r *http.Request) {
 			"No metadata provider is configured. Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET.")
 		return
 	}
-	limit := 20
+	// Default 50, one full Discover page: the old 20 buried a franchise's
+	// canonical entry below its remakes and bundles (blaster#383). The
+	// provider clamps its own ceiling.
+	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			limit = n
 		}
 	}
-	games, err := s.meta.Search(r.Context(), query, limit)
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	games, err := s.meta.Search(r.Context(), query, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "Metadata search failed: "+err.Error())
 		return
@@ -59,6 +69,14 @@ func (s *Server) handleMetadataSearch(w http.ResponseWriter, r *http.Request) {
 	if games == nil {
 		games = []metadata.Game{}
 	}
+	// Mapped-platform-first: a game RomArr can actually add (some platform
+	// maps to a registry row) sorts before one it cannot; the authority's
+	// relevance order is kept within each half. This is the other half of
+	// blaster#383 — the canonical cart entry outranks console-generation
+	// re-releases on platforms we do not collect.
+	sort.SliceStable(games, func(i, j int) bool {
+		return len(games[i].Platforms) > 0 && len(games[j].Platforms) == 0
+	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"provider": s.meta.Name(),
 		"games":    games,

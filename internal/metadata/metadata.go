@@ -42,6 +42,7 @@ type Provider interface {
 	// Configured reports whether credentials are present. An unconfigured
 	// provider is an honest empty state, not an error.
 	Configured() bool
-	// Search resolves a free-text query to candidate games, best match first.
-	Search(ctx context.Context, query string, limit int) ([]Game, error)
+	// Search resolves a free-text query to candidate games, best match
+	// first. offset pages past the first batch (0 = from the top).
+	Search(ctx context.Context, query string, limit, offset int) ([]Game, error)
 }
