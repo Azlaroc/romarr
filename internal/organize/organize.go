@@ -82,8 +82,9 @@ func (p *Pipeline) organizePC(sourcePath string) (string, error) {
 
 func (p *Pipeline) organizeROM(sourcePath, platformSlug string) (string, error) {
 	// The fs_slug must be a single local path component (mirrors
-	// download.romDestDir — a divergent layout here would give manual imports
-	// a path the RomM sync can't adopt) and must not climb out of the library.
+	// download.romDestDir — a divergent layout here would put manual imports
+	// outside the fs_slug folders RomM scans) and must not climb out of the
+	// library.
 	destDir := filepath.Join(p.cfg.GamesRomsPath, sanitizeSlug(platform.ToRommFSSlug(platformSlug)))
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return sourcePath, err

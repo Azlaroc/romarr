@@ -518,10 +518,9 @@ func (r *Runner) adopt(ctx context.Context, item *db.LibraryItem, e entry, workR
 
 // create mints a library row for an out-of-band arrival.
 //
-// 🔴 source is 'libscan', not 'scan': the RomM sync's full reconcile purges
-// source='scan' AND is_pc=0 rows as legacy, while its adopt clause merges
-// any source it does not own — so 'libscan' rows compose with that plane
-// with zero changes to it, and 'scan' rows would be deleted nightly.
+// source is 'libscan', not 'scan': 'scan' is the PC vault scanner's tag
+// (ClearVaultScanEntries deletes those rows wholesale for a rescan), so a
+// console ROM row must carry its own source or it would be swept with them.
 func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts, row Row) Row {
 	row.Status = StatusCreated
 
@@ -575,8 +574,8 @@ func (r *Runner) create(ctx context.Context, e entry, workRoot string, opts Opts
 		return row
 	}
 	if !created {
-		// Raced by a concurrent writer (the RomM sync inserting the same
-		// arriving file): the row exists now, which is the outcome we wanted.
+		// Raced by a concurrent writer (an import landing the same arriving
+		// file): the row exists now, which is the outcome we wanted.
 		row.Status = StatusAdopted
 		if item := r.store.LibraryItemByFilePath(e.path); item != nil {
 			row.LibraryID = item.ID

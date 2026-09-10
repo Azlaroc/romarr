@@ -13,9 +13,10 @@ import (
 //
 // Two namespaces, and the difference is not cosmetic:
 //
-//   - $.romm.{crc,md5,sha1} — RomM's, rewritten wholesale on every sync.
-//     Never write here; mergeRommMetadata would clobber it.
-//   - $.gamarr.* — ours, preserved across syncs.
+//   - $.romm.{crc,md5,sha1} — stamped by the retired RomM sync, kept because
+//     hash lookups still read them (load-bearing for the dupe gate and
+//     owned-by-hash). Never write here: it is RomM's namespace, not ours.
+//   - $.gamarr.* — ours.
 //
 // Inside ours:
 //
@@ -70,7 +71,7 @@ const jsonMeta = "CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END"
 // SaveLibraryHashes writes a row's computed identity under $.gamarr.
 //
 // One statement, not read-modify-write: a backfill sweep runs for minutes
-// beside a live RomM sync, and json_set patches the leaves it names while
+// beside live imports, and json_set patches the leaves it names while
 // leaving every sibling ($.romm, $.gamarr.set, $.gamarr.catalog) untouched.
 // It also creates the $.gamarr object when the row has none.
 func (s *JobStore) SaveLibraryHashes(id int64, h LibraryHashes) error {

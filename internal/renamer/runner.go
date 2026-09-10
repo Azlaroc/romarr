@@ -70,7 +70,7 @@ type PreviewRow struct {
 // Runner orchestrates the on-demand bulk rename: an async preview pass that
 // classifies every in-scope library entry, then a separate apply pass over
 // the held preview. One run at a time; Stop cancels the in-flight run and
-// the Runner stays usable (unlike the sync/scheduler Stop, which is
+// the Runner stays usable (unlike the scheduler Stop, which is
 // process-shutdown-only). State is in-memory by design — resume is an
 // idempotent re-run: applied/canonical entries classify as noops.
 type Runner struct {
@@ -504,8 +504,8 @@ func (r *Runner) runApply(ctx context.Context, excl map[int64]struct{}) {
 				slog.Warn("renamer: sidecar rename failed", "error", err)
 			}
 		}
-		// DB before any RomM rescan, so the sync's adopt-by-path check merges
-		// instead of minting a duplicate row.
+		// DB before any rescan, so a follow-up scan's adopt-by-path check
+		// merges instead of minting a duplicate row.
 		if err := r.store.UpdateLibraryItemPath(row.LibraryID, target); err != nil {
 			msg := err.Error()
 			slog.Warn("renamer: library path update failed", "id", row.LibraryID, "error", err)
