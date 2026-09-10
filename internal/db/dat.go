@@ -1013,6 +1013,32 @@ func (s *JobStore) LookupDatRomsByHash(platformSlug, crc, md5, sha1 string) []Da
 	return out
 }
 
+// LookupDatMatchesForItem runs the stored-hash ladder ($.gamarr → its unh
+// block → $.romm — the #351 measurement rule: any consumer of stored content
+// hashes reads both families) through the platform's active catalog.
+// hashed=false means the row carries no content hash at all. Shared by the
+// game-detail canonical resolver and the retitle runner, so both answer
+// "what does the catalog call this file" identically.
+func (s *JobStore) LookupDatMatchesForItem(item *LibraryItem) (matches []DatRomMatch, hashed bool) {
+	slug := item.PlatformSlug
+	if g, ok := ParseGamarrHashes(item.Metadata); ok {
+		hashed = true
+		if g.CRC != "" || g.MD5 != "" || g.SHA1 != "" {
+			matches = s.LookupDatRomsByHash(slug, g.CRC, g.MD5, g.SHA1)
+		}
+		if len(matches) == 0 && g.Unh != nil {
+			matches = s.LookupDatRomsByHash(slug, g.Unh.CRC, g.Unh.MD5, g.Unh.SHA1)
+		}
+	}
+	if !hashed {
+		if crc, md5, sha1, ok := ParseRommContentHashes(item.Metadata); ok && (crc != "" || md5 != "" || sha1 != "") {
+			hashed = true
+			matches = s.LookupDatRomsByHash(slug, crc, md5, sha1)
+		}
+	}
+	return matches, hashed
+}
+
 // SetLibraryCatalogStatus records a catalog verdict on the library row a
 // source produced. Kept separate from AddLibraryItem so the verdict can be
 // written after the import without threading a new argument through every

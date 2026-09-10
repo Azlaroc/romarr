@@ -160,30 +160,11 @@ func detailHashesOf(item *db.LibraryItem) detailHashes {
 	return h
 }
 
-// resolveCanonical runs the stored-hash ladder ($.gamarr → its unh block →
-// $.romm — the #351 measurement rule: any consumer of stored content hashes
-// reads both families) through the catalog and the shared name resolver.
+// resolveCanonical runs the stored-hash ladder (db.LookupDatMatchesForItem —
+// shared with the retitle runner) through the catalog and the shared name
+// resolver.
 func (s *Server) resolveCanonical(item *db.LibraryItem) (detailCanonical, []db.DatRomMatch) {
-	jobs := s.mgr.Jobs()
-	slug := item.PlatformSlug
-
-	var matches []db.DatRomMatch
-	hashed := false
-	if g, ok := db.ParseGamarrHashes(item.Metadata); ok {
-		hashed = true
-		if g.CRC != "" || g.MD5 != "" || g.SHA1 != "" {
-			matches = jobs.LookupDatRomsByHash(slug, g.CRC, g.MD5, g.SHA1)
-		}
-		if len(matches) == 0 && g.Unh != nil {
-			matches = jobs.LookupDatRomsByHash(slug, g.Unh.CRC, g.Unh.MD5, g.Unh.SHA1)
-		}
-	}
-	if !hashed {
-		if crc, md5, sha1, ok := db.ParseRommContentHashes(item.Metadata); ok && (crc != "" || md5 != "" || sha1 != "") {
-			hashed = true
-			matches = jobs.LookupDatRomsByHash(slug, crc, md5, sha1)
-		}
-	}
+	matches, hashed := s.mgr.Jobs().LookupDatMatchesForItem(item)
 
 	switch {
 	case !hashed:
