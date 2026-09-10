@@ -84,7 +84,7 @@ func TestIGDBSearch(t *testing.T) {
 	stub := newIGDBStub(t)
 	p := newStubProvider(t, stub)
 
-	games, err := p.Search(context.Background(), "chrono trigger", 5)
+	games, err := p.Search(context.Background(), "chrono trigger", 5, 0)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -116,11 +116,38 @@ func TestIGDBSearch(t *testing.T) {
 	}
 }
 
+// A generous limit is clamped to the ceiling, never reset below the default:
+// `limit > 50 → 20` silently shrank any big ask to LESS than the default —
+// the footgun that kept the Discover door at 20 rows (blaster#383).
+func TestIGDBSearchLimitClampsAndOffsetRides(t *testing.T) {
+	stub := newIGDBStub(t)
+	p := newStubProvider(t, stub)
+
+	if _, err := p.Search(context.Background(), "chrono", 200, 30); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	body, _ := stub.lastBody.Load().(string)
+	if !strings.Contains(body, "limit 50;") {
+		t.Errorf("body = %q, want the ask clamped to the 50 ceiling", body)
+	}
+	if !strings.Contains(body, "offset 30;") {
+		t.Errorf("body = %q, want the offset passed through", body)
+	}
+
+	if _, err := p.Search(context.Background(), "chrono", 0, -3); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	body, _ = stub.lastBody.Load().(string)
+	if !strings.Contains(body, "limit 20;") || !strings.Contains(body, "offset 0;") {
+		t.Errorf("body = %q, want defaulted limit 20 and floored offset 0", body)
+	}
+}
+
 func TestIGDBTokenIsCachedAcrossSearches(t *testing.T) {
 	stub := newIGDBStub(t)
 	p := newStubProvider(t, stub)
 	for i := 0; i < 3; i++ {
-		if _, err := p.Search(context.Background(), "chrono", 5); err != nil {
+		if _, err := p.Search(context.Background(), "chrono", 5, 0); err != nil {
 			t.Fatalf("search %d: %v", i, err)
 		}
 	}
@@ -135,14 +162,14 @@ func TestIGDBUnauthorizedDropsTheCachedToken(t *testing.T) {
 	stub := newIGDBStub(t)
 	p := newStubProvider(t, stub)
 
-	if _, err := p.Search(context.Background(), "chrono", 5); err != nil {
+	if _, err := p.Search(context.Background(), "chrono", 5, 0); err != nil {
 		t.Fatalf("warm-up: %v", err)
 	}
 	stub.unauthOnce.Store(true)
-	if _, err := p.Search(context.Background(), "chrono", 5); err == nil {
+	if _, err := p.Search(context.Background(), "chrono", 5, 0); err == nil {
 		t.Fatal("a 401 must surface as an error")
 	}
-	if _, err := p.Search(context.Background(), "chrono", 5); err != nil {
+	if _, err := p.Search(context.Background(), "chrono", 5, 0); err != nil {
 		t.Fatalf("the next search must re-authenticate: %v", err)
 	}
 	if n := stub.tokenCalls.Load(); n != 2 {
@@ -155,7 +182,7 @@ func TestIGDBUnconfigured(t *testing.T) {
 	if p.Configured() {
 		t.Fatal("no credentials must report unconfigured")
 	}
-	if _, err := p.Search(context.Background(), "anything", 5); err == nil {
+	if _, err := p.Search(context.Background(), "anything", 5, 0); err == nil {
 		t.Error("an unconfigured provider must not pretend to search")
 	}
 }
@@ -163,7 +190,7 @@ func TestIGDBUnconfigured(t *testing.T) {
 func TestIGDBEmptyQueryDoesNotCallOut(t *testing.T) {
 	stub := newIGDBStub(t)
 	p := newStubProvider(t, stub)
-	games, err := p.Search(context.Background(), "   ", 5)
+	games, err := p.Search(context.Background(), "   ", 5, 0)
 	if err != nil || games != nil {
 		t.Fatalf("games = %v, err = %v — an empty query is not a request", games, err)
 	}

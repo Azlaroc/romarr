@@ -103,6 +103,32 @@ func TestGetAllLibraryTitlesIsTitlePure(t *testing.T) {
 	}
 }
 
+// Pin CRUD matches its row case-insensitively, like DeleteWishlistByTitle
+// always has: an upsert against "TETRIS" gains the pin on the "Tetris" row
+// rather than minting a case-twin, and clear/get find it whatever the case.
+func TestWishlistOverrideCRUDIsCaseInsensitive(t *testing.T) {
+	store := newTestStore(t)
+	if _, err := store.AddWishlistItem("Tetris", "GB", "gb"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.UpsertWishlistOverride("TETRIS", "GB", "gb", "Tetris (World) (Rev 1)", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := store.GetWishlist(); len(rows) != 1 {
+		t.Fatalf("wishlist has %d rows, want 1 (no case-twin minted)", len(rows))
+	}
+	if w, ok := store.GetWishlistOverrideForTitle("tetris", "gb"); !ok || w.ID != id {
+		t.Fatalf("lowercase lookup missed the pin: ok=%v w=%+v", ok, w)
+	}
+	if !store.ClearWishlistOverride("TeTrIs", "gb") {
+		t.Fatal("mixed-case clear missed the pin")
+	}
+	if _, ok := store.GetWishlistOverrideForTitle("Tetris", "gb"); ok {
+		t.Fatal("pin survived its clear")
+	}
+}
+
 func TestNormalizeTitleKey(t *testing.T) {
 	cases := map[string]string{
 		"Castlevania (USA).zip":  "castlevania (usa)",

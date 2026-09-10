@@ -100,7 +100,9 @@ function DiscoverDoor({
     if (!query) return
     setUnavailable('')
     try {
-      const res = await search.mutateAsync({ q: query })
+      // A full page, not IGDB's default 20: the smaller ask buried a
+      // franchise's canonical entry below its re-releases (blaster#383).
+      const res = await search.mutateAsync({ q: query, limit: 50 })
       setGames(res.games ?? [])
     } catch (err) {
       setGames([])

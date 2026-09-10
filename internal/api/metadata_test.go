@@ -17,7 +17,12 @@ func igdbStubServer(t *testing.T) *httptest.Server {
 		w.Write([]byte(`{"access_token":"tok","expires_in":5000000}`))
 	})
 	mux.HandleFunc("/games", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"id":1074,"name":"Chrono Trigger","slug":"chrono-trigger",
+		// Relevance order deliberately puts an unmapped-platform entry FIRST:
+		// the handler's mapped-first post-rank must flip it behind the game
+		// RomArr can actually add (blaster#383).
+		w.Write([]byte(`[{"id":2000,"name":"Chrono Trigger: Weird Port","slug":"ct-weird",
+			"platforms":[{"id":999888,"name":"Some Console We Have No Lane For","slug":"no-lane"}]},
+			{"id":1074,"name":"Chrono Trigger","slug":"chrono-trigger",
 			"cover":{"url":"//images.igdb.com/igdb/image/upload/t_thumb/co2h5j.jpg"},
 			"platforms":[{"id":19,"name":"SNES","slug":"snes"}]}]`))
 	})
@@ -92,7 +97,7 @@ func TestMetadataSearch(t *testing.T) {
 			t.Errorf("provider = %v", m["provider"])
 		}
 		games, _ := m["games"].([]interface{})
-		if len(games) != 1 {
+		if len(games) != 2 {
 			t.Fatalf("games = %v", games)
 		}
 		g, _ := games[0].(map[string]interface{})
@@ -105,6 +110,24 @@ func TestMetadataSearch(t *testing.T) {
 		plats, _ := g["platforms"].([]interface{})
 		if len(plats) != 1 || plats[0] != "snes" {
 			t.Errorf("platforms = %v, want our slug", plats)
+		}
+	})
+
+	t.Run("mapped platforms outrank unmapped in the response order", func(t *testing.T) {
+		env := newTestEnv(t, withIGDB(igdbStubServer(t)))
+		rr := env.do("GET", "/api/metadata/search?q=chrono", "")
+		wantStatus(t, rr, http.StatusOK)
+		games, _ := decodeMap(t, rr)["games"].([]interface{})
+		if len(games) != 2 {
+			t.Fatalf("games = %v", games)
+		}
+		// The stub serves the unmapped-platform entry first; the handler must
+		// put the addable game ahead of it while keeping relevance order
+		// within each half.
+		first, _ := games[0].(map[string]interface{})
+		second, _ := games[1].(map[string]interface{})
+		if first["name"] != "Chrono Trigger" || second["name"] != "Chrono Trigger: Weird Port" {
+			t.Errorf("order = %v, %v — want the mapped game first", first["name"], second["name"])
 		}
 	})
 }

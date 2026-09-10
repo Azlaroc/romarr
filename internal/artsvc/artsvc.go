@@ -306,7 +306,7 @@ func (s *Service) fetchIGDBCover(ctx context.Context, item *db.LibraryItem) ([]b
 	s.igdbLast = time.Now()
 	s.igdbMu.Unlock()
 
-	games, err := s.meta.Search(ctx, item.Title, 5)
+	games, err := s.meta.Search(ctx, item.Title, 5, 0)
 	if err != nil {
 		return nil, "", nil, err
 	}

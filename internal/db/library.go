@@ -795,7 +795,7 @@ func (s *JobStore) UpsertWishlistOverride(title, platform, platformSlug, dumpNam
 	}
 	var id int64
 	err = s.db.QueryRow(
-		"SELECT id FROM wishlist WHERE title = ? AND platform_slug = ? LIMIT 1", title, platformSlug,
+		"SELECT id FROM wishlist WHERE LOWER(title) = LOWER(?) AND platform_slug = ? LIMIT 1", title, platformSlug,
 	).Scan(&id)
 	if err == nil {
 		_, err = s.db.Exec("UPDATE wishlist SET override_dump_name = ?, override_hashes = ? WHERE id = ?",
@@ -817,7 +817,7 @@ func (s *JobStore) UpsertWishlistOverride(title, platform, platformSlug, dumpNam
 // enforce cycle's Owned check fulfills and removes an owned title's row.
 func (s *JobStore) ClearWishlistOverride(title, platformSlug string) bool {
 	res, err := s.db.Exec(
-		"UPDATE wishlist SET override_dump_name = '', override_hashes = '[]' WHERE title = ? AND platform_slug = ? AND override_dump_name != ''",
+		"UPDATE wishlist SET override_dump_name = '', override_hashes = '[]' WHERE LOWER(title) = LOWER(?) AND platform_slug = ? AND override_dump_name != ''",
 		title, platformSlug)
 	if err != nil {
 		return false
@@ -832,7 +832,7 @@ func (s *JobStore) GetWishlistOverrideForTitle(title, platformSlug string) (Wish
 	var overrideHashes string
 	err := s.db.QueryRow(
 		`SELECT id, title, platform, platform_slug, COALESCE(profile_id, 0), added_at, override_dump_name, override_hashes
-		   FROM wishlist WHERE title = ? AND platform_slug = ? AND override_dump_name != '' LIMIT 1`,
+		   FROM wishlist WHERE LOWER(title) = LOWER(?) AND platform_slug = ? AND override_dump_name != '' LIMIT 1`,
 		title, platformSlug,
 	).Scan(&w.ID, &w.Title, &w.Platform, &w.PlatformSlug, &w.ProfileID, &w.AddedAt,
 		&w.OverrideDumpName, &overrideHashes)

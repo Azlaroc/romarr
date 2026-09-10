@@ -85,7 +85,7 @@ func (p *IGDB) Name() string { return "igdb" }
 func (p *IGDB) Configured() bool { return p != nil && p.clientID != "" && p.clientSecret != "" }
 
 // Search implements Provider.
-func (p *IGDB) Search(ctx context.Context, query string, limit int) ([]Game, error) {
+func (p *IGDB) Search(ctx context.Context, query string, limit, offset int) ([]Game, error) {
 	if !p.Configured() {
 		return nil, fmt.Errorf("igdb: not configured")
 	}
@@ -93,15 +93,25 @@ func (p *IGDB) Search(ctx context.Context, query string, limit int) ([]Game, err
 	if query == "" {
 		return nil, nil
 	}
-	if limit <= 0 || limit > 50 {
+	// Clamp, don't reset: `limit > 50 → 20` silently shrank any generous ask
+	// to LESS than the default — the footgun that kept the Discover door at
+	// 20 rows and buried a franchise's canonical entry at rank 21+
+	// (blaster#383). 50 is one Discover page, well under IGDB's 500 ceiling.
+	if limit <= 0 {
 		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	// APIcalypse: `search` ranks by relevance; the field list is explicit
 	// because IGDB returns nothing you did not ask for.
 	body := fmt.Sprintf(
-		`search %s; fields name,slug,summary,first_release_date,cover.url,genres.name,platforms.name,platforms.slug,platforms.id; limit %d;`,
-		quoteAPIcalypse(query), limit)
+		`search %s; fields name,slug,summary,first_release_date,cover.url,genres.name,platforms.name,platforms.slug,platforms.id; limit %d; offset %d;`,
+		quoteAPIcalypse(query), limit, offset)
 
 	raw, err := p.post(ctx, "/games", body)
 	if err != nil {
