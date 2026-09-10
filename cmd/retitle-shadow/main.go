@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 	"unicode"
 
@@ -85,7 +86,9 @@ func main() {
 		if row.Status == retitle.StatusSkip {
 			skips = append(skips, row)
 		}
-		if row.Reason != "" && row.Status == retitle.StatusRetitle {
+		// The runner marks suppressed follows in the Reason text; a retitle
+		// row's Reason otherwise records only why the stem beat the catalog.
+		if strings.Contains(row.Reason, "follow suppressed") {
 			suppressed = append(suppressed, row)
 		}
 	}
