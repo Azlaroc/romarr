@@ -32,6 +32,7 @@ import (
 	"gamarr/internal/prune"
 	"gamarr/internal/qbit"
 	"gamarr/internal/renamer"
+	"gamarr/internal/retitle"
 	"gamarr/internal/sabnzbd"
 	"gamarr/internal/scheduler"
 	"gamarr/internal/search"
@@ -56,6 +57,8 @@ type Server struct {
 	// hashfill gives hashless library rows a hash, so ownership can be
 	// decided by proof rather than by a guess at the title.
 	hashfill *hashfill.Runner
+	// retitle sweeps library titles to their catalog-canonical form.
+	retitle *retitle.Runner
 	// libscan is the root-folder scanner: RomArr's own inventory over its
 	// own folders (adopt/create/report, never delete).
 	libscan *libscan.Runner
@@ -96,6 +99,9 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	// No import notifier: the backfill writes DB metadata and never touches
 	// the tree, so RomM has nothing to rescan.
 	s.hashfill = hashfill.New(cfg, mgr.Jobs())
+	// Same reason here: retitle changes display titles only — files never
+	// move, so RomM has nothing to rescan.
+	s.retitle = retitle.New(mgr.Jobs())
 	// Same reasoning: the scanner reconciles rows with disk and moves no
 	// files, so there is nothing to tell RomM about.
 	s.libscan = libscan.New(cfg, mgr.Jobs())
@@ -218,6 +224,15 @@ func NewRouter(cfg *config.Config, mgr *download.Manager, sab *sabnzbd.Client, s
 	r.Post("/api/library/prune/preview", requireAdmin(s.handlePrunePreview))
 	r.Post("/api/library/prune/apply", requireAdmin(s.handlePruneApply))
 	r.Post("/api/library/prune/stop", requireAdmin(s.handlePruneStop))
+
+	// Retitle: titles to catalog-canonical form, preview/apply/revert. Same
+	// nothing-moves-unseen discipline as prune.
+	r.Get("/api/retitle/status", s.handleRetitleStatus)
+	r.Get("/api/retitle/preview/results", requireAdmin(s.handleRetitleResults))
+	r.Post("/api/retitle/preview", requireAdmin(s.handleRetitlePreview))
+	r.Post("/api/retitle/apply", requireAdmin(s.handleRetitleApply))
+	r.Post("/api/retitle/stop", requireAdmin(s.handleRetitleStop))
+	r.Post("/api/retitle/revert", requireAdmin(s.handleRetitleRevert))
 
 	// The hash backfill. No preview/apply split — it writes metadata, not
 	// files — so `run` takes a dry_run flag instead. See hash_handlers.go.
